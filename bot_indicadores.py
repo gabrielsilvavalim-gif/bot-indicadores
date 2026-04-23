@@ -12,7 +12,6 @@ client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
 COR_LARANJA = "#F26522"
 COR_VERDE = "#00A350"
-COR_ROXO = "#7F77DD"
 QUALQUER = "__ANY__"
 
 INDICADORES = {
@@ -110,15 +109,6 @@ INDICADORES = {
         "GRUPO 03": None,
         "TIPO DE META": "R$",
     },
-    "Faturamento Pneu Velho Moto": {
-        "tipo": "simples",
-        "categoria": "faturamento_moto_provisorio",
-        "TIPO": "ECONOMICO",
-        "GRUPO 01": "FATURAMENTO",
-        "GRUPO 02": "PNEUS VELHOS",
-        "GRUPO 03": "MOTOS",
-        "TIPO DE META": "R$",
-    },
     "Faturamento Especial": {
         "tipo": "simples",
         "categoria": "faturamento",
@@ -130,7 +120,7 @@ INDICADORES = {
     },
     "Despesa Geral": {
         "tipo": "simples",
-        "categoria": "despesa_geral",
+        "categoria": "despesa",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "DESPESAS",
         "GRUPO 02": None,
@@ -148,7 +138,7 @@ INDICADORES = {
     },
     "Despesa Hora Extra": {
         "tipo": "simples",
-        "categoria": "hora_extra",
+        "categoria": "despesa",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "DESPESAS",
         "GRUPO 02": "HORAS EXTRAS",
@@ -216,34 +206,18 @@ def consolidar_campos(df, nome_indicador):
 
     if categoria == "faturamento":
         d["REALIZADO_CALC"] = d["VALOR1"]
-        d["RESULTADO_PCT"] = d["REALIZADO_CALC"] / d["META_CALC"]
         d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
-
-    elif categoria == "faturamento_moto_provisorio":
-        # Provisório até você me passar a fórmula específica da aba de moto
-        d["REALIZADO_CALC"] = d["VALOR1"]
-        d["RESULTADO_PCT"] = d["REALIZADO_CALC"] / d["META_CALC"]
-        d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
+        d["ATINGIMENTO_CALC"] = d["REALIZADO_CALC"] / d["META_CALC"]
 
     elif categoria == "despesa":
         d["REALIZADO_CALC"] = d["VALOR1"]
-        d["RESULTADO_PCT"] = 1 - (d["REALIZADO_CALC"] / d["META_CALC"])
         d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
-
-    elif categoria == "hora_extra":
-        d["REALIZADO_CALC"] = d["VALOR1"]
-        d["RESULTADO_PCT"] = (d["REALIZADO_CALC"] / d["META_CALC"]) - 1
-        d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
-
-    elif categoria == "despesa_geral":
-        d["REALIZADO_CALC"] = d["VALOR1"]
-        d["RESULTADO_PCT"] = 1 - (d["REALIZADO_CALC"] / d["META_CALC"])
-        d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
+        d["ATINGIMENTO_CALC"] = d["META_CALC"] / d["REALIZADO_CALC"]
 
     else:
         d["REALIZADO_CALC"] = d["VALOR1"]
-        d["RESULTADO_PCT"] = d["REALIZADO_CALC"] / d["META_CALC"]
         d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
+        d["ATINGIMENTO_CALC"] = d["REALIZADO_CALC"] / d["META_CALC"]
 
     d = d.replace([float("inf"), float("-inf")], pd.NA)
     return d
@@ -277,15 +251,19 @@ def filtrar(df, indicador, filial):
                 "REALIZADO_CALC": "sum"
             })
         )
-        agrupado["RESULTADO_PCT"] = agrupado["REALIZADO_CALC"] / agrupado["META_CALC"]
         agrupado["RESULTADO_RS"] = agrupado["REALIZADO_CALC"] - agrupado["META_CALC"]
+        agrupado["ATINGIMENTO_CALC"] = agrupado["REALIZADO_CALC"] / agrupado["META_CALC"]
         agrupado = agrupado.replace([float("inf"), float("-inf")], pd.NA)
         return agrupado
 
     return pd.DataFrame()
 
 
-def tabela_completa_ano(d, ano):
+def eh_despesa(indicador):
+    return "Despesa" in indicador
+
+
+def tabela_completa_ano(d, ano, indicador):
     meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
     rows = []
 
@@ -299,13 +277,21 @@ def tabela_completa_ano(d, ano):
         .sort_values("MÊS")
     )
 
+    despesa = eh_despesa(indicador)
+
     for i, mes in enumerate(meses, 1):
         sub = mensal[mensal["MÊS"] == i]
         if len(sub) > 0:
             real = sub["REALIZADO_CALC"].values[0]
             meta = sub["META_CALC"].values[0]
-            gap = real - meta
-            ating = real / meta if meta not in [0, None] else None
+
+            if despesa:
+                gap = meta - real
+                ating = meta / real if real not in [0, None] else None
+            else:
+                gap = real - meta
+                ating = real / meta if meta not in [0, None] else None
+
             rows.append({
                 "Mês": mes,
                 "Realizado": real,
@@ -325,18 +311,25 @@ def tabela_completa_ano(d, ano):
     total_real = base_ano["REALIZADO_CALC"].sum()
     total_meta = base_ano["META_CALC"].sum()
 
+    if despesa:
+        total_gap = total_meta - total_real
+        total_ating = total_meta / total_real if total_real > 0 else None
+    else:
+        total_gap = total_real - total_meta
+        total_ating = total_real / total_meta if total_meta > 0 else None
+
     rows.append({
         "Mês": "TOTAL",
         "Realizado": total_real,
         "Meta": total_meta,
-        "Gap (R$)": total_real - total_meta,
-        "Atingimento": total_real / total_meta if total_meta > 0 else None,
+        "Gap (R$)": total_gap,
+        "Atingimento": total_ating,
     })
 
     return pd.DataFrame(rows)
 
 
-def calcular_mom(d):
+def calcular_mom(d, indicador):
     base = (
         d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"], as_index=False)
         .agg({
@@ -347,7 +340,11 @@ def calcular_mom(d):
         .reset_index(drop=True)
     )
 
-    base["Ating."] = base["REALIZADO_CALC"] / base["META_CALC"]
+    if eh_despesa(indicador):
+        base["Ating."] = base["META_CALC"] / base["REALIZADO_CALC"]
+    else:
+        base["Ating."] = base["REALIZADO_CALC"] / base["META_CALC"]
+
     base["MoM_%"] = base["REALIZADO_CALC"].pct_change() * 100
 
     return base.rename(columns={
@@ -357,7 +354,7 @@ def calcular_mom(d):
     })[["ANO", "MÊS", "Mês", "META", "Realizado", "Ating.", "MoM_%", "MÊS_ORDEM"]]
 
 
-def calcular_yoy(d):
+def calcular_yoy(d, indicador):
     df_yoy = (
         d.groupby("ANO", as_index=False)
         .agg({
@@ -373,12 +370,16 @@ def calcular_yoy(d):
         })
     )
 
-    df_yoy["Atingimento"] = df_yoy["Realizado"] / df_yoy["Meta"]
+    if eh_despesa(indicador):
+        df_yoy["Atingimento"] = df_yoy["Meta"] / df_yoy["Realizado"]
+    else:
+        df_yoy["Atingimento"] = df_yoy["Realizado"] / df_yoy["Meta"]
+
     df_yoy["YoY_%"] = df_yoy["Realizado"].pct_change() * 100
     return df_yoy
 
 
-def comparativo_filiais(d, ano):
+def comparativo_filiais(d, ano, indicador):
     comp = (
         d[d["ANO"] == ano]
         .groupby("FILIAL", as_index=False)
@@ -393,12 +394,17 @@ def comparativo_filiais(d, ano):
         .sort_values("Realizado", ascending=False)
     )
 
-    comp["Gap"] = comp["Realizado"] - comp["Meta"]
-    comp["Atingimento"] = comp["Realizado"] / comp["Meta"]
+    if eh_despesa(indicador):
+        comp["Gap"] = comp["Meta"] - comp["Realizado"]
+        comp["Atingimento"] = comp["Meta"] / comp["Realizado"]
+    else:
+        comp["Gap"] = comp["Realizado"] - comp["Meta"]
+        comp["Atingimento"] = comp["Realizado"] / comp["Meta"]
+
     return comp
 
 
-def comparar_mesmo_periodo(d, ano_referencia=None):
+def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
     if d.empty:
         return pd.DataFrame()
 
@@ -425,11 +431,20 @@ def comparar_mesmo_periodo(d, ano_referencia=None):
 
     real_atual = atual_periodo["REALIZADO_CALC"].sum()
     meta_atual = atual_periodo["META_CALC"].sum()
-    ating_atual = real_atual / meta_atual if meta_atual > 0 else None
 
     real_ant = anterior_periodo["REALIZADO_CALC"].sum()
     meta_ant = anterior_periodo["META_CALC"].sum()
-    ating_ant = real_ant / meta_ant if meta_ant > 0 else None
+
+    if eh_despesa(indicador):
+        ating_atual = meta_atual / real_atual if real_atual > 0 else None
+        ating_ant = meta_ant / real_ant if real_ant > 0 else None
+        gap_atual = meta_atual - real_atual
+        gap_ant = meta_ant - real_ant
+    else:
+        ating_atual = real_atual / meta_atual if meta_atual > 0 else None
+        ating_ant = real_ant / meta_ant if meta_ant > 0 else None
+        gap_atual = real_atual - meta_atual
+        gap_ant = real_ant - meta_ant
 
     var_real = ((real_atual / real_ant) - 1) if real_ant > 0 else None
     var_meta = ((meta_atual / meta_ant) - 1) if meta_ant > 0 else None
@@ -440,7 +455,7 @@ def comparar_mesmo_periodo(d, ano_referencia=None):
             "Período": f"Jan a {nomes_meses[mes_limite]}",
             "Realizado": real_ant,
             "Meta": meta_ant,
-            "Gap (R$)": real_ant - meta_ant,
+            "Gap (R$)": gap_ant,
             "Atingimento": ating_ant,
             "Variação Realizado": None,
             "Variação Meta": None,
@@ -450,7 +465,7 @@ def comparar_mesmo_periodo(d, ano_referencia=None):
             "Período": f"Jan a {nomes_meses[mes_limite]}",
             "Realizado": real_atual,
             "Meta": meta_atual,
-            "Gap (R$)": real_atual - meta_atual,
+            "Gap (R$)": gap_atual,
             "Atingimento": ating_atual,
             "Variação Realizado": var_real,
             "Variação Meta": var_meta,
@@ -677,29 +692,29 @@ def gerar_pdf(df_todas_unidades, indicador, ano_selecionado):
 
     pdf.add_page()
     pdf.secao(f"1. Analise por Mes - Ano {ano_selecionado}")
-    df_completa = tabela_completa_ano(df_todas_unidades, ano_selecionado)
+    df_completa = tabela_completa_ano(df_todas_unidades, ano_selecionado, indicador)
     pdf.tabela_por_ano(df_completa)
 
     pdf.add_page()
     pdf.secao(f"2. Variacao Mes a Mes (MoM) - Ano {ano_selecionado}")
-    df_mom = calcular_mom(df_todas_unidades)
+    df_mom = calcular_mom(df_todas_unidades, indicador)
     df_mom_pdf = df_mom[df_mom["ANO"] == ano_selecionado].sort_values("MÊS")
     pdf.tabela_mom(df_mom_pdf)
 
     pdf.add_page()
     pdf.secao("3. Comparativo Ano a Ano (YoY)")
-    df_yoy = calcular_yoy(df_todas_unidades)
+    df_yoy = calcular_yoy(df_todas_unidades, indicador)
     pdf.tabela_yoy(df_yoy)
 
     pdf.add_page()
     pdf.secao("4. Comparativo do Mesmo Periodo vs Ano Anterior")
-    df_periodo = comparar_mesmo_periodo(df_todas_unidades, ano_selecionado)
+    df_periodo = comparar_mesmo_periodo(df_todas_unidades, indicador, ano_selecionado)
     if not df_periodo.empty:
         pdf.tabela_periodo(df_periodo)
 
     pdf.add_page()
     pdf.secao(f"5. Comparativo entre Filiais - {ano_selecionado}")
-    df_filiais = comparativo_filiais(df_todas_unidades, ano_selecionado)
+    df_filiais = comparativo_filiais(df_todas_unidades, ano_selecionado, indicador)
     pdf.tabela_filiais(df_filiais)
 
     for filial_rel in FILIAIS_REAIS:
@@ -709,16 +724,16 @@ def gerar_pdf(df_todas_unidades, indicador, ano_selecionado):
 
         pdf.add_page()
         pdf.secao(f"6. Filial: {filial_rel} - Ano {ano_selecionado}")
-        df_filial_ano = tabela_completa_ano(df_filial, ano_selecionado)
+        df_filial_ano = tabela_completa_ano(df_filial, ano_selecionado, indicador)
         pdf.tabela_por_ano(df_filial_ano)
 
     return bytes(pdf.output())
 
 
 def resumo_para_ia(d, indicador, filial, pergunta):
-    mom = calcular_mom(d).tail(12).to_string(index=False)
-    yoy = calcular_yoy(d).to_string(index=False)
-    periodo = comparar_mesmo_periodo(d)
+    mom = calcular_mom(d, indicador).tail(12).to_string(index=False)
+    yoy = calcular_yoy(d, indicador).to_string(index=False)
+    periodo = comparar_mesmo_periodo(d, indicador)
     periodo_txt = periodo.to_string(index=False) if not periodo.empty else "Sem dados"
 
     return f"""Você é um analista financeiro experiente. Analise os dados abaixo e responda em português brasileiro de forma clara e objetiva.
@@ -753,7 +768,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v3.1 — Bot Indicadores")
+    st.caption("v3.2 — Bot Indicadores")
 
 if not arquivo:
     st.info("👈 Faça upload da planilha na barra lateral para começar.")
@@ -780,14 +795,19 @@ with tab0:
 
     anos = sorted(df["ANO"].unique())
     ano_kpi = anos[-1]
-    periodo_cmp = comparar_mesmo_periodo(df, ano_kpi)
+    periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
 
     base_kpi = df[df["ANO"] == ano_kpi].copy()
 
     realizado_total = base_kpi["REALIZADO_CALC"].sum()
     meta_total = base_kpi["META_CALC"].sum()
-    gap_total = realizado_total - meta_total
-    ating_total = realizado_total / meta_total if meta_total > 0 else None
+
+    if eh_despesa(indicador):
+        gap_total = meta_total - realizado_total
+        ating_total = meta_total / realizado_total if realizado_total > 0 else None
+    else:
+        gap_total = realizado_total - meta_total
+        ating_total = realizado_total / meta_total if meta_total > 0 else None
 
     if not periodo_cmp.empty and len(periodo_cmp) == 2:
         realizado_ly = periodo_cmp.iloc[0]["Realizado"]
@@ -846,7 +866,7 @@ with tab1:
     anos = sorted(df["ANO"].unique())
     ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos) - 1)
 
-    df_completa = tabela_completa_ano(df, ano_selecionado)
+    df_completa = tabela_completa_ano(df, ano_selecionado, indicador)
 
     with col_btn:
         st.write("")
@@ -916,7 +936,7 @@ with tab1:
 
 with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
-    df_mom = calcular_mom(df).sort_values("MÊS_ORDEM")
+    df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM")
 
     def hl_mom(v):
         if pd.isna(v):
@@ -971,7 +991,7 @@ with tab2:
 
 with tab3:
     st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
-    df_yoy = calcular_yoy(df)
+    df_yoy = calcular_yoy(df, indicador)
 
     def hl_yoy(v):
         if pd.isna(v):
@@ -995,7 +1015,7 @@ with tab3:
     st.divider()
     st.subheader("Mesmo período x ano anterior")
 
-    df_periodo_tela = comparar_mesmo_periodo(df)
+    df_periodo_tela = comparar_mesmo_periodo(df, indicador)
     if not df_periodo_tela.empty:
         st.dataframe(
             df_periodo_tela.style.format({
@@ -1015,7 +1035,7 @@ with tab3:
         st.subheader("Comparativo entre filiais")
 
         ano_base = max(df["ANO"].unique())
-        comp_filiais = comparativo_filiais(df, ano_base)
+        comp_filiais = comparativo_filiais(df, ano_base, indicador)
 
         st.dataframe(
             comp_filiais.style.format({
