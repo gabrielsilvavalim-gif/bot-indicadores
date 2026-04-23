@@ -901,14 +901,21 @@ with tab4:
             st.markdown(pergunta)
 
         with st.chat_message("assistant"):
-            with st.spinner("Analisando os dados..."):
-                prompt = resumo_para_ia(df, indicador, filial, pergunta)
-                resp = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=1500,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                texto = resp.content[0].text
-                st.markdown(texto)
+    with st.spinner("Analisando os dados..."):
+        try:
+            prompt = resumo_para_ia(df, indicador, filial, pergunta)
 
-        st.session_state.chat.append({"role": "assistant", "content": texto})
+            resp = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1500,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            texto = resp.content[0].text
+            st.markdown(texto)
+
+        except Exception as e:
+            texto = f"Erro ao consultar a IA: {str(e)}"
+            st.error(texto)
+
+st.session_state.chat.append({"role": "assistant", "content": texto})
