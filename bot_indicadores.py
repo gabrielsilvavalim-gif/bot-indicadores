@@ -894,28 +894,28 @@ with tab4:
 
     pergunta = st.chat_input("Digite sua pergunta...")
 
-    if pergunta:
-    st.session_state.chat.append({"role": "user", "content": pergunta})
+       if pergunta:
+        st.session_state.chat.append({"role": "user", "content": pergunta})
 
-    with st.chat_message("user"):
-        st.markdown(pergunta)
+        with st.chat_message("user"):
+            st.markdown(pergunta)
 
-    with st.chat_message("assistant"):
-        with st.spinner("Analisando os dados..."):
-            try:
-                prompt = resumo_para_ia(df, indicador, filial, pergunta)
+        with st.chat_message("assistant"):
+            with st.spinner("Analisando os dados..."):
+                try:
+                    prompt = resumo_para_ia(df, indicador, filial, pergunta)
 
-                resp = client.messages.create(
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=1500,
-                    messages=[{"role": "user", "content": prompt}]
-                )
+                    resp = client.messages.create(
+                        model="claude-3-5-sonnet-20241022",
+                        max_tokens=1500,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
 
-                texto = resp.content[0].text
-                st.markdown(texto)
+                    texto = resp.content[0].text
+                    st.markdown(texto)
 
-            except Exception as e:
-                texto = f"Erro ao consultar a IA: {str(e)}"
-                st.error(texto)
+                except Exception as e:
+                    texto = f"Erro ao consultar a IA: {str(e)}"
+                    st.error(texto)
 
-    st.session_state.chat.append({"role": "assistant", "content": texto})
+        st.session_state.chat.append({"role": "assistant", "content": texto})
