@@ -5,9 +5,8 @@ from anthropic import Anthropic
 
 st.set_page_config(page_title="Análise de Indicadores", page_icon="📊", layout="wide")
 
-client = Anthropic()
+client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
-# ── Filtros configurados conforme a planilha ─────────────────────────────────
 INDICADORES = {
     "Faturamento": {
         "TIPO": "ECONOMICO",
@@ -15,17 +14,11 @@ INDICADORES = {
         "TIPO DE META": "R$",
         "filtrar_grupos": True,
     },
-    "Qualidade": {
-        "TIPO": "QUALIDADE",
-        "GRUPO 01": None,
-        "TIPO DE META": None,
-        "filtrar_grupos": False,
-    },
 }
 
 FILIAIS_REAIS = ["CANOAS/RS", "CURITIBA/PR", "DUQUE DE CAXIAS/RJ", "VALINHOS/SP"]
 
-# ── Funções de dados ─────────────────────────────────────────────────────────
+
 @st.cache_data
 def carregar(arquivo):
     return pd.read_excel(arquivo)
@@ -54,37 +47,33 @@ def filtrar(df, indicador, filial):
     return d
 
 
-def tabela_anos(d):
+def tabela_completa_ano(d, ano):
     meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
-    anos = sorted(d["ANO"].unique())
     rows = []
     for i, mes in enumerate(meses, 1):
-        row = {"Mês": mes}
-        for ano in anos:
-            v = d[(d["ANO"] == ano) & (d["MÊS"] == i)]["VALOR REF 01"]
-            row[str(ano)] = v.values[0] if len(v) > 0 else None
-        rows.append(row)
-    total = {"Mês": "TOTAL"}
-    for ano in anos:
-        total[str(ano)] = d[d["ANO"] == ano]["VALOR REF 01"].sum() or None
-    rows.append(total)
-    return pd.DataFrame(rows), anos
+        sub = d[(d["ANO"] == ano) & (d["MÊS"] == i)]
+        if len(sub) > 0:
+            real = sub["VALOR REF 01"].values[0]
+            meta = sub["META"].values[0]
+            gap = real - meta
+            ating = real / meta if meta > 0 else None
+            rows.append({"Mês": mes, "Realizado": real, "Meta": meta,
+                         "Gap (R$)": gap, "Atingimento": ating})
+        else:
+            rows.append({"Mês": mes, "Realizado": None, "Meta": None,
+                         "Gap (R$)": None, "Atingimento": None})
 
-
-def tabela_atingimento(d):
-    meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
-    anos = sorted(d["ANO"].unique())
-    rows = []
-    for i, mes in enumerate(meses, 1):
-        row = {"Mês": mes}
-        for ano in anos:
-            sub = d[(d["ANO"] == ano) & (d["MÊS"] == i)]
-            if len(sub) > 0 and sub["META"].values[0] > 0:
-                row[str(ano)] = sub["RESULT 01"].values[0]
-            else:
-                row[str(ano)] = None
-        rows.append(row)
-    return pd.DataFrame(rows), anos
+    sub_ano = d[d["ANO"] == ano]
+    total_real = sub_ano["VALOR REF 01"].sum()
+    total_meta = sub_ano["META"].sum()
+    rows.append({
+        "Mês": "TOTAL",
+        "Realizado": total_real,
+        "Meta": total_meta,
+        "Gap (R$)": total_real - total_meta,
+        "Atingimento": total_real / total_meta if total_meta > 0 else None,
+    })
+    return pd.DataFrame(rows)
 
 
 def calcular_mom(d):
@@ -112,9 +101,7 @@ def calcular_yoy(d):
     df_yoy = pd.DataFrame(rows)
     df_yoy["YoY_%"] = df_yoy["Realizado"].pct_change() * 100
     return df_yoy
-
-
-def resumo_para_ia(d, indicador, filial, pergunta):
+    def resumo_para_ia(d, indicador, filial, pergunta):
     mom = calcular_mom(d).tail(12).to_string(index=False)
     yoy = calcular_yoy(d).to_string(index=False)
     return f"""Você é um analista financeiro experiente. Analise os dados abaixo e responda em português brasileiro de forma clara e objetiva.
@@ -137,7 +124,6 @@ Estruture sua resposta com:
 Use R$ e % nos números. Seja direto e prático."""
 
 
-# ── Interface ─────────────────────────────────────────────────────────────────
 st.title("📊 Análise de Indicadores")
 
 with st.sidebar:
@@ -147,7 +133,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v1.0 — Bot Indicadores")
+    st.caption("v1.1 — Bot Indicadores")
 
 if not arquivo:
     st.info("👈 Faça upload da planilha na barra lateral para começar.")
@@ -162,71 +148,63 @@ if df.empty:
 
 tab1, tab2, tab3, tab4 = st.tabs(["📅 Por Ano", "📈 MoM", "🔁 YoY", "🤖 Insights IA"])
 
-# ── Tab 1: Por ano ────────────────────────────────────────────────────────────
 with tab1:
-    st.subheader(f"{indicador} — {filial} · Realizado mensal por ano")
-    df_tab, anos = tabela_anos(df)
+    st.subheader(f"{indicador} — {filial}")
+    anos = sorted(df["ANO"].unique())
+    ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos)-1)
+    df_completa = tabela_completa_ano(df, ano_selecionado)
 
-    def fmt_val(v):
-        if v is None or pd.isna(v):
-            return ""
-        return f"R$ {v:,.0f}".replace(",", ".")
+    def cor_gap(v):
+        if pd.isna(v): return ""
+        return "color: #1D9E75; font-weight:bold" if v >= 0 else "color: #E24B4A; font-weight:bold"
 
-    st.dataframe(
-        df_tab.style.format({str(a): fmt_val for a in anos}),
-        use_container_width=True, hide_index=True
-    )
-
-    st.divider()
-    st.subheader("Atingimento de Meta por mês")
-
-    def highlight_at(v):
-        if v is None or pd.isna(v):
-            return ""
-        if v >= 1.0:
-            return "color: #1D9E75; font-weight: bold"
-        elif v >= 0.85:
-            return "color: #BA7517"
+    def cor_ating(v):
+        if pd.isna(v): return ""
+        if v >= 1.0: return "color: #1D9E75; font-weight:bold"
+        if v >= 0.85: return "color: #BA7517"
         return "color: #E24B4A"
 
-    df_at, _ = tabela_atingimento(df)
     st.dataframe(
-        df_at.style
-             .format({str(a): (lambda v: f"{v:.0%}" if v and not pd.isna(v) else "") for a in anos})
-             .map(highlight_at, subset=[str(a) for a in anos]),
+        df_completa.style
+                   .format({
+                       "Realizado": lambda v: f"R$ {v:,.0f}".replace(",", ".") if pd.notna(v) else "",
+                       "Meta": lambda v: f"R$ {v:,.0f}".replace(",", ".") if pd.notna(v) else "",
+                       "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+                       "Atingimento": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+                   })
+                   .map(cor_gap, subset=["Gap (R$)"])
+                   .map(cor_ating, subset=["Atingimento"]),
         use_container_width=True, hide_index=True
     )
 
     st.divider()
-    df_yoy_c = calcular_yoy(df)
-    fig = go.Figure()
-    fig.add_bar(
-        x=df_yoy_c["Ano"].astype(str), y=df_yoy_c["Realizado"], name="Realizado",
-        marker_color="#1D9E75",
-        text=df_yoy_c["Realizado"].apply(lambda v: f"R$ {v/1e6:.1f}M"),
-        textposition="outside"
-    )
-    fig.add_bar(
-        x=df_yoy_c["Ano"].astype(str), y=df_yoy_c["Meta"], name="Meta",
-        marker_color="rgba(127,119,221,0.4)"
-    )
-    fig.update_layout(barmode="group", height=360, margin=dict(t=30, b=20),
-                      legend=dict(orientation="h", y=-0.15))
-    st.plotly_chart(fig, use_container_width=True)
-
-# ── Tab 2: MoM ───────────────────────────────────────────────────────────────
-with tab2:
+    st.subheader(f"Realizado x Meta — {ano_selecionado}")
+    dados_ano = df_completa[df_completa["Mês"] != "TOTAL"].dropna(subset=["Realizado"])
+    if not dados_ano.empty:
+        fig = go.Figure()
+        fig.add_bar(
+            x=dados_ano["Mês"], y=dados_ano["Realizado"], name="Realizado",
+            marker_color=["#1D9E75" if r >= m else "#E24B4A"
+                          for r, m in zip(dados_ano["Realizado"], dados_ano["Meta"])],
+            marker_cornerradius=4
+        )
+        fig.add_scatter(
+            x=dados_ano["Mês"], y=dados_ano["Meta"], name="Meta", mode="lines+markers",
+            line=dict(color="#7F77DD", width=2, dash="dot")
+        )
+        fig.update_layout(height=360, margin=dict(t=20, b=20),
+                          legend=dict(orientation="h", y=-0.15))
+        st.plotly_chart(fig, use_container_width=True)
+        with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
     df_mom = calcular_mom(df)
 
     def hl_mom(v):
-        if pd.isna(v):
-            return ""
+        if pd.isna(v): return ""
         return "color: #1D9E75; font-weight:bold" if v > 0 else "color: #E24B4A; font-weight:bold"
 
     def hl_at(v):
-        if pd.isna(v):
-            return ""
+        if pd.isna(v): return ""
         if v >= 1.0: return "color: #1D9E75; font-weight:bold"
         if v >= 0.85: return "color: #BA7517"
         return "color: #E24B4A"
@@ -258,7 +236,6 @@ with tab2:
                        legend=dict(orientation="h", y=-0.2), xaxis_tickangle=-45)
     st.plotly_chart(fig2, use_container_width=True)
 
-# ── Tab 3: YoY ───────────────────────────────────────────────────────────────
 with tab3:
     st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
     df_yoy = calcular_yoy(df)
@@ -293,7 +270,6 @@ with tab3:
         pivot.columns = [str(c) for c in pivot.columns]
         st.dataframe(pivot.style.format("R$ {:,.0f}"), use_container_width=True)
 
-# ── Tab 4: Insights IA ────────────────────────────────────────────────────────
 with tab4:
     st.subheader("🤖 Pergunte ao assistente")
     st.caption("Faça qualquer pergunta sobre os dados filtrados. Ex: 'Analise o MoM e sugira melhorias'")
