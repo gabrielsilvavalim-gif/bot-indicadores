@@ -880,8 +880,7 @@ with tab3:
             legend=dict(orientation="h", y=-0.15)
         )
         st.plotly_chart(fig_filiais, use_container_width=True)
-
-with tab4:
+    with tab4:
     st.subheader("🤖 Pergunte ao assistente")
     st.caption("Faça qualquer pergunta sobre os dados filtrados. Ex: 'Analise o MoM e sugira melhorias'")
 
@@ -894,7 +893,7 @@ with tab4:
 
     pergunta = st.chat_input("Digite sua pergunta...")
 
-       if pergunta:
+    if pergunta:
         st.session_state.chat.append({"role": "user", "content": pergunta})
 
         with st.chat_message("user"):
