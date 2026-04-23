@@ -6,13 +6,14 @@ from fpdf import FPDF
 from datetime import datetime
 import os
 
-st.set_page_config(page_title="Análise de Indicadores", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_icon="📊", layout="wide")
 
 client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
 COR_LARANJA = "#F26522"
 COR_VERDE = "#00A350"
 QUALQUER = "__ANY__"
+LOGO_ARQUIVO = "caminhao-de-lixo (1).png"
 
 INDICADORES = {
     "Faturamento": {
@@ -535,17 +536,17 @@ class PDFRelatorio(FPDF):
     def header(self):
         self.configurar_fontes()
 
-        if os.path.exists("logo.png"):
+        if os.path.exists(LOGO_ARQUIVO):
             try:
-                self.image("logo.png", 10, 8, 33)
+                self.image(LOGO_ARQUIVO, 10, 6, 38)
             except Exception:
                 pass
 
         self.fonte("B", 14)
-        self.cell(0, 10, self.safe("Relatório de Análise de Indicadores"), align="C", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 10, self.safe("Relatório - Análise de Indicadores Mazola Ambiental"), align="C", new_x="LMARGIN", new_y="NEXT")
 
         self.fonte("", 10)
-        self.cell(0, 6, self.safe(f"{self.indicador} | Base do PDF: GERAL"), align="C", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 6, self.safe(f"Indicador: {self.indicador} | Base: GERAL"), align="C", new_x="LMARGIN", new_y="NEXT")
         self.cell(0, 6, self.safe(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}"), align="C", new_x="LMARGIN", new_y="NEXT")
 
         self.ln(4)
@@ -759,7 +760,37 @@ Estruture sua resposta com:
 Use R$ e % nos números. Seja direto e prático."""
 
 
-st.title("📊 Análise de Indicadores")
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&display=swap');
+
+    .titulo-mazola {
+        font-family: 'Montserrat', sans-serif;
+        font-size: 34px;
+        font-weight: 700;
+        color: #F26522;
+        margin-bottom: 0;
+        line-height: 1.1;
+    }
+
+    .subtitulo-mazola {
+        font-family: 'Montserrat', sans-serif;
+        font-size: 15px;
+        color: #00A350;
+        margin-top: 4px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+col_logo, col_titulo = st.columns([1, 5])
+
+with col_logo:
+    if os.path.exists(LOGO_ARQUIVO):
+        st.image(LOGO_ARQUIVO, width=130)
+
+with col_titulo:
+    st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("⚙️ Filtros")
@@ -768,7 +799,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v3.2 — Bot Indicadores")
+    st.caption("v3.3 — Bot Indicadores")
 
 if not arquivo:
     st.info("👈 Faça upload da planilha na barra lateral para começar.")
