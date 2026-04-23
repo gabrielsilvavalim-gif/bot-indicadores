@@ -915,7 +915,16 @@ with tab4:
                     st.markdown(texto)
 
                 except Exception as e:
-                    texto = f"Erro ao consultar a IA: {str(e)}"
-                    st.error(texto)
+                    erro_txt = str(e)
+
+                    if "credit balance is too low" in erro_txt.lower():
+                        texto = (
+                            "Os insights com IA estão temporariamente indisponíveis porque a conta da API "
+                            "está sem saldo suficiente. Assim que os créditos forem recarregados, a funcionalidade volta ao normal."
+                        )
+                        st.info(texto)
+                    else:
+                        texto = "Não foi possível consultar a IA neste momento. Tente novamente em instantes."
+                        st.error(texto)
 
         st.session_state.chat.append({"role": "assistant", "content": texto})
