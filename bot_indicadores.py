@@ -101,7 +101,7 @@ def calcular_yoy(d):
     df_yoy = pd.DataFrame(rows)
     df_yoy["YoY_%"] = df_yoy["Realizado"].pct_change() * 100
     return df_yoy
-    def resumo_para_ia(d, indicador, filial, pergunta):
+def resumo_para_ia(d, indicador, filial, pergunta):
     mom = calcular_mom(d).tail(12).to_string(index=False)
     yoy = calcular_yoy(d).to_string(index=False)
     return f"""Você é um analista financeiro experiente. Analise os dados abaixo e responda em português brasileiro de forma clara e objetiva.
@@ -195,7 +195,7 @@ with tab1:
         fig.update_layout(height=360, margin=dict(t=20, b=20),
                           legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig, use_container_width=True)
-        with tab2:
+with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
     df_mom = calcular_mom(df)
 
