@@ -533,7 +533,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v2.2 — Bot Indicadores")
+    st.caption("v2.3 — Bot Indicadores")
 
 if not arquivo:
     st.info("👈 Faça upload da planilha na barra lateral para começar.")
@@ -880,7 +880,8 @@ with tab3:
             legend=dict(orientation="h", y=-0.15)
         )
         st.plotly_chart(fig_filiais, use_container_width=True)
-    with tab4:
+
+with tab4:
     st.subheader("🤖 Pergunte ao assistente")
     st.caption("Faça qualquer pergunta sobre os dados filtrados. Ex: 'Analise o MoM e sugira melhorias'")
 
