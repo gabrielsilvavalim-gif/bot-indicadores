@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from anthropic import Anthropic
+from fpdf import FPDF
+from datetime import datetime
+import io
+import os
 
 st.set_page_config(page_title="Análise de Indicadores", page_icon="📊", layout="wide")
 
@@ -101,6 +105,141 @@ def calcular_yoy(d):
     df_yoy = pd.DataFrame(rows)
     df_yoy["YoY_%"] = df_yoy["Realizado"].pct_change() * 100
     return df_yoy
+
+
+def fmt_brl(v):
+    if pd.isna(v) or v is None:
+        return "-"
+    return f"R$ {v:,.0f}".replace(",", ".")
+
+
+def fmt_pct(v):
+    if pd.isna(v) or v is None:
+        return "-"
+    return f"{v:.1%}"
+class PDFRelatorio(FPDF):
+    def __init__(self, indicador, filial):
+        super().__init__()
+        self.indicador = indicador
+        self.filial = filial
+
+    def header(self):
+        if os.path.exists("logo.png"):
+            try:
+                self.image("logo.png", 10, 8, 33)
+            except Exception:
+                pass
+        self.set_font("Helvetica", "B", 14)
+        self.cell(0, 10, "Relatorio de Analise de Indicadores", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.set_font("Helvetica", "", 10)
+        self.cell(0, 6, f"{self.indicador} | Filial: {self.filial}", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 6, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.ln(4)
+        self.set_draw_color(200, 200, 200)
+        self.line(10, self.get_y(), 200, self.get_y())
+        self.ln(4)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Helvetica", "I", 8)
+        self.set_text_color(128, 128, 128)
+        self.cell(0, 10, f"Pagina {self.page_no()}", align="C")
+
+    def secao(self, titulo):
+        self.set_font("Helvetica", "B", 12)
+        self.set_text_color(0, 0, 0)
+        self.ln(4)
+        self.cell(0, 8, titulo, new_x="LMARGIN", new_y="NEXT")
+        self.ln(2)
+
+    def tabela_por_ano(self, df_completa, ano):
+        self.set_font("Helvetica", "B", 10)
+        self.set_fill_color(240, 240, 240)
+        headers = ["Mes", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
+        widths = [30, 40, 40, 40, 35]
+        for h, w in zip(headers, widths):
+            self.cell(w, 8, h, border=1, fill=True, align="C")
+        self.ln()
+
+        self.set_font("Helvetica", "", 9)
+        for _, row in df_completa.iterrows():
+            is_total = row["Mês"] == "TOTAL"
+            if is_total:
+                self.set_font("Helvetica", "B", 9)
+                self.set_fill_color(245, 245, 245)
+            else:
+                self.set_fill_color(255, 255, 255)
+
+            self.cell(widths[0], 7, str(row["Mês"]), border=1, fill=is_total)
+            self.cell(widths[1], 7, fmt_brl(row["Realizado"]), border=1, align="R", fill=is_total)
+            self.cell(widths[2], 7, fmt_brl(row["Meta"]), border=1, align="R", fill=is_total)
+            self.cell(widths[3], 7, fmt_brl(row["Gap (R$)"]), border=1, align="R", fill=is_total)
+            self.cell(widths[4], 7, fmt_pct(row["Atingimento"]), border=1, align="R", fill=is_total)
+            self.ln()
+            if is_total:
+                self.set_font("Helvetica", "", 9)
+
+    def tabela_mom(self, df_mom):
+        self.set_font("Helvetica", "B", 10)
+        self.set_fill_color(240, 240, 240)
+        headers = ["Mes", "Meta", "Realizado", "Ating.", "MoM %"]
+        widths = [30, 40, 40, 30, 30]
+        for h, w in zip(headers, widths):
+            self.cell(w, 8, h, border=1, fill=True, align="C")
+        self.ln()
+
+        self.set_font("Helvetica", "", 9)
+        for _, row in df_mom.tail(12).iterrows():
+            self.cell(widths[0], 7, str(row["Mês"]), border=1)
+            self.cell(widths[1], 7, fmt_brl(row["META"]), border=1, align="R")
+            self.cell(widths[2], 7, fmt_brl(row["Realizado"]), border=1, align="R")
+            self.cell(widths[3], 7, fmt_pct(row["Ating."]), border=1, align="R")
+            mom_val = row["MoM_%"]
+            mom_str = f"{mom_val:+.1f}%" if pd.notna(mom_val) else "-"
+            self.cell(widths[4], 7, mom_str, border=1, align="R")
+            self.ln()
+
+    def tabela_yoy(self, df_yoy):
+        self.set_font("Helvetica", "B", 10)
+        self.set_fill_color(240, 240, 240)
+        headers = ["Ano", "Realizado", "Meta", "Atingimento", "Meses", "YoY %"]
+        widths = [20, 40, 40, 35, 20, 30]
+        for h, w in zip(headers, widths):
+            self.cell(w, 8, h, border=1, fill=True, align="C")
+        self.ln()
+
+        self.set_font("Helvetica", "", 9)
+        for _, row in df_yoy.iterrows():
+            self.cell(widths[0], 7, str(int(row["Ano"])), border=1, align="C")
+            self.cell(widths[1], 7, fmt_brl(row["Realizado"]), border=1, align="R")
+            self.cell(widths[2], 7, fmt_brl(row["Meta"]), border=1, align="R")
+            self.cell(widths[3], 7, fmt_pct(row["Atingimento"]), border=1, align="R")
+            self.cell(widths[4], 7, str(int(row["Meses c/ dado"])), border=1, align="C")
+            yoy_val = row["YoY_%"]
+            yoy_str = f"{yoy_val:+.1f}%" if pd.notna(yoy_val) else "-"
+            self.cell(widths[5], 7, yoy_str, border=1, align="R")
+            self.ln()
+
+
+def gerar_pdf(df, indicador, filial, ano_selecionado):
+    pdf = PDFRelatorio(indicador, filial)
+    pdf.add_page()
+
+    pdf.secao(f"1. Analise por Mes - Ano {ano_selecionado}")
+    df_completa = tabela_completa_ano(df, ano_selecionado)
+    pdf.tabela_por_ano(df_completa, ano_selecionado)
+
+    pdf.add_page()
+    pdf.secao("2. Variacao Mes a Mes (MoM) - Ultimos 12 meses")
+    df_mom = calcular_mom(df)
+    pdf.tabela_mom(df_mom)
+
+    pdf.add_page()
+    pdf.secao("3. Comparativo Ano a Ano (YoY)")
+    df_yoy = calcular_yoy(df)
+    pdf.tabela_yoy(df_yoy)
+
+    return bytes(pdf.output())
 def resumo_para_ia(d, indicador, filial, pergunta):
     mom = calcular_mom(d).tail(12).to_string(index=False)
     yoy = calcular_yoy(d).to_string(index=False)
@@ -133,7 +272,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v1.1 — Bot Indicadores")
+    st.caption("v1.2 — Bot Indicadores")
 
 if not arquivo:
     st.info("👈 Faça upload da planilha na barra lateral para começar.")
@@ -149,10 +288,26 @@ if df.empty:
 tab1, tab2, tab3, tab4 = st.tabs(["📅 Por Ano", "📈 MoM", "🔁 YoY", "🤖 Insights IA"])
 
 with tab1:
-    st.subheader(f"{indicador} — {filial}")
+    col_title, col_btn = st.columns([3, 1])
+    with col_title:
+        st.subheader(f"{indicador} — {filial}")
+    with col_btn:
+        st.write("")
+
     anos = sorted(df["ANO"].unique())
     ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos)-1)
     df_completa = tabela_completa_ano(df, ano_selecionado)
+
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        pdf_bytes = gerar_pdf(df, indicador, filial, ano_selecionado)
+        st.download_button(
+            label="📄 Baixar PDF",
+            data=pdf_bytes,
+            file_name=f"relatorio_{indicador}_{filial}_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
 
     def cor_gap(v):
         if pd.isna(v): return ""
