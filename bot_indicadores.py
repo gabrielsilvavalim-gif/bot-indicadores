@@ -12,10 +12,112 @@ client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
 INDICADORES = {
     "Faturamento": {
+        "tipo": "simples",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": None,
+        "GRUPO 03": None,
         "TIPO DE META": "R$",
-        "filtrar_grupos": True,
+    },
+    "Faturamento Serviços": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "SERVICOS",
+        "GRUPO 03": None,
+        "TIPO DE META": "R$",
+    },
+    "Faturamento Regular": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "SERVICOS",
+        "GRUPO 03": "REGULAR",
+        "TIPO DE META": "R$",
+    },
+    "Faturamento Incremental": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "SERVICOS",
+        "GRUPO 03": "INCREMENTAL",
+        "TIPO DE META": "R$",
+    },
+    "Faturamento LCSAO": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "SERVICOS",
+        "GRUPO 03": "LCSAO",
+        "TIPO DE META": "R$",
+    },
+    "Faturamento Sucata Diversa": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "SUCATAS DIVERSAS",
+        "GRUPO 03": None,
+        "TIPO DE META": "R$",
+    },
+    "Faturamento Reman Rev": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "REMAN REV",
+        "GRUPO 03": None,
+        "TIPO DE META": "R$",
+    },
+    "Faturamento Reman Cap": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "REMAN CAP",
+        "GRUPO 03": None,
+        "TIPO DE META": "R$",
+    },
+    "Faturamento Reman Total": {
+        "tipo": "composto",
+        "componentes": ["Faturamento Reman Rev", "Faturamento Reman Cap"]
+    },
+    "Faturamento Pneus Velhos": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "PNEUS VELHOS",
+        "GRUPO 03": None,
+        "TIPO DE META": "R$",
+    },
+    "Faturamento Especial": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "ESPECIAL",
+        "GRUPO 03": None,
+        "TIPO DE META": "R$",
+    },
+    "Despesa Geral": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "DESPESAS",
+        "GRUPO 02": None,
+        "GRUPO 03": None,
+        "TIPO DE META": "%",
+    },
+    "Despesa Manutenção": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "DESPESAS",
+        "GRUPO 02": "MANUTENCAO",
+        "GRUPO 03": None,
+        "TIPO DE META": "R$",
+    },
+    "Despesa Hora Extra": {
+        "tipo": "simples",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "DESPESAS",
+        "GRUPO 02": "HORAS EXTRAS",
+        "GRUPO 03": None,
+        "TIPO DE META": "R$",
     },
 }
 
@@ -27,20 +129,27 @@ def carregar(arquivo):
     return pd.read_excel(arquivo)
 
 
-def filtrar(df, indicador, filial):
-    cfg = INDICADORES[indicador]
+def aplicar_filtro_base(df, cfg, filial):
     d = df.copy()
 
-    d = d[d["TIPO"] == cfg["TIPO"]]
+    if cfg.get("TIPO") is not None:
+        d = d[d["TIPO"] == cfg["TIPO"]]
 
-    if cfg["GRUPO 01"]:
+    if cfg.get("GRUPO 01") is not None:
         d = d[d["GRUPO 01"] == cfg["GRUPO 01"]]
 
-    if cfg["TIPO DE META"]:
-        d = d[d["TIPO DE META"] == cfg["TIPO DE META"]]
+    if cfg.get("GRUPO 02") is None:
+        d = d[d["GRUPO 02"].isna()]
+    else:
+        d = d[d["GRUPO 02"] == cfg["GRUPO 02"]]
 
-    if cfg["filtrar_grupos"]:
-        d = d[d["GRUPO 02"].isna() & d["GRUPO 03"].isna()]
+    if cfg.get("GRUPO 03") is None:
+        d = d[d["GRUPO 03"].isna()]
+    else:
+        d = d[d["GRUPO 03"] == cfg["GRUPO 03"]]
+
+    if cfg.get("TIPO DE META") is not None:
+        d = d[d["TIPO DE META"] == cfg["TIPO DE META"]]
 
     if filial == "Geral":
         d = d[d["FILIAL"].isin(FILIAIS_REAIS)]
@@ -57,11 +166,68 @@ def filtrar(df, indicador, filial):
         1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai", 6: "Jun",
         7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez"
     }
-
     d["MÊS_NOME"] = d["MÊS"].map(mapa_meses) + "/" + d["ANO"].astype(str)
-    d = d[d["VALOR REF 01"] > 0].sort_values(["ANO", "MÊS", "FILIAL"]).reset_index(drop=True)
-
+    d = d.sort_values(["ANO", "MÊS", "FILIAL"]).reset_index(drop=True)
     return d
+
+
+def consolidar_campos(df, nome_indicador):
+    d = df.copy()
+
+    if nome_indicador.startswith("Despesa"):
+        d["REALIZADO_CALC"] = pd.to_numeric(d["VALOR REF 01"], errors="coerce").fillna(0)
+        d["META_CALC"] = pd.to_numeric(d["META"], errors="coerce").fillna(0)
+
+        if nome_indicador == "Despesa Hora Extra":
+            d["RESULTADO_PCT"] = (d["REALIZADO_CALC"] / d["META_CALC"]) - 1
+            d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
+        else:
+            d["RESULTADO_PCT"] = 1 - (d["REALIZADO_CALC"] / d["META_CALC"])
+            d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
+    else:
+        d["REALIZADO_CALC"] = pd.to_numeric(d["VALOR REF 01"], errors="coerce").fillna(0)
+        d["META_CALC"] = pd.to_numeric(d["META"], errors="coerce").fillna(0)
+        d["RESULTADO_PCT"] = d["REALIZADO_CALC"] / d["META_CALC"]
+        d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
+
+    d = d.replace([float("inf"), float("-inf")], pd.NA)
+    return d
+
+
+def filtrar(df, indicador, filial):
+    cfg = INDICADORES[indicador]
+
+    if cfg["tipo"] == "simples":
+        d = aplicar_filtro_base(df, cfg, filial)
+        d = consolidar_campos(d, indicador)
+        return d
+
+    if cfg["tipo"] == "composto":
+        componentes = []
+        for nome_comp in cfg["componentes"]:
+            cfg_comp = INDICADORES[nome_comp]
+            d_comp = aplicar_filtro_base(df, cfg_comp, filial)
+            d_comp = consolidar_campos(d_comp, nome_comp)
+            componentes.append(d_comp)
+
+        if not componentes:
+            return pd.DataFrame()
+
+        base = pd.concat(componentes, ignore_index=True)
+
+        agrupado = (
+            base.groupby(["FILIAL", "REFERÊNCIA", "ANO", "MÊS", "MÊS_ORDEM", "MÊS_NOME"], as_index=False)
+            .agg({
+                "META_CALC": "sum",
+                "REALIZADO_CALC": "sum"
+            })
+        )
+        agrupado["RESULTADO_PCT"] = agrupado["REALIZADO_CALC"] / agrupado["META_CALC"]
+        agrupado["RESULTADO_RS"] = agrupado["REALIZADO_CALC"] - agrupado["META_CALC"]
+        agrupado = agrupado.replace([float("inf"), float("-inf")], pd.NA)
+        return agrupado
+
+    return pd.DataFrame()
 
 
 def tabela_completa_ano(d, ano):
@@ -72,8 +238,8 @@ def tabela_completa_ano(d, ano):
     mensal = (
         base_ano.groupby("MÊS", as_index=False)
         .agg({
-            "VALOR REF 01": "sum",
-            "META": "sum"
+            "REALIZADO_CALC": "sum",
+            "META_CALC": "sum"
         })
         .sort_values("MÊS")
     )
@@ -81,10 +247,10 @@ def tabela_completa_ano(d, ano):
     for i, mes in enumerate(meses, 1):
         sub = mensal[mensal["MÊS"] == i]
         if len(sub) > 0:
-            real = sub["VALOR REF 01"].values[0]
-            meta = sub["META"].values[0]
+            real = sub["REALIZADO_CALC"].values[0]
+            meta = sub["META_CALC"].values[0]
             gap = real - meta
-            ating = real / meta if meta > 0 else None
+            ating = real / meta if meta not in [0, None] else None
             rows.append({
                 "Mês": mes,
                 "Realizado": real,
@@ -101,8 +267,8 @@ def tabela_completa_ano(d, ano):
                 "Atingimento": None
             })
 
-    total_real = base_ano["VALOR REF 01"].sum()
-    total_meta = base_ano["META"].sum()
+    total_real = base_ano["REALIZADO_CALC"].sum()
+    total_meta = base_ano["META_CALC"].sum()
 
     rows.append({
         "Mês": "TOTAL",
@@ -119,19 +285,20 @@ def calcular_mom(d):
     base = (
         d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"], as_index=False)
         .agg({
-            "META": "sum",
-            "VALOR REF 01": "sum"
+            "META_CALC": "sum",
+            "REALIZADO_CALC": "sum"
         })
         .sort_values("MÊS_ORDEM")
         .reset_index(drop=True)
     )
 
-    base["Ating."] = base["VALOR REF 01"] / base["META"]
-    base["MoM_%"] = base["VALOR REF 01"].pct_change() * 100
+    base["Ating."] = base["REALIZADO_CALC"] / base["META_CALC"]
+    base["MoM_%"] = base["REALIZADO_CALC"].pct_change() * 100
 
     return base.rename(columns={
         "MÊS_NOME": "Mês",
-        "VALOR REF 01": "Realizado"
+        "REALIZADO_CALC": "Realizado",
+        "META_CALC": "META"
     })[["ANO", "MÊS", "Mês", "META", "Realizado", "Ating.", "MoM_%", "MÊS_ORDEM"]]
 
 
@@ -139,21 +306,20 @@ def calcular_yoy(d):
     df_yoy = (
         d.groupby("ANO", as_index=False)
         .agg({
-            "VALOR REF 01": "sum",
-            "META": "sum",
+            "REALIZADO_CALC": "sum",
+            "META_CALC": "sum",
             "MÊS": "nunique"
         })
         .sort_values("ANO")
         .rename(columns={
-            "VALOR REF 01": "Realizado",
-            "META": "Meta",
+            "REALIZADO_CALC": "Realizado",
+            "META_CALC": "Meta",
             "MÊS": "Meses c/ dado"
         })
     )
 
     df_yoy["Atingimento"] = df_yoy["Realizado"] / df_yoy["Meta"]
     df_yoy["YoY_%"] = df_yoy["Realizado"].pct_change() * 100
-
     return df_yoy
 
 
@@ -162,12 +328,12 @@ def comparativo_filiais(d, ano):
         d[d["ANO"] == ano]
         .groupby("FILIAL", as_index=False)
         .agg({
-            "VALOR REF 01": "sum",
-            "META": "sum"
+            "REALIZADO_CALC": "sum",
+            "META_CALC": "sum"
         })
         .rename(columns={
-            "VALOR REF 01": "Realizado",
-            "META": "Meta"
+            "REALIZADO_CALC": "Realizado",
+            "META_CALC": "Meta"
         })
         .sort_values("Realizado", ascending=False)
     )
@@ -202,12 +368,12 @@ def comparar_mesmo_periodo(d, ano_referencia=None):
         7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez"
     }
 
-    real_atual = atual_periodo["VALOR REF 01"].sum()
-    meta_atual = atual_periodo["META"].sum()
+    real_atual = atual_periodo["REALIZADO_CALC"].sum()
+    meta_atual = atual_periodo["META_CALC"].sum()
     ating_atual = real_atual / meta_atual if meta_atual > 0 else None
 
-    real_ant = anterior_periodo["VALOR REF 01"].sum()
-    meta_ant = anterior_periodo["META"].sum()
+    real_ant = anterior_periodo["REALIZADO_CALC"].sum()
+    meta_ant = anterior_periodo["META_CALC"].sum()
     ating_ant = real_ant / meta_ant if meta_ant > 0 else None
 
     var_real = ((real_atual / real_ant) - 1) if real_ant > 0 else None
@@ -498,7 +664,6 @@ def resumo_para_ia(d, indicador, filial, pergunta):
     mom = calcular_mom(d).tail(12).to_string(index=False)
     yoy = calcular_yoy(d).to_string(index=False)
     periodo = comparar_mesmo_periodo(d)
-
     periodo_txt = periodo.to_string(index=False) if not periodo.empty else "Sem dados"
 
     return f"""Você é um analista financeiro experiente. Analise os dados abaixo e responda em português brasileiro de forma clara e objetiva.
@@ -516,7 +681,7 @@ Pergunta/solicitação: {pergunta}
 {periodo_txt}
 
 Estruture sua resposta com:
-1. Resumo executivo (3-4 frases diretas)
+1. Resumo executivo
 2. Pontos de atenção
 3. Tendências identificadas
 4. Sugestões práticas de melhoria
@@ -533,7 +698,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v2.3 — Bot Indicadores")
+    st.caption("v3.0 — Bot Indicadores")
 
 if not arquivo:
     st.info("👈 Faça upload da planilha na barra lateral para começar.")
@@ -564,8 +729,8 @@ with tab0:
 
     base_kpi = df[df["ANO"] == ano_kpi].copy()
 
-    realizado_total = base_kpi["VALOR REF 01"].sum()
-    meta_total = base_kpi["META"].sum()
+    realizado_total = base_kpi["REALIZADO_CALC"].sum()
+    meta_total = base_kpi["META_CALC"].sum()
     gap_total = realizado_total - meta_total
     ating_total = realizado_total / meta_total if meta_total > 0 else None
 
@@ -591,74 +756,30 @@ with tab0:
         fmt_pct(delta_ytd) if delta_ytd is not None else None
     )
 
-    col6, col7 = st.columns(2)
-    with col6:
-        st.metric(f"Ano anterior {periodo_label}", fmt_brl(realizado_ly) if realizado_ly is not None else "-")
-    with col7:
-        st.metric("Período comparado", periodo_label)
-
     st.divider()
 
     resumo_mensal_exec = (
         base_kpi.groupby(["MÊS", "MÊS_NOME"], as_index=False)
-        .agg({"VALOR REF 01": "sum", "META": "sum"})
+        .agg({"REALIZADO_CALC": "sum", "META_CALC": "sum"})
         .sort_values("MÊS")
     )
 
     fig_exec = go.Figure()
     fig_exec.add_bar(
         x=resumo_mensal_exec["MÊS_NOME"],
-        y=resumo_mensal_exec["VALOR REF 01"],
+        y=resumo_mensal_exec["REALIZADO_CALC"],
         name="Realizado",
         marker_cornerradius=4
     )
     fig_exec.add_scatter(
         x=resumo_mensal_exec["MÊS_NOME"],
-        y=resumo_mensal_exec["META"],
+        y=resumo_mensal_exec["META_CALC"],
         name="Meta",
         mode="lines+markers",
         line=dict(color="#7F77DD", width=2, dash="dot")
     )
-    fig_exec.update_layout(
-        height=380,
-        margin=dict(t=20, b=20),
-        legend=dict(orientation="h", y=-0.15)
-    )
+    fig_exec.update_layout(height=380, margin=dict(t=20, b=20), legend=dict(orientation="h", y=-0.15))
     st.plotly_chart(fig_exec, use_container_width=True)
-
-    st.divider()
-    st.subheader("Mesmo período do ano anterior")
-
-    if not periodo_cmp.empty:
-        st.dataframe(
-            periodo_cmp.style.format({
-                "Realizado": "R$ {:,.0f}",
-                "Meta": "R$ {:,.0f}",
-                "Gap (R$)": "R$ {:,.0f}",
-                "Atingimento": "{:.1%}",
-                "Variação Realizado": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
-                "Variação Meta": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
-
-    if filial == "Geral":
-        st.divider()
-        st.subheader("Ranking de filiais")
-
-        ranking_filiais = comparativo_filiais(df, ano_kpi)
-
-        st.dataframe(
-            ranking_filiais.style.format({
-                "Realizado": "R$ {:,.0f}",
-                "Meta": "R$ {:,.0f}",
-                "Gap": "R$ {:,.0f}",
-                "Atingimento": "{:.1%}",
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
 
 with tab1:
     col_title, col_btn = st.columns([3, 1])
@@ -682,144 +803,44 @@ with tab1:
             use_container_width=True
         )
 
-    def cor_gap(v):
-        if pd.isna(v):
-            return ""
-        return "color: #1D9E75; font-weight:bold" if v >= 0 else "color: #E24B4A; font-weight:bold"
-
-    def cor_ating(v):
-        if pd.isna(v):
-            return ""
-        if v >= 1.0:
-            return "color: #1D9E75; font-weight:bold"
-        if v >= 0.85:
-            return "color: #BA7517"
-        return "color: #E24B4A"
-
     st.dataframe(
-        df_completa.style
-        .format({
+        df_completa.style.format({
             "Realizado": lambda v: f"R$ {v:,.0f}".replace(",", ".") if pd.notna(v) else "",
             "Meta": lambda v: f"R$ {v:,.0f}".replace(",", ".") if pd.notna(v) else "",
             "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
             "Atingimento": lambda v: f"{v:.0%}" if pd.notna(v) else "",
-        })
-        .map(cor_gap, subset=["Gap (R$)"])
-        .map(cor_ating, subset=["Atingimento"]),
+        }),
         use_container_width=True,
         hide_index=True
     )
-
-    st.divider()
-    st.subheader(f"Realizado x Meta — {ano_selecionado}")
-
-    dados_ano = df_completa[df_completa["Mês"] != "TOTAL"].dropna(subset=["Realizado"])
-
-    if not dados_ano.empty:
-        fig = go.Figure()
-        fig.add_bar(
-            x=dados_ano["Mês"],
-            y=dados_ano["Realizado"],
-            name="Realizado",
-            marker_color=[
-                "#1D9E75" if r >= m else "#E24B4A"
-                for r, m in zip(dados_ano["Realizado"], dados_ano["Meta"])
-            ],
-            marker_cornerradius=4
-        )
-        fig.add_scatter(
-            x=dados_ano["Mês"],
-            y=dados_ano["Meta"],
-            name="Meta",
-            mode="lines+markers",
-            line=dict(color="#7F77DD", width=2, dash="dot")
-        )
-        fig.update_layout(
-            height=360,
-            margin=dict(t=20, b=20),
-            legend=dict(orientation="h", y=-0.15)
-        )
-        st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
     df_mom = calcular_mom(df).sort_values("MÊS_ORDEM")
 
-    def hl_mom(v):
-        if pd.isna(v):
-            return ""
-        return "color: #1D9E75; font-weight:bold" if v > 0 else "color: #E24B4A; font-weight:bold"
-
-    def hl_at(v):
-        if pd.isna(v):
-            return ""
-        if v >= 1.0:
-            return "color: #1D9E75; font-weight:bold"
-        if v >= 0.85:
-            return "color: #BA7517"
-        return "color: #E24B4A"
-
     st.dataframe(
-        df_mom.style
-        .format({
+        df_mom.style.format({
             "META": "R$ {:,.0f}",
             "Realizado": "R$ {:,.0f}",
             "Ating.": "{:.0%}",
             "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-        })
-        .map(hl_mom, subset=["MoM_%"])
-        .map(hl_at, subset=["Ating."]),
+        }),
         use_container_width=True,
         hide_index=True
     )
-
-    ultimos = df_mom.tail(16)
-    real = ultimos["Realizado"].tolist()
-    meta_l = ultimos["META"].tolist()
-    cores = ["#1D9E75" if r >= m else "#E24B4A" for r, m in zip(real, meta_l)]
-
-    fig2 = go.Figure()
-    fig2.add_bar(
-        x=ultimos["Mês"].tolist(),
-        y=real,
-        name="Realizado",
-        marker_color=cores,
-        marker_cornerradius=4
-    )
-    fig2.add_scatter(
-        x=ultimos["Mês"].tolist(),
-        y=meta_l,
-        name="Meta",
-        mode="lines",
-        line=dict(color="#7F77DD", width=2, dash="dot")
-    )
-    fig2.update_layout(
-        height=360,
-        margin=dict(t=20, b=20),
-        legend=dict(orientation="h", y=-0.2),
-        xaxis_tickangle=-45
-    )
-    st.plotly_chart(fig2, use_container_width=True)
 
 with tab3:
     st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
     df_yoy = calcular_yoy(df)
 
-    def hl_yoy(v):
-        if pd.isna(v):
-            return ""
-        return "color: #1D9E75; font-weight:bold" if v > 0 else "color: #E24B4A; font-weight:bold"
-
     st.dataframe(
-        df_yoy.style
-        .format({
+        df_yoy.style.format({
             "Realizado": "R$ {:,.0f}",
             "Meta": "R$ {:,.0f}",
             "Atingimento": "{:.1%}",
             "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
             "Meses c/ dado": "{:.0f}",
-        })
-        .map(hl_yoy, subset=["YoY_%"]),
+        }),
         use_container_width=True,
         hide_index=True
     )
@@ -842,48 +863,8 @@ with tab3:
             hide_index=True
         )
 
-    if filial == "Geral":
-        st.divider()
-        st.subheader("Comparativo entre filiais")
-
-        ano_base = max(df["ANO"].unique())
-        comp_filiais = comparativo_filiais(df, ano_base)
-
-        st.dataframe(
-            comp_filiais.style.format({
-                "Realizado": "R$ {:,.0f}",
-                "Meta": "R$ {:,.0f}",
-                "Gap": "R$ {:,.0f}",
-                "Atingimento": "{:.1%}",
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        fig_filiais = go.Figure()
-        fig_filiais.add_bar(
-            x=comp_filiais["FILIAL"],
-            y=comp_filiais["Realizado"],
-            name="Realizado",
-            marker_cornerradius=4
-        )
-        fig_filiais.add_scatter(
-            x=comp_filiais["FILIAL"],
-            y=comp_filiais["Meta"],
-            name="Meta",
-            mode="lines+markers",
-            line=dict(color="#7F77DD", width=2, dash="dot")
-        )
-        fig_filiais.update_layout(
-            height=380,
-            margin=dict(t=20, b=20),
-            legend=dict(orientation="h", y=-0.15)
-        )
-        st.plotly_chart(fig_filiais, use_container_width=True)
-
 with tab4:
     st.subheader("🤖 Pergunte ao assistente")
-    st.caption("Faça qualquer pergunta sobre os dados filtrados. Ex: 'Analise o MoM e sugira melhorias'")
 
     if "chat" not in st.session_state:
         st.session_state.chat = []
@@ -904,13 +885,11 @@ with tab4:
             with st.spinner("Analisando os dados..."):
                 try:
                     prompt = resumo_para_ia(df, indicador, filial, pergunta)
-
                     resp = client.messages.create(
                         model="claude-3-5-sonnet-20241022",
                         max_tokens=1500,
                         messages=[{"role": "user", "content": prompt}]
                     )
-
                     texto = resp.content[0].text
                     st.markdown(texto)
 
@@ -918,13 +897,10 @@ with tab4:
                     erro_txt = str(e)
 
                     if "credit balance is too low" in erro_txt.lower():
-                        texto = (
-                            "Os insights com IA estão temporariamente indisponíveis porque a conta da API "
-                            "está sem saldo suficiente. Assim que os créditos forem recarregados, a funcionalidade volta ao normal."
-                        )
-                        st.info(texto)
+                        texto = "A integração com a IA está ativa, mas a conta da Anthropic está sem créditos no momento."
+                        st.warning(texto)
                     else:
-                        texto = "Não foi possível consultar a IA neste momento. Tente novamente em instantes."
+                        texto = f"Erro ao consultar a IA: {erro_txt}"
                         st.error(texto)
 
         st.session_state.chat.append({"role": "assistant", "content": texto})
