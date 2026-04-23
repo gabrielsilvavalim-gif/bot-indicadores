@@ -177,66 +177,6 @@ def comparativo_filiais(d, ano):
     return comp
 
 
-def comparar_mesmo_periodo(d, ano_referencia=None):
-    if d.empty:
-        return pd.DataFrame()
-
-    if ano_referencia is None:
-        ano_referencia = int(d["ANO"].max())
-
-    ano_anterior = ano_referencia - 1
-
-    base_atual = d[d["ANO"] == ano_referencia].copy()
-    base_ant = d[d["ANO"] == ano_anterior].copy()
-
-    if base_atual.empty:
-        return pd.DataFrame()
-
-    mes_limite = int(base_atual["MÊS"].max())
-
-    atual_periodo = base_atual[base_atual["MÊS"] <= mes_limite]
-    anterior_periodo = base_ant[base_ant["MÊS"] <= mes_limite]
-
-    nomes_meses = {
-        1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai", 6: "Jun",
-        7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez"
-    }
-
-    real_atual = atual_periodo["VALOR REF 01"].sum()
-    meta_atual = atual_periodo["META"].sum()
-    ating_atual = real_atual / meta_atual if meta_atual > 0 else None
-
-    real_ant = anterior_periodo["VALOR REF 01"].sum()
-    meta_ant = anterior_periodo["META"].sum()
-    ating_ant = real_ant / meta_ant if meta_ant > 0 else None
-
-    var_real = ((real_atual / real_ant) - 1) if real_ant > 0 else None
-    var_meta = ((meta_atual / meta_ant) - 1) if meta_ant > 0 else None
-
-    return pd.DataFrame([
-        {
-            "Ano": ano_anterior,
-            "Período": f"Jan a {nomes_meses[mes_limite]}",
-            "Realizado": real_ant,
-            "Meta": meta_ant,
-            "Gap (R$)": real_ant - meta_ant,
-            "Atingimento": ating_ant,
-            "Variação Realizado": None,
-            "Variação Meta": None,
-        },
-        {
-            "Ano": ano_referencia,
-            "Período": f"Jan a {nomes_meses[mes_limite]}",
-            "Realizado": real_atual,
-            "Meta": meta_atual,
-            "Gap (R$)": real_atual - meta_atual,
-            "Atingimento": ating_atual,
-            "Variação Realizado": var_real,
-            "Variação Meta": var_meta,
-        }
-    ])
-
-
 def fmt_brl(v):
     if pd.isna(v) or v is None:
         return "-"
@@ -254,28 +194,19 @@ class PDFRelatorio(FPDF):
         super().__init__()
         self.indicador = indicador
         self.filial = filial
-        self._font_ready = False
-
-    def configurar_fontes(self):
-        if not self._font_ready:
-            self.add_font("DejaVu", "", "DejaVuSans.ttf")
-            self.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf")
-            self._font_ready = True
 
     def header(self):
-        self.configurar_fontes()
-
         if os.path.exists("logo.png"):
             try:
                 self.image("logo.png", 10, 8, 33)
             except Exception:
                 pass
 
-        self.set_font("DejaVu", "B", 14)
+        self.set_font("Helvetica", "B", 14)
         self.cell(0, 10, "Relatório de Análise de Indicadores", align="C", new_x="LMARGIN", new_y="NEXT")
 
-        self.set_font("DejaVu", "", 10)
-        self.cell(0, 6, f"{self.indicador} | Base do PDF: GERAL", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.set_font("Helvetica", "", 10)
+        self.cell(0, 6, f"{self.indicador} | Base do PDF: Todas as unidades", align="C", new_x="LMARGIN", new_y="NEXT")
         self.cell(0, 6, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", align="C", new_x="LMARGIN", new_y="NEXT")
 
         self.ln(4)
@@ -284,23 +215,20 @@ class PDFRelatorio(FPDF):
         self.ln(4)
 
     def footer(self):
-        self.configurar_fontes()
         self.set_y(-15)
-        self.set_font("DejaVu", "", 8)
+        self.set_font("Helvetica", "I", 8)
         self.set_text_color(128, 128, 128)
         self.cell(0, 10, f"Página {self.page_no()}", align="C")
 
     def secao(self, titulo):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 12)
+        self.set_font("Helvetica", "B", 12)
         self.set_text_color(0, 0, 0)
         self.ln(4)
         self.cell(0, 8, titulo, new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
     def tabela_por_ano(self, df_completa):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
+        self.set_font("Helvetica", "B", 10)
         self.set_fill_color(240, 240, 240)
 
         headers = ["Mês", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
@@ -310,12 +238,12 @@ class PDFRelatorio(FPDF):
             self.cell(w, 8, h, border=1, fill=True, align="C")
         self.ln()
 
-        self.set_font("DejaVu", "", 9)
+        self.set_font("Helvetica", "", 9)
         for _, row in df_completa.iterrows():
             is_total = row["Mês"] == "TOTAL"
 
             if is_total:
-                self.set_font("DejaVu", "B", 9)
+                self.set_font("Helvetica", "B", 9)
 
             self.cell(widths[0], 7, str(row["Mês"]), border=1, align="C")
             self.cell(widths[1], 7, fmt_brl(row["Realizado"]), border=1, align="R")
@@ -325,11 +253,10 @@ class PDFRelatorio(FPDF):
             self.ln()
 
             if is_total:
-                self.set_font("DejaVu", "", 9)
+                self.set_font("Helvetica", "", 9)
 
     def tabela_mom(self, df_mom):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
+        self.set_font("Helvetica", "B", 10)
         self.set_fill_color(240, 240, 240)
 
         headers = ["Mês", "Meta", "Realizado", "Ating.", "MoM %"]
@@ -339,7 +266,7 @@ class PDFRelatorio(FPDF):
             self.cell(w, 8, h, border=1, fill=True, align="C")
         self.ln()
 
-        self.set_font("DejaVu", "", 9)
+        self.set_font("Helvetica", "", 9)
         for _, row in df_mom.iterrows():
             self.cell(widths[0], 7, str(row["Mês"]), border=1)
             self.cell(widths[1], 7, fmt_brl(row["META"]), border=1, align="R")
@@ -351,8 +278,7 @@ class PDFRelatorio(FPDF):
             self.ln()
 
     def tabela_yoy(self, df_yoy):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
+        self.set_font("Helvetica", "B", 10)
         self.set_fill_color(240, 240, 240)
 
         headers = ["Ano", "Realizado", "Meta", "Atingimento", "Meses", "YoY %"]
@@ -362,7 +288,7 @@ class PDFRelatorio(FPDF):
             self.cell(w, 8, h, border=1, fill=True, align="C")
         self.ln()
 
-        self.set_font("DejaVu", "", 9)
+        self.set_font("Helvetica", "", 9)
         for _, row in df_yoy.iterrows():
             self.cell(widths[0], 7, str(int(row["ANO"])), border=1, align="C")
             self.cell(widths[1], 7, fmt_brl(row["Realizado"]), border=1, align="R")
@@ -375,8 +301,7 @@ class PDFRelatorio(FPDF):
             self.ln()
 
     def tabela_filiais(self, df_filiais):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
+        self.set_font("Helvetica", "B", 10)
         self.set_fill_color(240, 240, 240)
 
         headers = ["Filial", "Realizado", "Meta", "Gap", "Atingimento"]
@@ -386,7 +311,7 @@ class PDFRelatorio(FPDF):
             self.cell(w, 8, h, border=1, fill=True, align="C")
         self.ln()
 
-        self.set_font("DejaVu", "", 9)
+        self.set_font("Helvetica", "", 9)
         for _, row in df_filiais.iterrows():
             self.cell(widths[0], 7, str(row["FILIAL"]), border=1)
             self.cell(widths[1], 7, fmt_brl(row["Realizado"]), border=1, align="R")
@@ -395,35 +320,9 @@ class PDFRelatorio(FPDF):
             self.cell(widths[4], 7, fmt_pct(row["Atingimento"]), border=1, align="R")
             self.ln()
 
-    def tabela_periodo(self, df_periodo):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
-        self.set_fill_color(240, 240, 240)
-
-        headers = ["Ano", "Período", "Realizado", "Meta", "Gap", "Atingimento", "Var. Real."]
-        widths = [18, 28, 32, 28, 26, 28, 26]
-
-        for h, w in zip(headers, widths):
-            self.cell(w, 8, h, border=1, fill=True, align="C")
-        self.ln()
-
-        self.set_font("DejaVu", "", 8)
-        for _, row in df_periodo.iterrows():
-            var_real = row["Variação Realizado"]
-            var_real_str = fmt_pct(var_real) if pd.notna(var_real) else "-"
-
-            self.cell(widths[0], 7, str(int(row["Ano"])), border=1, align="C")
-            self.cell(widths[1], 7, str(row["Período"]), border=1, align="C")
-            self.cell(widths[2], 7, fmt_brl(row["Realizado"]), border=1, align="R")
-            self.cell(widths[3], 7, fmt_brl(row["Meta"]), border=1, align="R")
-            self.cell(widths[4], 7, fmt_brl(row["Gap (R$)"]), border=1, align="R")
-            self.cell(widths[5], 7, fmt_pct(row["Atingimento"]), border=1, align="R")
-            self.cell(widths[6], 7, var_real_str, border=1, align="R")
-            self.ln()
-
 
 def gerar_pdf(df_todas_unidades, indicador, ano_selecionado):
-    pdf = PDFRelatorio(indicador, "GERAL")
+    pdf = PDFRelatorio(indicador, "Todas as unidades")
 
     pdf.add_page()
     pdf.secao(f"1. Análise por Mês - Ano {ano_selecionado}")
@@ -442,24 +341,9 @@ def gerar_pdf(df_todas_unidades, indicador, ano_selecionado):
     pdf.tabela_yoy(df_yoy)
 
     pdf.add_page()
-    pdf.secao("4. Comparativo do Mesmo Período vs Ano Anterior")
-    df_periodo = comparar_mesmo_periodo(df_todas_unidades, ano_selecionado)
-    pdf.tabela_periodo(df_periodo)
-
-    pdf.add_page()
-    pdf.secao(f"5. Comparativo entre Filiais - {ano_selecionado}")
+    pdf.secao(f"4. Comparativo entre Filiais - {ano_selecionado}")
     df_filiais = comparativo_filiais(df_todas_unidades, ano_selecionado)
     pdf.tabela_filiais(df_filiais)
-
-    for filial_rel in FILIAIS_REAIS:
-        df_filial = df_todas_unidades[df_todas_unidades["FILIAL"] == filial_rel].copy()
-        if df_filial.empty:
-            continue
-
-        pdf.add_page()
-        pdf.secao(f"6. Filial: {filial_rel} - Ano {ano_selecionado}")
-        df_filial_ano = tabela_completa_ano(df_filial, ano_selecionado)
-        pdf.tabela_por_ano(df_filial_ano)
 
     return bytes(pdf.output())
 
@@ -467,9 +351,6 @@ def gerar_pdf(df_todas_unidades, indicador, ano_selecionado):
 def resumo_para_ia(d, indicador, filial, pergunta):
     mom = calcular_mom(d).tail(12).to_string(index=False)
     yoy = calcular_yoy(d).to_string(index=False)
-    periodo = comparar_mesmo_periodo(d)
-
-    periodo_txt = periodo.to_string(index=False) if not periodo.empty else "Sem dados"
 
     return f"""Você é um analista financeiro experiente. Analise os dados abaixo e responda em português brasileiro de forma clara e objetiva.
 
@@ -481,9 +362,6 @@ Pergunta/solicitação: {pergunta}
 
 === MoM (últimos 12 meses) ===
 {mom}
-
-=== Mesmo período vs ano anterior ===
-{periodo_txt}
 
 Estruture sua resposta com:
 1. Resumo executivo (3-4 frases diretas)
@@ -503,7 +381,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v2.1 — Bot Indicadores")
+    st.caption("v2.0 — Bot Indicadores")
 
 if not arquivo:
     st.info("👈 Faça upload da planilha na barra lateral para começar.")
@@ -530,7 +408,6 @@ with tab0:
 
     anos = sorted(df["ANO"].unique())
     ano_kpi = anos[-1]
-    periodo_cmp = comparar_mesmo_periodo(df, ano_kpi)
 
     base_kpi = df[df["ANO"] == ano_kpi].copy()
 
@@ -539,30 +416,19 @@ with tab0:
     gap_total = realizado_total - meta_total
     ating_total = realizado_total / meta_total if meta_total > 0 else None
 
-    if not periodo_cmp.empty and len(periodo_cmp) == 2:
-        realizado_ly = periodo_cmp.iloc[0]["Realizado"]
-        realizado_ytd = periodo_cmp.iloc[1]["Realizado"]
-        delta_ytd = periodo_cmp.iloc[1]["Variação Realizado"]
-        periodo_label = periodo_cmp.iloc[1]["Período"]
+    if len(anos) >= 2:
+        ano_anterior = anos[-2]
+        realizado_ano_anterior = df[df["ANO"] == ano_anterior]["VALOR REF 01"].sum()
+        yoy_total = ((realizado_total / realizado_ano_anterior) - 1) if realizado_ano_anterior > 0 else None
     else:
-        realizado_ly = None
-        realizado_ytd = None
-        delta_ytd = None
-        periodo_label = "-"
+        yoy_total = None
 
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Realizado Ano", fmt_brl(realizado_total))
-    col2.metric("Meta Ano", fmt_brl(meta_total))
-    col3.metric("Gap Ano", fmt_brl(gap_total))
-    col4.metric("Atingimento Ano", fmt_pct(ating_total))
-    col5.metric(f"YTD {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-",
-                fmt_pct(delta_ytd) if delta_ytd is not None else None)
-
-    col6, col7 = st.columns(2)
-    with col6:
-        st.metric(f"Ano anterior {periodo_label}", fmt_brl(realizado_ly) if realizado_ly is not None else "-")
-    with col7:
-        st.metric("Período comparado", periodo_label)
+    col1.metric("Realizado", fmt_brl(realizado_total))
+    col2.metric("Meta", fmt_brl(meta_total))
+    col3.metric("Gap", fmt_brl(gap_total))
+    col4.metric("Atingimento", fmt_pct(ating_total))
+    col5.metric("YoY", fmt_pct(yoy_total) if yoy_total is not None else "-")
 
     st.divider()
 
@@ -592,23 +458,6 @@ with tab0:
         legend=dict(orientation="h", y=-0.15)
     )
     st.plotly_chart(fig_exec, use_container_width=True)
-
-    st.divider()
-    st.subheader("Mesmo período do ano anterior")
-
-    if not periodo_cmp.empty:
-        st.dataframe(
-            periodo_cmp.style.format({
-                "Realizado": "R$ {:,.0f}",
-                "Meta": "R$ {:,.0f}",
-                "Gap (R$)": "R$ {:,.0f}",
-                "Atingimento": "{:.1%}",
-                "Variação Realizado": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
-                "Variação Meta": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
 
     if filial == "Geral":
         st.divider()
@@ -644,7 +493,7 @@ with tab1:
         st.download_button(
             label="📄 Baixar PDF",
             data=pdf_bytes,
-            file_name=f"relatorio_{indicador}_GERAL_{datetime.now().strftime('%Y%m%d')}.pdf",
+            file_name=f"relatorio_{indicador}_todas_unidades_{datetime.now().strftime('%Y%m%d')}.pdf",
             mime="application/pdf",
             use_container_width=True
         )
@@ -790,24 +639,6 @@ with tab3:
         use_container_width=True,
         hide_index=True
     )
-
-    st.divider()
-    st.subheader("Mesmo período x ano anterior")
-
-    df_periodo_tela = comparar_mesmo_periodo(df)
-    if not df_periodo_tela.empty:
-        st.dataframe(
-            df_periodo_tela.style.format({
-                "Realizado": "R$ {:,.0f}",
-                "Meta": "R$ {:,.0f}",
-                "Gap (R$)": "R$ {:,.0f}",
-                "Atingimento": "{:.1%}",
-                "Variação Realizado": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
-                "Variação Meta": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
 
     if filial == "Geral":
         st.divider()
