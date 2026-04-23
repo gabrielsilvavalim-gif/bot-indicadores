@@ -10,9 +10,15 @@ st.set_page_config(page_title="Análise de Indicadores", page_icon="📊", layou
 
 client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
+COR_LARANJA = "#F26522"
+COR_VERDE = "#00A350"
+COR_ROXO = "#7F77DD"
+QUALQUER = "__ANY__"
+
 INDICADORES = {
     "Faturamento": {
         "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": None,
@@ -21,6 +27,7 @@ INDICADORES = {
     },
     "Faturamento Serviços": {
         "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": "SERVICOS",
@@ -29,6 +36,7 @@ INDICADORES = {
     },
     "Faturamento Regular": {
         "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": "SERVICOS",
@@ -37,6 +45,7 @@ INDICADORES = {
     },
     "Faturamento Incremental": {
         "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": "SERVICOS",
@@ -45,6 +54,7 @@ INDICADORES = {
     },
     "Faturamento LCSAO": {
         "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": "SERVICOS",
@@ -53,6 +63,7 @@ INDICADORES = {
     },
     "Faturamento Sucata Diversa": {
         "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": "SUCATAS DIVERSAS",
@@ -61,6 +72,7 @@ INDICADORES = {
     },
     "Faturamento Reman Rev": {
         "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": "REMAN REV",
@@ -69,6 +81,7 @@ INDICADORES = {
     },
     "Faturamento Reman Cap": {
         "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": "REMAN CAP",
@@ -81,14 +94,34 @@ INDICADORES = {
     },
     "Faturamento Pneus Velhos": {
         "tipo": "simples",
+        "categoria": "faturamento",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "PNEUS VELHOS",
+        "GRUPO 03": QUALQUER,
+        "TIPO DE META": "R$",
+    },
+    "Faturamento Pneu Exceto Moto": {
+        "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": "PNEUS VELHOS",
         "GRUPO 03": None,
         "TIPO DE META": "R$",
     },
+    "Faturamento Pneu Velho Moto": {
+        "tipo": "simples",
+        "categoria": "faturamento_moto_provisorio",
+        "TIPO": "ECONOMICO",
+        "GRUPO 01": "FATURAMENTO",
+        "GRUPO 02": "PNEUS VELHOS",
+        "GRUPO 03": "MOTOS",
+        "TIPO DE META": "R$",
+    },
     "Faturamento Especial": {
         "tipo": "simples",
+        "categoria": "faturamento",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "FATURAMENTO",
         "GRUPO 02": "ESPECIAL",
@@ -97,26 +130,29 @@ INDICADORES = {
     },
     "Despesa Geral": {
         "tipo": "simples",
+        "categoria": "despesa_geral",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "DESPESAS",
         "GRUPO 02": None,
-        "GRUPO 03": None,
+        "GRUPO 03": QUALQUER,
         "TIPO DE META": "%",
     },
     "Despesa Manutenção": {
         "tipo": "simples",
+        "categoria": "despesa",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "DESPESAS",
         "GRUPO 02": "MANUTENCAO",
-        "GRUPO 03": None,
+        "GRUPO 03": QUALQUER,
         "TIPO DE META": "R$",
     },
     "Despesa Hora Extra": {
         "tipo": "simples",
+        "categoria": "hora_extra",
         "TIPO": "ECONOMICO",
         "GRUPO 01": "DESPESAS",
         "GRUPO 02": "HORAS EXTRAS",
-        "GRUPO 03": None,
+        "GRUPO 03": QUALQUER,
         "TIPO DE META": "R$",
     },
 }
@@ -129,24 +165,23 @@ def carregar(arquivo):
     return pd.read_excel(arquivo)
 
 
+def aplicar_filtro_coluna(df, coluna, valor):
+    if valor == QUALQUER:
+        return df
+    if valor is None:
+        return df[df[coluna].isna()]
+    return df[df[coluna] == valor]
+
+
 def aplicar_filtro_base(df, cfg, filial):
     d = df.copy()
 
     if cfg.get("TIPO") is not None:
         d = d[d["TIPO"] == cfg["TIPO"]]
 
-    if cfg.get("GRUPO 01") is not None:
-        d = d[d["GRUPO 01"] == cfg["GRUPO 01"]]
-
-    if cfg.get("GRUPO 02") is None:
-        d = d[d["GRUPO 02"].isna()]
-    else:
-        d = d[d["GRUPO 02"] == cfg["GRUPO 02"]]
-
-    if cfg.get("GRUPO 03") is None:
-        d = d[d["GRUPO 03"].isna()]
-    else:
-        d = d[d["GRUPO 03"] == cfg["GRUPO 03"]]
+    d = aplicar_filtro_coluna(d, "GRUPO 01", cfg.get("GRUPO 01"))
+    d = aplicar_filtro_coluna(d, "GRUPO 02", cfg.get("GRUPO 02"))
+    d = aplicar_filtro_coluna(d, "GRUPO 03", cfg.get("GRUPO 03"))
 
     if cfg.get("TIPO DE META") is not None:
         d = d[d["TIPO DE META"] == cfg["TIPO DE META"]]
@@ -173,20 +208,40 @@ def aplicar_filtro_base(df, cfg, filial):
 
 def consolidar_campos(df, nome_indicador):
     d = df.copy()
+    categoria = INDICADORES[nome_indicador].get("categoria", "faturamento")
 
-    if nome_indicador.startswith("Despesa"):
-        d["REALIZADO_CALC"] = pd.to_numeric(d["VALOR REF 01"], errors="coerce").fillna(0)
-        d["META_CALC"] = pd.to_numeric(d["META"], errors="coerce").fillna(0)
+    d["META_CALC"] = pd.to_numeric(d.get("META"), errors="coerce").fillna(0)
+    d["VALOR1"] = pd.to_numeric(d.get("VALOR REF 01"), errors="coerce").fillna(0)
+    d["VALOR2"] = pd.to_numeric(d.get("VALOR REF 02"), errors="coerce").fillna(0)
 
-        if nome_indicador == "Despesa Hora Extra":
-            d["RESULTADO_PCT"] = (d["REALIZADO_CALC"] / d["META_CALC"]) - 1
-            d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
-        else:
-            d["RESULTADO_PCT"] = 1 - (d["REALIZADO_CALC"] / d["META_CALC"])
-            d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
+    if categoria == "faturamento":
+        d["REALIZADO_CALC"] = d["VALOR1"]
+        d["RESULTADO_PCT"] = d["REALIZADO_CALC"] / d["META_CALC"]
+        d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
+
+    elif categoria == "faturamento_moto_provisorio":
+        # Provisório até você me passar a fórmula específica da aba de moto
+        d["REALIZADO_CALC"] = d["VALOR1"]
+        d["RESULTADO_PCT"] = d["REALIZADO_CALC"] / d["META_CALC"]
+        d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
+
+    elif categoria == "despesa":
+        d["REALIZADO_CALC"] = d["VALOR1"]
+        d["RESULTADO_PCT"] = 1 - (d["REALIZADO_CALC"] / d["META_CALC"])
+        d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
+
+    elif categoria == "hora_extra":
+        d["REALIZADO_CALC"] = d["VALOR1"]
+        d["RESULTADO_PCT"] = (d["REALIZADO_CALC"] / d["META_CALC"]) - 1
+        d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
+
+    elif categoria == "despesa_geral":
+        d["REALIZADO_CALC"] = d["VALOR1"]
+        d["RESULTADO_PCT"] = 1 - (d["REALIZADO_CALC"] / d["META_CALC"])
+        d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
+
     else:
-        d["REALIZADO_CALC"] = pd.to_numeric(d["VALOR REF 01"], errors="coerce").fillna(0)
-        d["META_CALC"] = pd.to_numeric(d["META"], errors="coerce").fillna(0)
+        d["REALIZADO_CALC"] = d["VALOR1"]
         d["RESULTADO_PCT"] = d["REALIZADO_CALC"] / d["META_CALC"]
         d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
 
@@ -698,7 +753,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v3.0 — Bot Indicadores")
+    st.caption("v3.1 — Bot Indicadores")
 
 if not arquivo:
     st.info("👈 Faça upload da planilha na barra lateral para começar.")
@@ -769,6 +824,7 @@ with tab0:
         x=resumo_mensal_exec["MÊS_NOME"],
         y=resumo_mensal_exec["REALIZADO_CALC"],
         name="Realizado",
+        marker_color=COR_VERDE,
         marker_cornerradius=4
     )
     fig_exec.add_scatter(
@@ -776,7 +832,7 @@ with tab0:
         y=resumo_mensal_exec["META_CALC"],
         name="Meta",
         mode="lines+markers",
-        line=dict(color="#7F77DD", width=2, dash="dot")
+        line=dict(color=COR_LARANJA, width=2, dash="dot")
     )
     fig_exec.update_layout(height=380, margin=dict(t=20, b=20), legend=dict(orientation="h", y=-0.15))
     st.plotly_chart(fig_exec, use_container_width=True)
@@ -803,44 +859,135 @@ with tab1:
             use_container_width=True
         )
 
+    def cor_gap(v):
+        if pd.isna(v):
+            return ""
+        return f"color: {COR_VERDE}; font-weight:bold" if v >= 0 else f"color: {COR_LARANJA}; font-weight:bold"
+
+    def cor_ating(v):
+        if pd.isna(v):
+            return ""
+        if v >= 1.0:
+            return f"color: {COR_VERDE}; font-weight:bold"
+        if v >= 0.85:
+            return f"color: {COR_LARANJA}; font-weight:bold"
+        return f"color: {COR_LARANJA}; font-weight:bold"
+
     st.dataframe(
-        df_completa.style.format({
+        df_completa.style
+        .format({
             "Realizado": lambda v: f"R$ {v:,.0f}".replace(",", ".") if pd.notna(v) else "",
             "Meta": lambda v: f"R$ {v:,.0f}".replace(",", ".") if pd.notna(v) else "",
             "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
             "Atingimento": lambda v: f"{v:.0%}" if pd.notna(v) else "",
-        }),
+        })
+        .map(cor_gap, subset=["Gap (R$)"])
+        .map(cor_ating, subset=["Atingimento"]),
         use_container_width=True,
         hide_index=True
     )
+
+    st.divider()
+    st.subheader(f"Realizado x Meta — {ano_selecionado}")
+
+    dados_ano = df_completa[df_completa["Mês"] != "TOTAL"].dropna(subset=["Realizado"])
+
+    if not dados_ano.empty:
+        fig = go.Figure()
+        fig.add_bar(
+            x=dados_ano["Mês"],
+            y=dados_ano["Realizado"],
+            name="Realizado",
+            marker_color=[
+                COR_VERDE if r >= m else COR_LARANJA
+                for r, m in zip(dados_ano["Realizado"], dados_ano["Meta"])
+            ],
+            marker_cornerradius=4
+        )
+        fig.add_scatter(
+            x=dados_ano["Mês"],
+            y=dados_ano["Meta"],
+            name="Meta",
+            mode="lines+markers",
+            line=dict(color=COR_LARANJA, width=2, dash="dot")
+        )
+        fig.update_layout(height=360, margin=dict(t=20, b=20), legend=dict(orientation="h", y=-0.15))
+        st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
     df_mom = calcular_mom(df).sort_values("MÊS_ORDEM")
 
+    def hl_mom(v):
+        if pd.isna(v):
+            return ""
+        return f"color: {COR_VERDE}; font-weight:bold" if v > 0 else f"color: {COR_LARANJA}; font-weight:bold"
+
+    def hl_at(v):
+        if pd.isna(v):
+            return ""
+        if v >= 1.0:
+            return f"color: {COR_VERDE}; font-weight:bold"
+        if v >= 0.85:
+            return f"color: {COR_LARANJA}; font-weight:bold"
+        return f"color: {COR_LARANJA}; font-weight:bold"
+
     st.dataframe(
-        df_mom.style.format({
+        df_mom.style
+        .format({
             "META": "R$ {:,.0f}",
             "Realizado": "R$ {:,.0f}",
             "Ating.": "{:.0%}",
             "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-        }),
+        })
+        .map(hl_mom, subset=["MoM_%"])
+        .map(hl_at, subset=["Ating."]),
         use_container_width=True,
         hide_index=True
     )
+
+    ultimos = df_mom.tail(16)
+    real = ultimos["Realizado"].tolist()
+    meta_l = ultimos["META"].tolist()
+    cores = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(real, meta_l)]
+
+    fig2 = go.Figure()
+    fig2.add_bar(
+        x=ultimos["Mês"].tolist(),
+        y=real,
+        name="Realizado",
+        marker_color=cores,
+        marker_cornerradius=4
+    )
+    fig2.add_scatter(
+        x=ultimos["Mês"].tolist(),
+        y=meta_l,
+        name="Meta",
+        mode="lines",
+        line=dict(color=COR_LARANJA, width=2, dash="dot")
+    )
+    fig2.update_layout(height=360, margin=dict(t=20, b=20), legend=dict(orientation="h", y=-0.2), xaxis_tickangle=-45)
+    st.plotly_chart(fig2, use_container_width=True)
 
 with tab3:
     st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
     df_yoy = calcular_yoy(df)
 
+    def hl_yoy(v):
+        if pd.isna(v):
+            return ""
+        return f"color: {COR_VERDE}; font-weight:bold" if v > 0 else f"color: {COR_LARANJA}; font-weight:bold"
+
     st.dataframe(
-        df_yoy.style.format({
+        df_yoy.style
+        .format({
             "Realizado": "R$ {:,.0f}",
             "Meta": "R$ {:,.0f}",
             "Atingimento": "{:.1%}",
             "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
             "Meses c/ dado": "{:.0f}",
-        }),
+        })
+        .map(hl_yoy, subset=["YoY_%"]),
         use_container_width=True,
         hide_index=True
     )
@@ -862,6 +1009,42 @@ with tab3:
             use_container_width=True,
             hide_index=True
         )
+
+    if filial == "Geral":
+        st.divider()
+        st.subheader("Comparativo entre filiais")
+
+        ano_base = max(df["ANO"].unique())
+        comp_filiais = comparativo_filiais(df, ano_base)
+
+        st.dataframe(
+            comp_filiais.style.format({
+                "Realizado": "R$ {:,.0f}",
+                "Meta": "R$ {:,.0f}",
+                "Gap": "R$ {:,.0f}",
+                "Atingimento": "{:.1%}",
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        fig_filiais = go.Figure()
+        fig_filiais.add_bar(
+            x=comp_filiais["FILIAL"],
+            y=comp_filiais["Realizado"],
+            name="Realizado",
+            marker_color=COR_VERDE,
+            marker_cornerradius=4
+        )
+        fig_filiais.add_scatter(
+            x=comp_filiais["FILIAL"],
+            y=comp_filiais["Meta"],
+            name="Meta",
+            mode="lines+markers",
+            line=dict(color=COR_LARANJA, width=2, dash="dot")
+        )
+        fig_filiais.update_layout(height=380, margin=dict(t=20, b=20), legend=dict(orientation="h", y=-0.15))
+        st.plotly_chart(fig_filiais, use_container_width=True)
 
 with tab4:
     st.subheader("🤖 Pergunte ao assistente")
