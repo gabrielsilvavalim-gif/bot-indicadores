@@ -254,13 +254,47 @@ class PDFRelatorio(FPDF):
         super().__init__()
         self.indicador = indicador
         self.filial = filial
+        self._font_family = "Helvetica"
         self._font_ready = False
 
     def configurar_fontes(self):
-        if not self._font_ready:
+        if self._font_ready:
+            return
+
+        regular_exists = os.path.exists("DejaVuSans.ttf")
+        bold_exists = os.path.exists("DejaVuSans-Bold.ttf")
+
+        if regular_exists and bold_exists:
             self.add_font("DejaVu", "", "DejaVuSans.ttf")
             self.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf")
-            self._font_ready = True
+            self._font_family = "DejaVu"
+        else:
+            self._font_family = "Helvetica"
+
+        self._font_ready = True
+
+    def fonte(self, estilo="", tamanho=10):
+        self.configurar_fontes()
+        self.set_font(self._font_family, estilo, tamanho)
+
+    def safe(self, texto):
+        if self._font_family == "Helvetica":
+            return (
+                str(texto)
+                .replace("á", "a").replace("à", "a").replace("ã", "a").replace("â", "a")
+                .replace("é", "e").replace("ê", "e")
+                .replace("í", "i")
+                .replace("ó", "o").replace("ô", "o").replace("õ", "o")
+                .replace("ú", "u")
+                .replace("ç", "c")
+                .replace("Á", "A").replace("À", "A").replace("Ã", "A").replace("Â", "A")
+                .replace("É", "E").replace("Ê", "E")
+                .replace("Í", "I")
+                .replace("Ó", "O").replace("Ô", "O").replace("Õ", "O")
+                .replace("Ú", "U")
+                .replace("Ç", "C")
+            )
+        return str(texto)
 
     def header(self):
         self.configurar_fontes()
@@ -271,12 +305,12 @@ class PDFRelatorio(FPDF):
             except Exception:
                 pass
 
-        self.set_font("DejaVu", "B", 14)
-        self.cell(0, 10, "Relatório de Análise de Indicadores", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.fonte("B", 14)
+        self.cell(0, 10, self.safe("Relatório de Análise de Indicadores"), align="C", new_x="LMARGIN", new_y="NEXT")
 
-        self.set_font("DejaVu", "", 10)
-        self.cell(0, 6, f"{self.indicador} | Base do PDF: GERAL", align="C", new_x="LMARGIN", new_y="NEXT")
-        self.cell(0, 6, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.fonte("", 10)
+        self.cell(0, 6, self.safe(f"{self.indicador} | Base do PDF: GERAL"), align="C", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 6, self.safe(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}"), align="C", new_x="LMARGIN", new_y="NEXT")
 
         self.ln(4)
         self.set_draw_color(200, 200, 200)
@@ -286,38 +320,37 @@ class PDFRelatorio(FPDF):
     def footer(self):
         self.configurar_fontes()
         self.set_y(-15)
-        self.set_font("DejaVu", "", 8)
+        self.fonte("", 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f"Página {self.page_no()}", align="C")
+        self.cell(0, 10, self.safe(f"Pagina {self.page_no()}"), align="C")
 
     def secao(self, titulo):
         self.configurar_fontes()
-        self.set_font("DejaVu", "B", 12)
+        self.fonte("B", 12)
         self.set_text_color(0, 0, 0)
         self.ln(4)
-        self.cell(0, 8, titulo, new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 8, self.safe(titulo), new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
     def tabela_por_ano(self, df_completa):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
+        self.fonte("B", 10)
         self.set_fill_color(240, 240, 240)
 
-        headers = ["Mês", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
+        headers = ["Mes", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
         widths = [30, 40, 40, 40, 35]
 
         for h, w in zip(headers, widths):
-            self.cell(w, 8, h, border=1, fill=True, align="C")
+            self.cell(w, 8, self.safe(h), border=1, fill=True, align="C")
         self.ln()
 
-        self.set_font("DejaVu", "", 9)
+        self.fonte("", 9)
         for _, row in df_completa.iterrows():
             is_total = row["Mês"] == "TOTAL"
 
             if is_total:
-                self.set_font("DejaVu", "B", 9)
+                self.fonte("B", 9)
 
-            self.cell(widths[0], 7, str(row["Mês"]), border=1, align="C")
+            self.cell(widths[0], 7, self.safe(str(row["Mês"])), border=1, align="C")
             self.cell(widths[1], 7, fmt_brl(row["Realizado"]), border=1, align="R")
             self.cell(widths[2], 7, fmt_brl(row["Meta"]), border=1, align="R")
             self.cell(widths[3], 7, fmt_brl(row["Gap (R$)"]), border=1, align="R")
@@ -325,23 +358,22 @@ class PDFRelatorio(FPDF):
             self.ln()
 
             if is_total:
-                self.set_font("DejaVu", "", 9)
+                self.fonte("", 9)
 
     def tabela_mom(self, df_mom):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
+        self.fonte("B", 10)
         self.set_fill_color(240, 240, 240)
 
-        headers = ["Mês", "Meta", "Realizado", "Ating.", "MoM %"]
+        headers = ["Mes", "Meta", "Realizado", "Ating.", "MoM %"]
         widths = [35, 40, 40, 30, 30]
 
         for h, w in zip(headers, widths):
-            self.cell(w, 8, h, border=1, fill=True, align="C")
+            self.cell(w, 8, self.safe(h), border=1, fill=True, align="C")
         self.ln()
 
-        self.set_font("DejaVu", "", 9)
+        self.fonte("", 9)
         for _, row in df_mom.iterrows():
-            self.cell(widths[0], 7, str(row["Mês"]), border=1)
+            self.cell(widths[0], 7, self.safe(str(row["Mês"])), border=1)
             self.cell(widths[1], 7, fmt_brl(row["META"]), border=1, align="R")
             self.cell(widths[2], 7, fmt_brl(row["Realizado"]), border=1, align="R")
             self.cell(widths[3], 7, fmt_pct(row["Ating."]), border=1, align="R")
@@ -351,18 +383,17 @@ class PDFRelatorio(FPDF):
             self.ln()
 
     def tabela_yoy(self, df_yoy):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
+        self.fonte("B", 10)
         self.set_fill_color(240, 240, 240)
 
         headers = ["Ano", "Realizado", "Meta", "Atingimento", "Meses", "YoY %"]
         widths = [20, 40, 40, 35, 20, 30]
 
         for h, w in zip(headers, widths):
-            self.cell(w, 8, h, border=1, fill=True, align="C")
+            self.cell(w, 8, self.safe(h), border=1, fill=True, align="C")
         self.ln()
 
-        self.set_font("DejaVu", "", 9)
+        self.fonte("", 9)
         for _, row in df_yoy.iterrows():
             self.cell(widths[0], 7, str(int(row["ANO"])), border=1, align="C")
             self.cell(widths[1], 7, fmt_brl(row["Realizado"]), border=1, align="R")
@@ -375,20 +406,19 @@ class PDFRelatorio(FPDF):
             self.ln()
 
     def tabela_filiais(self, df_filiais):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
+        self.fonte("B", 10)
         self.set_fill_color(240, 240, 240)
 
         headers = ["Filial", "Realizado", "Meta", "Gap", "Atingimento"]
         widths = [55, 35, 35, 30, 30]
 
         for h, w in zip(headers, widths):
-            self.cell(w, 8, h, border=1, fill=True, align="C")
+            self.cell(w, 8, self.safe(h), border=1, fill=True, align="C")
         self.ln()
 
-        self.set_font("DejaVu", "", 9)
+        self.fonte("", 9)
         for _, row in df_filiais.iterrows():
-            self.cell(widths[0], 7, str(row["FILIAL"]), border=1)
+            self.cell(widths[0], 7, self.safe(str(row["FILIAL"])), border=1)
             self.cell(widths[1], 7, fmt_brl(row["Realizado"]), border=1, align="R")
             self.cell(widths[2], 7, fmt_brl(row["Meta"]), border=1, align="R")
             self.cell(widths[3], 7, fmt_brl(row["Gap"]), border=1, align="R")
@@ -396,24 +426,23 @@ class PDFRelatorio(FPDF):
             self.ln()
 
     def tabela_periodo(self, df_periodo):
-        self.configurar_fontes()
-        self.set_font("DejaVu", "B", 10)
+        self.fonte("B", 10)
         self.set_fill_color(240, 240, 240)
 
-        headers = ["Ano", "Período", "Realizado", "Meta", "Gap", "Atingimento", "Var. Real."]
+        headers = ["Ano", "Periodo", "Realizado", "Meta", "Gap", "Atingimento", "Var. Real."]
         widths = [18, 28, 32, 28, 26, 28, 26]
 
         for h, w in zip(headers, widths):
-            self.cell(w, 8, h, border=1, fill=True, align="C")
+            self.cell(w, 8, self.safe(h), border=1, fill=True, align="C")
         self.ln()
 
-        self.set_font("DejaVu", "", 8)
+        self.fonte("", 8)
         for _, row in df_periodo.iterrows():
             var_real = row["Variação Realizado"]
             var_real_str = fmt_pct(var_real) if pd.notna(var_real) else "-"
 
             self.cell(widths[0], 7, str(int(row["Ano"])), border=1, align="C")
-            self.cell(widths[1], 7, str(row["Período"]), border=1, align="C")
+            self.cell(widths[1], 7, self.safe(str(row["Período"])), border=1, align="C")
             self.cell(widths[2], 7, fmt_brl(row["Realizado"]), border=1, align="R")
             self.cell(widths[3], 7, fmt_brl(row["Meta"]), border=1, align="R")
             self.cell(widths[4], 7, fmt_brl(row["Gap (R$)"]), border=1, align="R")
@@ -426,12 +455,12 @@ def gerar_pdf(df_todas_unidades, indicador, ano_selecionado):
     pdf = PDFRelatorio(indicador, "GERAL")
 
     pdf.add_page()
-    pdf.secao(f"1. Análise por Mês - Ano {ano_selecionado}")
+    pdf.secao(f"1. Analise por Mes - Ano {ano_selecionado}")
     df_completa = tabela_completa_ano(df_todas_unidades, ano_selecionado)
     pdf.tabela_por_ano(df_completa)
 
     pdf.add_page()
-    pdf.secao(f"2. Variação Mês a Mês (MoM) - Ano {ano_selecionado}")
+    pdf.secao(f"2. Variacao Mes a Mes (MoM) - Ano {ano_selecionado}")
     df_mom = calcular_mom(df_todas_unidades)
     df_mom_pdf = df_mom[df_mom["ANO"] == ano_selecionado].sort_values("MÊS")
     pdf.tabela_mom(df_mom_pdf)
@@ -442,9 +471,10 @@ def gerar_pdf(df_todas_unidades, indicador, ano_selecionado):
     pdf.tabela_yoy(df_yoy)
 
     pdf.add_page()
-    pdf.secao("4. Comparativo do Mesmo Período vs Ano Anterior")
+    pdf.secao("4. Comparativo do Mesmo Periodo vs Ano Anterior")
     df_periodo = comparar_mesmo_periodo(df_todas_unidades, ano_selecionado)
-    pdf.tabela_periodo(df_periodo)
+    if not df_periodo.empty:
+        pdf.tabela_periodo(df_periodo)
 
     pdf.add_page()
     pdf.secao(f"5. Comparativo entre Filiais - {ano_selecionado}")
@@ -503,7 +533,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v2.1 — Bot Indicadores")
+    st.caption("v2.2 — Bot Indicadores")
 
 if not arquivo:
     st.info("👈 Faça upload da planilha na barra lateral para começar.")
@@ -555,8 +585,11 @@ with tab0:
     col2.metric("Meta Ano", fmt_brl(meta_total))
     col3.metric("Gap Ano", fmt_brl(gap_total))
     col4.metric("Atingimento Ano", fmt_pct(ating_total))
-    col5.metric(f"YTD {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-",
-                fmt_pct(delta_ytd) if delta_ytd is not None else None)
+    col5.metric(
+        f"YTD {periodo_label}",
+        fmt_brl(realizado_ytd) if realizado_ytd is not None else "-",
+        fmt_pct(delta_ytd) if delta_ytd is not None else None
+    )
 
     col6, col7 = st.columns(2)
     with col6:
