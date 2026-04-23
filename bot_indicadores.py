@@ -193,7 +193,7 @@ with tab1:
     st.dataframe(
         df_at.style
              .format({str(a): (lambda v: f"{v:.0%}" if v and not pd.isna(v) else "") for a in anos})
-             .applymap(highlight_at, subset=[str(a) for a in anos]),
+             .map(highlight_at, subset=[str(a) for a in anos]),
         use_container_width=True, hide_index=True
     )
 
@@ -239,8 +239,8 @@ with tab2:
                   "Ating.": "{:.0%}",
                   "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
               })
-              .applymap(hl_mom, subset=["MoM_%"])
-              .applymap(hl_at, subset=["Ating."]),
+              .map(hl_mom, subset=["MoM_%"])
+              .map(hl_at, subset=["Ating."]),
         use_container_width=True, hide_index=True
     )
 
@@ -276,7 +276,7 @@ with tab3:
                   "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
                   "Meses c/ dado": "{:.0f}",
               })
-              .applymap(hl_yoy, subset=["YoY_%"]),
+              .map(hl_yoy, subset=["YoY_%"]),
         use_container_width=True, hide_index=True
     )
 
