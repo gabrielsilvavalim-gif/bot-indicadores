@@ -13,7 +13,7 @@ client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 COR_LARANJA = "#F26522"
 COR_VERDE = "#00A350"
 QUALQUER = "__ANY__"
-LOGO_ARQUIVO = "caminhao-de-lixo (1).png"
+LOGO_ARQUIVO = "MAZOLA.JPG"
 
 INDICADORES = {
     "Faturamento": {
