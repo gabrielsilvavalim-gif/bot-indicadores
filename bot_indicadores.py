@@ -793,7 +793,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-col_logo, col_titulo = st.columns([1, 4], vertical_alignment="center", gap="small")
+col_logo, col_titulo = st.columns([1, 5], vertical_alignment="center", gap="small")
 
 with col_logo:
     if os.path.exists(LOGO_ARQUIVO):
