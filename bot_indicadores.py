@@ -66,7 +66,7 @@ INDICADORES = {
     },
     "Faturamento Pneu Exceto Moto": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
-        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "PNEUS VELHOS", "GRUPO 03": None, "TIPO DE META": "R$"
+        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "PNEUS VELHOS S/MOTO", "GRUPO 03": None, "TIPO DE META": "R$"
     },
     "Faturamento Especial": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
