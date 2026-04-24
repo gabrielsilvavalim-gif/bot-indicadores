@@ -550,7 +550,12 @@ Use R$ e % nos números. Seja direto e prático."""
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&display=swap');
-
+[data-testid="stMetricValue"] {
+        font-size: 22px !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 12px !important;
+    }
 .titulo-mazola {
     font-family:'Montserrat',sans-serif;
     font-size:34px;
