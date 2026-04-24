@@ -803,20 +803,27 @@ with tab2:
 
     df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
 
-    st.dataframe(
-        df_mom_tela.style
-        .format({
-            "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-            "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-            "META": "R$ {:,.0f}",
-            "Realizado": "R$ {:,.0f}",
-            "Gap": lambda v: f"R$ {v:+,.0f}" if pd.notna(v) else "—",
-            "Ating.": "{:.0%}",
-        })
-        .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
-        .map(cor_atingimento, subset=["Ating."]),
-        use_container_width=True,
-        hide_index=True
+    def destacar_total(row):
+    if str(row["Mês"]).startswith("TOTAL"):
+        return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
+    return ["" for _ in row]
+
+st.dataframe(
+    df_mom_tela.style
+    .apply(destacar_total, axis=1)
+    .format({
+        "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+        "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+        "META": "R$ {:,.0f}",
+        "Realizado": "R$ {:,.0f}",
+        "Gap": lambda v: f"R$ {v:+,.0f}" if pd.notna(v) else "—",
+        "Ating.": "{:.0%}",
+    })
+    .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
+    .map(cor_atingimento, subset=["Ating."]),
+    use_container_width=True,
+    hide_index=True
+)
     )
 
     ultimos = df_mom.tail(16)
