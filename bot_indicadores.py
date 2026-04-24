@@ -651,8 +651,7 @@ def card_html(titulo, valor, delta=None):
         f'<div style="font-size:24px;font-weight:600;color:#111827;line-height:1.15;white-space:nowrap;">{valor}</div>'
         f'{delta_html}'
         f'</div>'
-    )
-   class PDFRelatorio(FPDF):
+    )class PDFRelatorio(FPDF):
     def __init__(self, indicador, filial):
         super().__init__()
         self.indicador = indicador
