@@ -670,7 +670,7 @@ with tab0:
     if not dados_chart.empty:
         ultimo_mes = dados_chart["Mês"].iloc[-1]
         fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, titulo=f"Realizado x Meta — até {ultimo_mes}/{ano_kpi}")
-        st.plotly_chart(fig_dash, use_container_width=True)
+        st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard")
 
     st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
     df_yoy_dashboard = calcular_yoy(df, indicador)
@@ -728,7 +728,7 @@ with tab1:
     st.divider()
     fig_ano = grafico_realizado_meta(df_completa, ano_selecionado)
     if fig_ano is not None:
-        st.plotly_chart(fig_ano, use_container_width=True)
+        st.plotly_chart(fig_ano, use_container_width=True, key="grafico_por_ano")
 
 with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
@@ -880,7 +880,7 @@ with tab3:
             margin=dict(t=30, b=20, l=20, r=20),
             legend=dict(orientation="h", y=-0.15)
         )
-        st.plotly_chart(fig_filiais, use_container_width=True)
+        st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais")
 
 with tab4:
     col_chat1, col_chat2 = st.columns([4, 1])
