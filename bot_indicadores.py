@@ -122,8 +122,10 @@ def filtrar(df, indicador, filial):
         if not componentes:
             return pd.DataFrame()
         base = pd.concat(componentes, ignore_index=True)
-        agrupado = (base.groupby(["FILIAL","REFERÊNCIA","ANO","MÊS","MÊS_ORDEM","MÊS_NOME"], as_index=False)
-                        .agg({"META_CALC":"sum","REALIZADO_CALC":"sum"}))
+        agrupado = (
+            base.groupby(["FILIAL","REFERÊNCIA","ANO","MÊS","MÊS_ORDEM","MÊS_NOME"], as_index=False)
+            .agg({"META_CALC":"sum","REALIZADO_CALC":"sum"})
+        )
         agrupado["RESULTADO_RS"] = agrupado["REALIZADO_CALC"] - agrupado["META_CALC"]
         agrupado["ATINGIMENTO_CALC"] = agrupado["REALIZADO_CALC"] / agrupado["META_CALC"].replace(0, pd.NA)
         agrupado = agrupado.replace([float("inf"), float("-inf")], pd.NA)
@@ -137,13 +139,17 @@ def eh_despesa(indicador):
         if cfg.get("componentes"):
             return INDICADORES[cfg["componentes"][0]].get("categoria") == "despesa"
     return cfg.get("categoria") == "despesa"
+
+
 def tabela_completa_ano(d, ano, indicador):
     meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
     rows = []
     base_ano = d[d["ANO"] == ano].copy()
-    mensal = (base_ano.groupby("MÊS", as_index=False)
-                      .agg({"REALIZADO_CALC":"sum","META_CALC":"sum"})
-                      .sort_values("MÊS"))
+    mensal = (
+        base_ano.groupby("MÊS", as_index=False)
+        .agg({"REALIZADO_CALC":"sum","META_CALC":"sum"})
+        .sort_values("MÊS")
+    )
     despesa = eh_despesa(indicador)
 
     for i, mes in enumerate(meses, 1):
@@ -170,15 +176,23 @@ def tabela_completa_ano(d, ano, indicador):
         total_gap = total_real - total_meta
         total_ating = total_real / total_meta if total_meta > 0 else None
 
-    rows.append({"Mês":"TOTAL","Realizado":total_real,"Meta":total_meta,
-                 "Gap (R$)":total_gap,"Atingimento":total_ating})
+    rows.append({
+        "Mês":"TOTAL",
+        "Realizado":total_real,
+        "Meta":total_meta,
+        "Gap (R$)":total_gap,
+        "Atingimento":total_ating
+    })
     return pd.DataFrame(rows)
 
 
 def calcular_mom(d, indicador):
-    base = (d.groupby(["ANO","MÊS","MÊS_NOME","MÊS_ORDEM"], as_index=False)
-             .agg({"META_CALC":"sum","REALIZADO_CALC":"sum"})
-             .sort_values("MÊS_ORDEM").reset_index(drop=True))
+    base = (
+        d.groupby(["ANO","MÊS","MÊS_NOME","MÊS_ORDEM"], as_index=False)
+        .agg({"META_CALC":"sum","REALIZADO_CALC":"sum"})
+        .sort_values("MÊS_ORDEM")
+        .reset_index(drop=True)
+    )
     if eh_despesa(indicador):
         base["Ating."] = base["META_CALC"] / base["REALIZADO_CALC"].replace(0, pd.NA)
     else:
@@ -186,14 +200,17 @@ def calcular_mom(d, indicador):
     base["MoM_%"] = base["REALIZADO_CALC"].pct_change() * 100
     base = base.replace([float("inf"), float("-inf")], pd.NA)
     return base.rename(columns={"MÊS_NOME":"Mês","REALIZADO_CALC":"Realizado","META_CALC":"META"})[
-        ["ANO","MÊS","Mês","META","Realizado","Ating.","MoM_%","MÊS_ORDEM"]]
+        ["ANO","MÊS","Mês","META","Realizado","Ating.","MoM_%","MÊS_ORDEM"]
+    ]
 
 
 def calcular_yoy(d, indicador):
-    df_yoy = (d.groupby("ANO", as_index=False)
-               .agg({"REALIZADO_CALC":"sum","META_CALC":"sum","MÊS":"nunique"})
-               .sort_values("ANO")
-               .rename(columns={"REALIZADO_CALC":"Realizado","META_CALC":"Meta","MÊS":"Meses c/ dado"}))
+    df_yoy = (
+        d.groupby("ANO", as_index=False)
+        .agg({"REALIZADO_CALC":"sum","META_CALC":"sum","MÊS":"nunique"})
+        .sort_values("ANO")
+        .rename(columns={"REALIZADO_CALC":"Realizado","META_CALC":"Meta","MÊS":"Meses c/ dado"})
+    )
     if eh_despesa(indicador):
         df_yoy["Atingimento"] = df_yoy["Meta"] / df_yoy["Realizado"].replace(0, pd.NA)
     else:
@@ -204,10 +221,13 @@ def calcular_yoy(d, indicador):
 
 
 def comparativo_filiais(d, ano, indicador):
-    comp = (d[d["ANO"] == ano].groupby("FILIAL", as_index=False)
-             .agg({"REALIZADO_CALC":"sum","META_CALC":"sum"})
-             .rename(columns={"REALIZADO_CALC":"Realizado","META_CALC":"Meta"})
-             .sort_values("Realizado", ascending=False))
+    comp = (
+        d[d["ANO"] == ano]
+        .groupby("FILIAL", as_index=False)
+        .agg({"REALIZADO_CALC":"sum","META_CALC":"sum"})
+        .rename(columns={"REALIZADO_CALC":"Realizado","META_CALC":"Meta"})
+        .sort_values("Realizado", ascending=False)
+    )
     if eh_despesa(indicador):
         comp["Gap"] = comp["Meta"] - comp["Realizado"]
         comp["Atingimento"] = comp["Meta"] / comp["Realizado"].replace(0, pd.NA)
@@ -231,30 +251,47 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
     atual_periodo = base_atual[base_atual["MÊS"] <= mes_limite]
     anterior_periodo = base_ant[base_ant["MÊS"] <= mes_limite]
     nomes_meses = {1:"Jan",2:"Fev",3:"Mar",4:"Abr",5:"Mai",6:"Jun",7:"Jul",8:"Ago",9:"Set",10:"Out",11:"Nov",12:"Dez"}
+
     real_atual = atual_periodo["REALIZADO_CALC"].sum()
     meta_atual = atual_periodo["META_CALC"].sum()
     real_ant = anterior_periodo["REALIZADO_CALC"].sum()
     meta_ant = anterior_periodo["META_CALC"].sum()
 
     if eh_despesa(indicador):
-        ating_atual = meta_atual/real_atual if real_atual > 0 else None
-        ating_ant = meta_ant/real_ant if real_ant > 0 else None
+        ating_atual = meta_atual / real_atual if real_atual > 0 else None
+        ating_ant = meta_ant / real_ant if real_ant > 0 else None
         gap_atual = meta_atual - real_atual
         gap_ant = meta_ant - real_ant
     else:
-        ating_atual = real_atual/meta_atual if meta_atual > 0 else None
-        ating_ant = real_ant/meta_ant if meta_ant > 0 else None
+        ating_atual = real_atual / meta_atual if meta_atual > 0 else None
+        ating_ant = real_ant / meta_ant if meta_ant > 0 else None
         gap_atual = real_atual - meta_atual
         gap_ant = real_ant - meta_ant
 
-    var_real = ((real_atual/real_ant)-1) if real_ant > 0 else None
-    var_meta = ((meta_atual/meta_ant)-1) if meta_ant > 0 else None
+    var_real = ((real_atual / real_ant) - 1) if real_ant > 0 else None
+    var_meta = ((meta_atual / meta_ant) - 1) if meta_ant > 0 else None
 
     return pd.DataFrame([
-        {"Ano":ano_anterior,"Período":f"Jan a {nomes_meses[mes_limite]}","Realizado":real_ant,"Meta":meta_ant,
-         "Gap (R$)":gap_ant,"Atingimento":ating_ant,"Variação Realizado":None,"Variação Meta":None},
-        {"Ano":ano_referencia,"Período":f"Jan a {nomes_meses[mes_limite]}","Realizado":real_atual,"Meta":meta_atual,
-         "Gap (R$)":gap_atual,"Atingimento":ating_atual,"Variação Realizado":var_real,"Variação Meta":var_meta}
+        {
+            "Ano":ano_anterior,
+            "Período":f"Jan a {nomes_meses[mes_limite]}",
+            "Realizado":real_ant,
+            "Meta":meta_ant,
+            "Gap (R$)":gap_ant,
+            "Atingimento":ating_ant,
+            "Variação Realizado":None,
+            "Variação Meta":None
+        },
+        {
+            "Ano":ano_referencia,
+            "Período":f"Jan a {nomes_meses[mes_limite]}",
+            "Realizado":real_atual,
+            "Meta":meta_atual,
+            "Gap (R$)":gap_atual,
+            "Atingimento":ating_atual,
+            "Variação Realizado":var_real,
+            "Variação Meta":var_meta
+        }
     ])
 
 
@@ -273,8 +310,6 @@ def fmt_pct(v):
 def cor_gap_valor(v, despesa=False):
     if pd.isna(v):
         return ""
-    if despesa:
-        return f"color: {COR_VERDE}; font-weight:bold" if v >= 0 else f"color: {COR_LARANJA}; font-weight:bold"
     return f"color: {COR_VERDE}; font-weight:bold" if v >= 0 else f"color: {COR_LARANJA}; font-weight:bold"
 
 
@@ -290,6 +325,8 @@ def cor_variacao(v):
     if pd.isna(v):
         return ""
     return f"color: {COR_VERDE}; font-weight:bold" if v > 0 else f"color: {COR_LARANJA}; font-weight:bold"
+
+
 class PDFRelatorio(FPDF):
     def __init__(self, indicador, filial):
         super().__init__()
@@ -530,6 +567,8 @@ Estruture sua resposta com:
 4. Sugestões práticas de melhoria
 
 Use R$ e % nos números. Seja direto e prático."""
+
+
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&display=swap');
@@ -548,8 +587,14 @@ st.markdown("""
         margin: 4px 0 0 0;
         line-height: 1.1;
     }
-    .logo-alinhada img { display: block; margin-top: 0px; }
-    .texto-cabecalho { padding-top: 28px; margin-left: -100px; }
+    .logo-alinhada img {
+        display: block;
+        margin-top: 0px;
+    }
+    .texto-cabecalho {
+        padding-top: 28px;
+        margin-left: -100px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -705,17 +750,20 @@ with tab1:
             y=dados_ano["Realizado"],
             name="Realizado",
             marker_color=[COR_VERDE if r >= m else COR_LARANJA
-                         for r, m in zip(dados_ano["Realizado"], dados_ano["Meta"])],
+                          for r, m in zip(dados_ano["Realizado"], dados_ano["Meta"])],
             marker_cornerradius=4
         )
         fig.add_scatter(
-            x=dados_ano["Mês"], y=dados_ano["Meta"], name="Meta", mode="lines+markers",
+            x=dados_ano["Mês"],
+            y=dados_ano["Meta"],
+            name="Meta",
+            mode="lines+markers",
             line=dict(color=COR_LARANJA, width=2, dash="dot")
         )
         fig.update_layout(height=360, margin=dict(t=20, b=20), legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig, use_container_width=True)
-        
-        with tab2:
+
+with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM")
 
@@ -753,8 +801,12 @@ with tab1:
         mode="lines",
         line=dict(color=COR_LARANJA, width=2, dash="dot")
     )
-    fig2.update_layout(height=360, margin=dict(t=20, b=20),
-                       legend=dict(orientation="h", y=-0.2), xaxis_tickangle=-45)
+    fig2.update_layout(
+        height=360,
+        margin=dict(t=20, b=20),
+        legend=dict(orientation="h", y=-0.2),
+        xaxis_tickangle=-45
+    )
     st.plotly_chart(fig2, use_container_width=True)
 
 with tab3:
@@ -831,8 +883,7 @@ with tab3:
             mode="lines+markers",
             line=dict(color=COR_LARANJA, width=2, dash="dot")
         )
-        fig_filiais.update_layout(height=380, margin=dict(t=20, b=20),
-                                  legend=dict(orientation="h", y=-0.15))
+        fig_filiais.update_layout(height=380, margin=dict(t=20, b=20), legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig_filiais, use_container_width=True)
 
 with tab4:
