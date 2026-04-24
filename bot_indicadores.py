@@ -788,16 +788,17 @@ st.markdown("""
 
     .texto-cabecalho {
         padding-top: 8px;
+        margin-left: -45px;
     }
     </style>
 """, unsafe_allow_html=True)
 
-col_logo, col_titulo = st.columns([1.2, 4.8], vertical_alignment="center")
+col_logo, col_titulo = st.columns([1, 4], vertical_alignment="center", gap="small")
 
 with col_logo:
     if os.path.exists(LOGO_ARQUIVO):
         st.markdown('<div class="logo-alinhada">', unsafe_allow_html=True)
-        st.image(LOGO_ARQUIVO, width=125)
+        st.image(LOGO_ARQUIVO, width=120)
         st.markdown('</div>', unsafe_allow_html=True)
 
 with col_titulo:
