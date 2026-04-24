@@ -765,17 +765,21 @@ with tab1:
 
 with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
-    df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM")
+    df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").copy()
+
+    df_mom["Gap"] = df_mom["Realizado"] - df_mom["META"]
+
+    df_mom_tela = df_mom[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating."]].copy()
 
     st.dataframe(
-        df_mom.style
+        df_mom_tela.style
         .format({
             "META": "R$ {:,.0f}",
             "Realizado": "R$ {:,.0f}",
+            "Gap": lambda v: f"R$ {v:+,.0f}" if pd.notna(v) else "—",
             "Ating.": "{:.0%}",
-            "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
         })
-        .map(cor_variacao, subset=["MoM_%"])
+        .map(cor_gap_valor, subset=["Gap"])
         .map(cor_atingimento, subset=["Ating."]),
         use_container_width=True,
         hide_index=True
