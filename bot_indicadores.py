@@ -714,6 +714,7 @@ with tab1:
         )
         fig.update_layout(height=360, margin=dict(t=20, b=20), legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig, use_container_width=True)
+        
         with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM")
