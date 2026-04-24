@@ -767,19 +767,53 @@ with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").copy()
 
-    df_mom["Gap"] = df_mom["Realizado"] - df_mom["META"]
+    if eh_despesa(indicador):
+        df_mom["Gap"] = df_mom["META"] - df_mom["Realizado"]
+    else:
+        df_mom["Gap"] = df_mom["Realizado"] - df_mom["META"]
 
-    df_mom_tela = df_mom[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating."]].copy()
+    linhas_finais = []
+
+    for ano in sorted(df_mom["ANO"].dropna().unique()):
+        base_ano = df_mom[df_mom["ANO"] == ano].copy()
+
+        linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating."]])
+
+        total_meta = base_ano["META"].sum()
+        total_realizado = base_ano["Realizado"].sum()
+
+        if eh_despesa(indicador):
+            total_gap = total_meta - total_realizado
+            total_ating = total_meta / total_realizado if total_realizado > 0 else None
+        else:
+            total_gap = total_realizado - total_meta
+            total_ating = total_realizado / total_meta if total_meta > 0 else None
+
+        linha_total = pd.DataFrame([{
+            "ANO": ano,
+            "MÊS": None,
+            "Mês": f"TOTAL {ano}",
+            "META": total_meta,
+            "Realizado": total_realizado,
+            "Gap": total_gap,
+            "Ating.": total_ating
+        }])
+
+        linhas_finais.append(linha_total)
+
+    df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
 
     st.dataframe(
         df_mom_tela.style
         .format({
+            "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+            "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
             "META": "R$ {:,.0f}",
             "Realizado": "R$ {:,.0f}",
             "Gap": lambda v: f"R$ {v:+,.0f}" if pd.notna(v) else "—",
             "Ating.": "{:.0%}",
         })
-        .map(cor_gap_valor, subset=["Gap"])
+        .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
         .map(cor_atingimento, subset=["Ating."]),
         use_container_width=True,
         hide_index=True
