@@ -652,7 +652,7 @@ def card_html(titulo, valor, delta=None):
         f'{delta_html}'
         f'</div>'
     )
-    class PDFRelatorio(FPDF):
+   class PDFRelatorio(FPDF):
     def __init__(self, indicador, filial):
         super().__init__()
         self.indicador = indicador
@@ -793,33 +793,9 @@ def card_html(titulo, valor, delta=None):
 
         y2 = y_inicial + 25
 
-        self.kpi_box(
-            12,
-            y2,
-            45,
-            20,
-            f"Realizado {resumo['nome_mes']}",
-            fmt_brl(resumo["realizado_mes"])
-        )
-
-        self.kpi_box(
-            60,
-            y2,
-            45,
-            20,
-            f"Meta {resumo['nome_mes']}",
-            fmt_brl(resumo["meta_mes"])
-        )
-
-        self.kpi_box(
-            108,
-            y2,
-            45,
-            20,
-            "Dias Restantes",
-            str(resumo["dias_restantes"])
-        )
-
+        self.kpi_box(12, y2, 45, 20, f"Realizado {resumo['nome_mes']}", fmt_brl(resumo["realizado_mes"]))
+        self.kpi_box(60, y2, 45, 20, f"Meta {resumo['nome_mes']}", fmt_brl(resumo["meta_mes"]))
+        self.kpi_box(108, y2, 45, 20, "Dias Restantes", str(resumo["dias_restantes"]))
         self.kpi_box(
             156,
             y2,
@@ -890,7 +866,8 @@ def card_html(titulo, valor, delta=None):
             self.cell(widths[3], 6, fmt_brl(row["Gap"]), border=1, align="R")
             self.cell(widths[4], 6, fmt_pct(row["Ating."]), border=1, align="R")
             self.ln()
-                def tabela_yoy(self, df_yoy):
+
+    def tabela_yoy(self, df_yoy):
         self.fonte("B", 9)
         self.set_fill_color(240, 240, 240)
 
@@ -966,8 +943,6 @@ def card_html(titulo, valor, delta=None):
             self.cell(widths[3], 6, fmt_brl(row["Gap"]), border=1, align="R")
             self.cell(widths[4], 6, fmt_pct(row["Atingimento"]), border=1, align="R")
             self.ln()
-
-
 def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     pdf = PDFRelatorio(indicador, filial)
 
