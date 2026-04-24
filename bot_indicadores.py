@@ -627,56 +627,29 @@ def grafico_realizado_meta(df_completa, ano, titulo=None):
 
     return fig
 
-
 def card_html(titulo, valor, delta=None):
-    delta_html = ""
     if delta is not None:
         cor = "#00A350" if delta >= 0 else "#F26522"
+        fundo = "#EAF7EF" if delta >= 0 else "#FFF3E8"
         sinal = "+" if delta >= 0 else ""
-        delta_html = f"""
-        <div style="
-            display:inline-block;
-            margin-top:6px;
-            padding:3px 8px;
-            border-radius:999px;
-            background:#EAF7EF;
-            color:{cor};
-            font-size:12px;
-            font-weight:600;
-        ">
-            {sinal}{delta:.1%}
-        </div>
-        """
 
-    return f"""
-    <div style="
-        border:1px solid #E6E6E6;
-        border-radius:14px;
-        padding:14px 16px;
-        background:white;
-        min-height:105px;
-        box-shadow:0 1px 3px rgba(0,0,0,0.04);
-    ">
-        <div style="
-            font-size:12px;
-            color:#404040;
-            margin-bottom:8px;
-            white-space:nowrap;
-        ">
-            {titulo}
-        </div>
-        <div style="
-            font-size:24px;
-            font-weight:600;
-            color:#111827;
-            line-height:1.15;
-            white-space:nowrap;
-        ">
-            {valor}
-        </div>
-        {delta_html}
-    </div>
-    """
+        delta_html = (
+            f'<div style="display:inline-block;margin-top:8px;padding:3px 8px;'
+            f'border-radius:999px;background:{fundo};color:{cor};'
+            f'font-size:12px;font-weight:600;">{sinal}{delta:.1%}</div>'
+        )
+    else:
+        delta_html = ""
+
+    return (
+        f'<div style="border:1px solid #E6E6E6;border-radius:14px;'
+        f'padding:14px 16px;background:white;min-height:105px;'
+        f'box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
+        f'<div style="font-size:12px;color:#404040;margin-bottom:8px;white-space:nowrap;">{titulo}</div>'
+        f'<div style="font-size:24px;font-weight:600;color:#111827;line-height:1.15;white-space:nowrap;">{valor}</div>'
+        f'{delta_html}'
+        f'</div>'
+    )
 class PDFRelatorio(FPDF):
     def __init__(self, indicador, filial):
         super().__init__()
@@ -794,7 +767,20 @@ class PDFRelatorio(FPDF):
         self.multi_cell(w - 6, 5, self.safe(valor), border=0)
 
     def resumo_explicativo(self, resumo, texto):
-        self.secao("1. Resumo Executivo")
+        self.secao("1. Resumo ")
+        self.fonte("", 10)
+self.set_text_color(0, 0, 0)
+self.multi_cell(
+    0,
+    6,
+    self.safe(
+        f"Este relatório apresenta a análise do indicador {self.indicador}, "
+        f"considerando a base {self.filial}. Os dados abaixo resumem o desempenho "
+        f"do período selecionado, comparando realizado, meta, gap, atingimento e evolução "
+        f"em relação ao ano anterior."
+    )
+)
+self.ln(3)
 
         y_inicial = self.get_y()
 
@@ -987,9 +973,9 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     if resumo:
         pdf.resumo_explicativo(resumo, texto_explicativo)
     else:
-        pdf.secao("1. Resumo Executivo")
+        pdf.secao("1. Resumo ")
         pdf.fonte("", 10)
-        pdf.multi_cell(0, 6, pdf.safe("Sem dados suficientes para gerar o resumo executivo."))
+        pdf.multi_cell(0, 6, pdf.safe("Sem dados suficientes para gerar o resumo ."))
 
     pdf.add_page()
     pdf.secao(f"3. Análise por Mês - Ano {ano_selecionado}")
