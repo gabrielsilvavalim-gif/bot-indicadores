@@ -763,7 +763,7 @@ with tab1:
         fig.update_layout(height=360, margin=dict(t=20, b=20), legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig, use_container_width=True)
 
-with tab2
+with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").copy()
 
@@ -777,7 +777,9 @@ with tab2
     for ano in sorted(df_mom["ANO"].dropna().unique()):
         base_ano = df_mom[df_mom["ANO"] == ano].copy()
 
-        linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating."]])
+        linhas_finais.append(
+            base_ano[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating."]]
+        )
 
         total_meta = base_ano["META"].sum()
         total_realizado = base_ano["Realizado"].sum()
@@ -804,26 +806,28 @@ with tab2
     df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
 
     def destacar_total(row):
-    if str(row["Mês"]).startswith("TOTAL"):
-        return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
-    return ["" for _ in row]
+        if str(row["Mês"]).startswith("TOTAL"):
+            return [
+                "background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;"
+                for _ in row
+            ]
+        return ["" for _ in row]
 
-st.dataframe(
-    df_mom_tela.style
-    .apply(destacar_total, axis=1)
-    .format({
-        "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-        "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-        "META": "R$ {:,.0f}",
-        "Realizado": "R$ {:,.0f}",
-        "Gap": lambda v: f"R$ {v:+,.0f}" if pd.notna(v) else "—",
-        "Ating.": "{:.0%}",
-    }
-    .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
-    .map(cor_atingimento, subset=["Ating."]),
-    use_container_width=True,
-    hide_index=True
-)
+    st.dataframe(
+        df_mom_tela.style
+        .apply(destacar_total, axis=1)
+        .format({
+            "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+            "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+            "META": "R$ {:,.0f}",
+            "Realizado": "R$ {:,.0f}",
+            "Gap": lambda v: f"R$ {v:+,.0f}" if pd.notna(v) else "—",
+            "Ating.": "{:.0%}",
+        })
+        .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
+        .map(cor_atingimento, subset=["Ating."]),
+        use_container_width=True,
+        hide_index=True
     )
 
     ultimos = df_mom.tail(16)
