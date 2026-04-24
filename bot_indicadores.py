@@ -196,7 +196,8 @@ def tabela_completa_ano(d, ano, indicador):
     for i in range(1, 13):
         mes_nome = MESES_MAPA[i]
         sub = mensal[mensal["MÊS"] == i]
-                if len(sub) > 0:
+
+        if len(sub) > 0:
             real = sub["REALIZADO_CALC"].values[0]
             meta = sub["META_CALC"].values[0]
 
@@ -214,6 +215,7 @@ def tabela_completa_ano(d, ano, indicador):
                 "Gap (R$)": gap,
                 "Atingimento": ating
             })
+
         else:
             rows.append({
                 "Mês": mes_nome,
@@ -242,8 +244,6 @@ def tabela_completa_ano(d, ano, indicador):
     })
 
     return pd.DataFrame(rows)
-
-
 def calcular_mom(d, indicador):
     base = (
         d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"], as_index=False)
