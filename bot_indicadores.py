@@ -769,7 +769,7 @@ st.markdown("""
         font-size: 34px;
         font-weight: 700;
         color: #F26522;
-        margin-bottom: 0;
+        margin: 0;
         line-height: 1.1;
     }
 
@@ -777,26 +777,34 @@ st.markdown("""
         font-family: 'Montserrat', sans-serif;
         font-size: 15px;
         color: #00A350;
-        margin-top: 4px;
+        margin: 4px 0 0 0;
+        line-height: 1.1;
     }
 
-    .logo-subir img {
-        margin-top: -20px;
+    .logo-alinhada img {
+        display: block;
+        margin-top: 0px;
+    }
+
+    .texto-cabecalho {
+        padding-top: 8px;
     }
     </style>
 """, unsafe_allow_html=True)
 
-col_logo, col_titulo = st.columns([1, 5], vertical_alignment="top")
+col_logo, col_titulo = st.columns([1.2, 4.8], vertical_alignment="center")
 
 with col_logo:
     if os.path.exists(LOGO_ARQUIVO):
-        st.markdown('<div class="logo-subir">', unsafe_allow_html=True)
-        st.image(LOGO_ARQUIVO, width=130)
+        st.markdown('<div class="logo-alinhada">', unsafe_allow_html=True)
+        st.image(LOGO_ARQUIVO, width=125)
         st.markdown('</div>', unsafe_allow_html=True)
 
 with col_titulo:
+    st.markdown('<div class="texto-cabecalho">', unsafe_allow_html=True)
     st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
     st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("⚙️ Filtros")
