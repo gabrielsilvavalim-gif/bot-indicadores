@@ -244,6 +244,7 @@ def tabela_completa_ano(d, ano, indicador):
     })
 
     return pd.DataFrame(rows)
+
 def calcular_mom(d, indicador):
     base = (
         d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"], as_index=False)
@@ -469,6 +470,7 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
         "periodo_txt": periodo_txt,
         "despesa": despesa,
     }
+
 def gerar_texto_explicativo_pdf(resumo, indicador):
     if not resumo:
         return "Sem dados suficientes para gerar o resumo."
@@ -651,7 +653,8 @@ def card_html(titulo, valor, delta=None):
         f'<div style="font-size:24px;font-weight:600;color:#111827;line-height:1.15;white-space:nowrap;">{valor}</div>'
         f'{delta_html}'
         f'</div>' )
-    class PDFRelatorio(FPDF):
+
+class PDFRelatorio(FPDF):
     def __init__(self, indicador, filial):
         super().__init__()
         self.indicador = indicador
@@ -1029,7 +1032,8 @@ Estruture sua resposta com:
 4. Sugestões práticas de melhoria
 
 Use R$ e % nos números. Seja direto e prático."""
-    st.markdown("""
+
+st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&display=swap');
 
