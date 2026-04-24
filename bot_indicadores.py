@@ -144,11 +144,32 @@ def carregar(arquivo):
 
 
 def aplicar_filtro_coluna(df, coluna, valor):
+    """
+    Aplica filtro tratando corretamente campos vazios.
+
+    IMPORTANTE:
+    Na planilha, o campo vazio pode vir como NaN, None, string vazia "",
+    espaço em branco ou até texto "nan". Por isso, quando o filtro é None,
+    consideramos todos esses casos como vazio.
+
+    Isso corrige principalmente indicadores como:
+    - Faturamento Pneu Exceto Moto
+    - filtros em que GRUPO 02 ou GRUPO 03 precisam estar vazios
+    """
     if valor == QUALQUER:
         return df
+
+    serie = df[coluna]
+
     if valor is None:
-        return df[df[coluna].isna()]
-    return df[df[coluna] == valor]
+        vazio = (
+            serie.isna()
+            | (serie.astype(str).str.strip() == "")
+            | (serie.astype(str).str.strip().str.lower().isin(["nan", "none", "null"]))
+        )
+        return df[vazio]
+
+    return df[serie.astype(str).str.strip() == str(valor).strip()]
 
 
 def aplicar_filtro_base(df, cfg, filial):
