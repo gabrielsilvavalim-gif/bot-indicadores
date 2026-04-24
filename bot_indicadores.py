@@ -419,7 +419,8 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
     else:
         gap_ano = realizado_ano - meta_ano
         ating_ano = realizado_ano / meta_ano if meta_ano > 0 else None
-            dias_restantes = 0
+
+    dias_restantes = 0
     necessario_dia = None
 
     if ano_selecionado == hoje.year and mes_referencia == hoje.month:
@@ -468,8 +469,6 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
         "periodo_txt": periodo_txt,
         "despesa": despesa,
     }
-
-
 def gerar_texto_explicativo_pdf(resumo, indicador):
     if not resumo:
         return "Sem dados suficientes para gerar o resumo."
