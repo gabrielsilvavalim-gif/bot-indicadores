@@ -779,14 +779,20 @@ st.markdown("""
         color: #00A350;
         margin-top: 4px;
     }
+
+    .logo-subir img {
+        margin-top: -20px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-col_logo, col_titulo = st.columns([1, 5])
+col_logo, col_titulo = st.columns([1, 5], vertical_alignment="top")
 
 with col_logo:
     if os.path.exists(LOGO_ARQUIVO):
+        st.markdown('<div class="logo-subir">', unsafe_allow_html=True)
         st.image(LOGO_ARQUIVO, width=130)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 with col_titulo:
     st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
