@@ -788,7 +788,7 @@ st.markdown("""
 
     .texto-cabecalho {
         padding-top: 8px;
-        margin-left: -45px;
+        margin-left: -60px;
     }
     </style>
 """, unsafe_allow_html=True)
