@@ -172,6 +172,8 @@ def filtrar(df, indicador, filial):
         return agrupado.replace([float("inf"), float("-inf")], pd.NA)
 
     return pd.DataFrame()
+
+
 def eh_despesa(indicador):
     cfg = INDICADORES.get(indicador, {})
     if cfg.get("tipo") == "composto" and cfg.get("componentes"):
@@ -194,8 +196,7 @@ def tabela_completa_ano(d, ano, indicador):
     for i in range(1, 13):
         mes_nome = MESES_MAPA[i]
         sub = mensal[mensal["MÊS"] == i]
-
-        if len(sub) > 0:
+                if len(sub) > 0:
             real = sub["REALIZADO_CALC"].values[0]
             meta = sub["META_CALC"].values[0]
 
@@ -418,8 +419,7 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
     else:
         gap_ano = realizado_ano - meta_ano
         ating_ano = realizado_ano / meta_ano if meta_ano > 0 else None
-
-    dias_restantes = 0
+            dias_restantes = 0
     necessario_dia = None
 
     if ano_selecionado == hoje.year and mes_referencia == hoje.month:
@@ -468,9 +468,11 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
         "periodo_txt": periodo_txt,
         "despesa": despesa,
     }
+
+
 def gerar_texto_explicativo_pdf(resumo, indicador):
     if not resumo:
-        return "Sem dados suficientes para gerar o resumo executivo."
+        return "Sem dados suficientes para gerar o resumo."
 
     hoje_txt = resumo["hoje"].strftime("%d/%m/%Y")
     nome_mes = resumo["nome_mes"]
@@ -627,6 +629,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None):
 
     return fig
 
+
 def card_html(titulo, valor, delta=None):
     if delta is not None:
         cor = "#00A350" if delta >= 0 else "#F26522"
@@ -650,7 +653,7 @@ def card_html(titulo, valor, delta=None):
         f'{delta_html}'
         f'</div>'
     )
-class PDFRelatorio(FPDF):
+    class PDFRelatorio(FPDF):
     def __init__(self, indicador, filial):
         super().__init__()
         self.indicador = indicador
@@ -762,27 +765,28 @@ class PDFRelatorio(FPDF):
         self.multi_cell(w - 6, 4, self.safe(titulo), border=0)
 
         self.set_xy(x + 3, y + 12)
-        self.fonte("B", 11)
+        self.fonte("B", 10)
         self.set_text_color(0, 0, 0)
         self.multi_cell(w - 6, 5, self.safe(valor), border=0)
 
     def resumo_explicativo(self, resumo, texto):
-        self.secao("1. Resumo ")
+        self.secao("1. Resumo")
+
         self.fonte("", 10)
-self.set_text_color(0, 0, 0)
-self.multi_cell(
-    0,
-    6,
-    self.safe(
-        f"Este relatório apresenta a análise do indicador {self.indicador}, "
-        f"considerando a base {self.filial}. Os dados abaixo resumem o desempenho "
-        f"do período selecionado, comparando realizado, meta, gap, atingimento e evolução "
-        f"em relação ao ano anterior."
-    )
-)
-self.ln(3)
+        self.set_text_color(0, 0, 0)
+
+        texto_intro = (
+            f"Este relatório apresenta a análise do indicador {self.indicador}, "
+            f"considerando a base {self.filial}. Os dados abaixo resumem o desempenho "
+            f"do período selecionado, comparando realizado, meta, gap, atingimento e evolução "
+            f"em relação ao ano anterior."
+        )
+
+        self.multi_cell(0, 6, self.safe(texto_intro))
+        self.ln(3)
 
         y_inicial = self.get_y()
+
         self.kpi_box(12, y_inicial, 45, 20, "Realizado Ano", fmt_brl(resumo["realizado_ano"]))
         self.kpi_box(60, y_inicial, 45, 20, "Meta Ano", fmt_brl(resumo["meta_ano"]))
         self.kpi_box(108, y_inicial, 45, 20, "Gap Ano", fmt_brl(resumo["gap_ano"]))
@@ -798,6 +802,7 @@ self.ln(3)
             f"Realizado {resumo['nome_mes']}",
             fmt_brl(resumo["realizado_mes"])
         )
+
         self.kpi_box(
             60,
             y2,
@@ -806,6 +811,7 @@ self.ln(3)
             f"Meta {resumo['nome_mes']}",
             fmt_brl(resumo["meta_mes"])
         )
+
         self.kpi_box(
             108,
             y2,
@@ -814,6 +820,7 @@ self.ln(3)
             "Dias Restantes",
             str(resumo["dias_restantes"])
         )
+
         self.kpi_box(
             156,
             y2,
@@ -851,6 +858,7 @@ self.ln(3)
                 self.set_fill_color(255, 243, 232)
                 fill = True
             else:
+                self.set_fill_color(255, 255, 255)
                 fill = False
 
             self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1, align="C", fill=fill)
@@ -883,7 +891,7 @@ self.ln(3)
             self.cell(widths[3], 6, fmt_brl(row["Gap"]), border=1, align="R")
             self.cell(widths[4], 6, fmt_pct(row["Ating."]), border=1, align="R")
             self.ln()
-    def tabela_yoy(self, df_yoy):
+                def tabela_yoy(self, df_yoy):
         self.fonte("B", 9)
         self.set_fill_color(240, 240, 240)
 
@@ -972,9 +980,9 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     if resumo:
         pdf.resumo_explicativo(resumo, texto_explicativo)
     else:
-        pdf.secao("1. Resumo ")
+        pdf.secao("1. Resumo")
         pdf.fonte("", 10)
-        pdf.multi_cell(0, 6, pdf.safe("Sem dados suficientes para gerar o resumo ."))
+        pdf.multi_cell(0, 6, pdf.safe("Sem dados suficientes para gerar o resumo."))
 
     pdf.add_page()
     pdf.secao(f"3. Análise por Mês - Ano {ano_selecionado}")
@@ -1048,7 +1056,7 @@ Estruture sua resposta com:
 4. Sugestões práticas de melhoria
 
 Use R$ e % nos números. Seja direto e prático."""
-st.markdown("""
+    st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&display=swap');
 
@@ -1115,7 +1123,7 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v4.3 — Bot Indicadores")
+    st.caption("v4.4 — Bot Indicadores")
 
 
 if not arquivo:
