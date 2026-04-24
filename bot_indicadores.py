@@ -671,7 +671,7 @@ with tab0:
     col1.metric("Realizado Ano", fmt_brl(realizado_total))
     col2.metric("Meta Ano", fmt_brl(meta_total))
     col3.metric("Gap Ano", fmt_brl(gap_total))
-    col4.metric("Atingimento Ano", fmt_pct(ating_total))
+    col4.metric("Atingimento da meta", fmt_pct(ating_total))
     col5.metric(
         f"YTD {periodo_label}",
         fmt_brl(realizado_ytd) if realizado_ytd is not None else "-",
