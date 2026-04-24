@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 from anthropic import Anthropic
 from fpdf import FPDF
 from datetime import datetime
+import calendar
 import os
 
 st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_icon="📊", layout="wide")
@@ -203,7 +204,7 @@ def comparativo_filiais(d, ano, indicador):
     return comp
 
 
-def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
+def (d, indicador, ano_referencia=None):
     if d.empty:
         return pd.DataFrame()
     if ano_referencia is None:
