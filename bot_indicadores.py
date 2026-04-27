@@ -141,7 +141,19 @@ INDICADORES = {
         "GRUPO 01": "RESULTADO FINANCEIRO", "GRUPO 02": None, "GRUPO 03": None, "TIPO DE META": "%"
     },
     "Tecfil Geral": {
-        "tipo": "tecfil", "categoria": "tecfil"
+        "tipo": "tecfil", "categoria": "tecfil", "estado_tecfil": "GERAL"
+    },
+    "Tecfil SP": {
+        "tipo": "tecfil", "categoria": "tecfil", "estado_tecfil": "SP"
+    },
+    "Tecfil MS": {
+        "tipo": "tecfil", "categoria": "tecfil", "estado_tecfil": "MS"
+    },
+    "Tecfil ES": {
+        "tipo": "tecfil", "categoria": "tecfil", "estado_tecfil": "ES"
+    },
+    "Tecfil PR": {
+        "tipo": "tecfil", "categoria": "tecfil", "estado_tecfil": "PR"
     },
     "Despesa Manutenção": {
         "tipo": "simples", "categoria": "despesa", "TIPO": "ECONOMICO",
@@ -680,7 +692,12 @@ def consolidar_resultado_financeiro(df):
 
 
 def eh_tecfil(indicador):
-    return normalizar_texto(indicador) in ["TECFIL GERAL", "TECFIL"]
+    return normalizar_texto(indicador).startswith("TECFIL")
+
+
+def estado_tecfil_indicador(indicador):
+    cfg = INDICADORES.get(indicador, {})
+    return cfg.get("estado_tecfil", "GERAL")
 
 
 def cor_tecfil_resultado(v):
@@ -689,7 +706,7 @@ def cor_tecfil_resultado(v):
     return f"color: {COR_VERDE}; font-weight:bold" if v >= 0 else f"color: {COR_LARANJA}; font-weight:bold"
 
 
-def consolidar_tecfil(df_raw, filial):
+def consolidar_tecfil(df_raw, filial, indicador):
     """
     Estrutura especial TECFIL.
 
@@ -744,20 +761,24 @@ def consolidar_tecfil(df_raw, filial):
     if base.empty:
         return pd.DataFrame()
 
-    if filial == "Geral":
-        # Para o geral da Tecfil, a coluna C possui os estados.
-        # Devem entrar no consolidado geral apenas:
-        # SP, MS, ES e PR.
-        estados_tecfil = ["SP", "MS", "ES", "PR"]
-        estados_norm = [normalizar_texto(e) for e in estados_tecfil]
+    estado_indicador = estado_tecfil_indicador(indicador)
 
-        base = base[base["FILIAL_NORM"].isin(estados_norm)].copy()
+    if estado_indicador == "GERAL":
+        # Tecfil Geral deve continuar separado.
+        # Na planilha pode aparecer como TECFIL GERAL ou, em bases antigas, como XX GERAL XX.
+        opcoes_geral = [
+            normalizar_texto("TECFIL GERAL"),
+            normalizar_texto("XX GERAL XX"),
+            normalizar_texto("GERAL"),
+        ]
+
+        base = base[base["FILIAL_NORM"].isin(opcoes_geral)].copy()
         base["FILIAL"] = "Geral"
     else:
-        # Caso no futuro queira analisar um estado específico,
-        # o filtro usa exatamente o valor selecionado.
-        base = base[base["FILIAL_NORM"] == normalizar_texto(filial)].copy()
-        base["FILIAL"] = filial
+        # Indicadores separados por estado:
+        # Tecfil SP, Tecfil MS, Tecfil ES e Tecfil PR.
+        base = base[base["FILIAL_NORM"] == normalizar_texto(estado_indicador)].copy()
+        base["FILIAL"] = estado_indicador
 
     if base.empty:
         return pd.DataFrame()
@@ -852,7 +873,7 @@ def filtrar(df, indicador, filial):
         return consolidar_resultado_financeiro(aplicar_filtro_base(df, cfg, filial))
 
     if cfg["tipo"] == "tecfil":
-        return consolidar_tecfil(df, filial)
+        return consolidar_tecfil(df, filial, indicador)
 
     if cfg["tipo"] == "simples":
         return consolidar_campos(aplicar_filtro_base(df, cfg, filial), indicador)
@@ -3794,7 +3815,7 @@ def diagnosticar_sem_dados(df_raw, indicador, filial):
 
     if eh_tecfil(indicador):
         st.warning("Nenhum dado encontrado para os filtros selecionados.")
-        st.caption("Para Tecfil, confira se a planilha possui: coluna B = TECFIL KG/TECFIL VALOR, coluna C = estado/base, coluna F = data, coluna H = meta e coluna J = realizado.")
+        st.caption("Para Tecfil, confira se a planilha possui: coluna B = TECFIL KG/TECFIL VALOR, coluna C = base/estado, coluna F = data, coluna H = meta e coluna J = realizado.")
         st.stop()
 
     st.warning("Nenhum dado encontrado para os filtros selecionados.")
