@@ -30,6 +30,29 @@ except Exception:
     client = None
 
 
+
+def obter_ano_pdf_seguro(df_filtrado, df_base=None):
+    """
+    Retorna um ano seguro para gerar o PDF.
+
+    Evita erro quando o indicador filtrado ainda não retornou dados
+    ou quando o dataframe não possui a coluna ANO.
+    """
+    try:
+        if df_filtrado is not None and "ANO" in df_filtrado.columns and df_filtrado["ANO"].notna().any():
+            return int(pd.to_numeric(df_filtrado["ANO"], errors="coerce").dropna().max())
+    except Exception:
+        pass
+
+    try:
+        if df_base is not None and "ANO" in df_base.columns and df_base["ANO"].notna().any():
+            return int(pd.to_numeric(df_base["ANO"], errors="coerce").dropna().max())
+    except Exception:
+        pass
+
+    return agora_br().year
+
+
 def enviar_email_relatorio(destinatario, assunto, corpo, nome_arquivo, pdf_bytes):
     """
     Envia o relatório em PDF por e-mail usando SMTP.
@@ -4728,58 +4751,64 @@ with tab0:
     st.subheader(f"Dashboard — {indicador} | {filial}")
     col_pdf_dashboard_espaco, col_pdf_dashboard = st.columns([3, 1])
     with col_pdf_dashboard:
-        ano_pdf_dashboard = int(df["ANO"].max())
+        ano_pdf_dashboard = obter_ano_pdf_seguro(df, df_todas_unidades)
         nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
 
-        with st.spinner("Gerando PDF..."):
-            pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
+        pode_gerar_pdf = df is not None and not df.empty and "ANO" in df.columns
 
-        st.download_button(
-            label="📄 Baixar PDF",
-            data=pdf_bytes_dashboard,
-            file_name=nome_pdf_dashboard,
-            mime="application/pdf",
-            use_container_width=True,
-            key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
-        )
+        if pode_gerar_pdf:
+            with st.spinner("Gerando PDF..."):
+                pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
 
-        with st.expander("✉️ Enviar por e-mail"):
-            with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
-                email_destino = st.text_input("E-mail do destinatário")
-                assunto_email = st.text_input(
-                    "Assunto",
-                    value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
-                )
-                corpo_email = st.text_area(
-                    "Mensagem",
-                    value=(
-                        f"Olá,\n\n"
-                        f"Segue em anexo o relatório de indicadores referente a {indicador}, "
-                        f"base {filial}, ano {ano_pdf_dashboard}.\n\n"
-                        f"Atenciosamente."
-                    ),
-                    height=140
-                )
+            st.download_button(
+                label="📄 Baixar PDF",
+                data=pdf_bytes_dashboard,
+                file_name=nome_pdf_dashboard,
+                mime="application/pdf",
+                use_container_width=True,
+                key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
+            )
 
-                enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
+            with st.expander("✉️ Enviar por e-mail"):
+                with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
+                    email_destino = st.text_input("E-mail do destinatário")
+                    assunto_email = st.text_input(
+                        "Assunto",
+                        value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
+                    )
+                    corpo_email = st.text_area(
+                        "Mensagem",
+                        value=(
+                            f"Olá,\n\n"
+                            f"Segue em anexo o relatório de indicadores referente a {indicador}, "
+                            f"base {filial}, ano {ano_pdf_dashboard}.\n\n"
+                            f"Atenciosamente."
+                        ),
+                        height=140
+                    )
 
-                if enviar_email:
-                    if not email_destino or "@" not in email_destino:
-                        st.warning("Informe um e-mail válido.")
-                    else:
-                        with st.spinner("Enviando e-mail..."):
-                            ok, msg_envio = enviar_email_relatorio(
-                                destinatario=email_destino,
-                                assunto=assunto_email,
-                                corpo=corpo_email,
-                                nome_arquivo=nome_pdf_dashboard,
-                                pdf_bytes=pdf_bytes_dashboard,
-                            )
+                    enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
 
-                        if ok:
-                            st.success(msg_envio)
+                    if enviar_email:
+                        if not email_destino or "@" not in email_destino:
+                            st.warning("Informe um e-mail válido.")
                         else:
-                            st.error(msg_envio)
+                            with st.spinner("Enviando e-mail..."):
+                                ok, msg_envio = enviar_email_relatorio(
+                                    destinatario=email_destino,
+                                    assunto=assunto_email,
+                                    corpo=corpo_email,
+                                    nome_arquivo=nome_pdf_dashboard,
+                                    pdf_bytes=pdf_bytes_dashboard,
+                                )
+
+                            if ok:
+                                st.success(msg_envio)
+                            else:
+                                st.error(msg_envio)
+        else:
+            st.button("📄 Baixar PDF", disabled=True, use_container_width=True)
+            st.caption("PDF disponível quando houver dados para o filtro selecionado.")
 
 
     anos = sorted(df["ANO"].dropna().unique())
