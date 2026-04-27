@@ -155,6 +155,18 @@ INDICADORES = {
     "Tecfil PR": {
         "tipo": "tecfil", "categoria": "tecfil", "estado_tecfil": "PR"
     },
+    "Avaliação de Equipe": {
+        "tipo": "qualidade", "categoria": "qualidade", "modelo_qualidade": "avaliacao_equipe",
+        "TIPO": "QUALIDADE", "GRUPO 01": "AVALIACAO EQUIPE", "GRUPO 02": None, "GRUPO 03": None
+    },
+    "Parâmetro de Coleta": {
+        "tipo": "qualidade", "categoria": "qualidade", "modelo_qualidade": "parametro_coleta",
+        "TIPO": "QUALIDADE", "GRUPO 01": "PARAMETROS COLETAS", "GRUPO 02": None, "GRUPO 03": None
+    },
+    "Parâmetro de Coleta Crítico": {
+        "tipo": "qualidade", "categoria": "qualidade", "modelo_qualidade": "parametro_coleta_critico",
+        "TIPO": "QUALIDADE", "GRUPO 01": "PARAMETROS COLETAS", "GRUPO 02": "CRITICO", "GRUPO 03": None
+    },
     "Despesa Manutenção": {
         "tipo": "simples", "categoria": "despesa", "TIPO": "ECONOMICO",
         "GRUPO 01": "DESPESAS", "GRUPO 02": "MANUTENCAO", "GRUPO 03": QUALQUER, "TIPO DE META": "R$"
@@ -860,6 +872,194 @@ def resumo_tecfil_por_grupo(grupo):
     }
 
 
+
+def eh_qualidade(indicador):
+    return INDICADORES.get(indicador, {}).get("tipo") == "qualidade"
+
+
+def modelo_qualidade(indicador):
+    return INDICADORES.get(indicador, {}).get("modelo_qualidade")
+
+
+def rotulos_qualidade(indicador):
+    modelo = modelo_qualidade(indicador)
+
+    if modelo == "avaliacao_equipe":
+        return {
+            "meta": "Meta",
+            "qtd_total": "Qtd. Coletas",
+            "qtd_sucesso": "Qtd. Ótimo+Bom",
+            "diferenca": "Diferença",
+            "resultado": "Tx. Sucesso",
+        }
+
+    if modelo == "parametro_coleta":
+        return {
+            "meta": "Meta",
+            "qtd_total": "Qtd. Coletas",
+            "qtd_sucesso": "Qtd. Coletas Normais",
+            "diferenca": "Diferença",
+            "resultado": "Resultado %",
+        }
+
+    if modelo == "parametro_coleta_critico":
+        return {
+            "meta": "Limite Crítico",
+            "qtd_total": "Qtd. Coletas",
+            "qtd_sucesso": "Qtd. Col. Crítico",
+            "diferenca": "Diferença",
+            "resultado": "Tx. Sucesso",
+        }
+
+    return {
+        "meta": "Meta",
+        "qtd_total": "Qtd. Coletas",
+        "qtd_sucesso": "Qtd. Sucesso",
+        "diferenca": "Diferença",
+        "resultado": "Resultado %",
+    }
+
+
+def consolidar_qualidade(df, indicador):
+    """
+    Indicadores de Qualidade.
+
+    1. Avaliação de Equipe
+    TIPO = QUALIDADE
+    GRUPO 01 = AVALIACAO EQUIPE
+    GRUPO 02 = vazio
+    GRUPO 03 = vazio
+    META = meta %
+    VALOR REF 01 = quantidade coletada
+    VALOR REF 02 = quantidade coletada ótimo + bom
+    Resultado = VALOR REF 02 / VALOR REF 01
+    Diferença = VALOR REF 01 - VALOR REF 02
+
+    2. Parâmetro de Coleta
+    TIPO = QUALIDADE
+    GRUPO 01 = PARAMETROS COLETAS
+    GRUPO 02 = vazio
+    GRUPO 03 = vazio
+    META = meta %
+    VALOR REF 01 = quantidade coletada
+    VALOR REF 02 = coletas normais
+    Resultado = VALOR REF 02 / VALOR REF 01
+    Diferença = VALOR REF 01 - VALOR REF 02
+
+    3. Parâmetro de Coleta Crítico
+    TIPO = QUALIDADE
+    GRUPO 01 = PARAMETROS COLETAS
+    GRUPO 02 = CRITICO
+    GRUPO 03 = vazio
+    META = limite crítico
+    VALOR REF 01 = quantidade coletada
+    VALOR REF 02 = quantidade crítica
+    Resultado = VALOR REF 02 / VALOR REF 01
+    Diferença = VALOR REF 02 - META
+    """
+    d = df.copy()
+    modelo = modelo_qualidade(indicador)
+
+    d["QTD_TOTAL_CALC"] = serie_numerica_por_coluna(
+        d,
+        nomes_preferidos=["VALOR REF 01", "QTD. COLETAS", "QTD COLETAS", "QUANTIDADE COLETADA"],
+        indice_1_base=10
+    )
+
+    d["QTD_SUCESSO_CALC"] = serie_numerica_por_coluna(
+        d,
+        nomes_preferidos=["VALOR REF 02", "QTD. COL. OTIMO+BOM", "QTD. COLETAS NORMAIS", "QTD. COL. CRITICO"],
+        indice_1_base=12
+    )
+
+    if modelo == "parametro_coleta_critico":
+        d["META_QUALIDADE_CALC"] = pd.to_numeric(d.get("META", 0), errors="coerce").fillna(0)
+        d["DIFERENCA_CALC"] = d["QTD_SUCESSO_CALC"] - d["META_QUALIDADE_CALC"]
+    else:
+        d["META_QUALIDADE_CALC"] = ajustar_percentual_meta(d.get("META", 0))
+        d["DIFERENCA_CALC"] = d["QTD_TOTAL_CALC"] - d["QTD_SUCESSO_CALC"]
+
+    d["RESULTADO_QUALIDADE_CALC"] = d["QTD_SUCESSO_CALC"] / d["QTD_TOTAL_CALC"].replace(0, pd.NA)
+
+    # Compatibilidade com blocos antigos
+    d["META_CALC"] = d["META_QUALIDADE_CALC"]
+    d["REALIZADO_CALC"] = d["QTD_SUCESSO_CALC"]
+    d["ATINGIMENTO_CALC"] = d["RESULTADO_QUALIDADE_CALC"]
+
+    return d.replace([float("inf"), float("-inf")], pd.NA)
+
+
+def resumo_qualidade_por_grupo(grupo, indicador):
+    modelo = modelo_qualidade(indicador)
+
+    if grupo is None or grupo.empty:
+        return {
+            "Meta": None,
+            "Qtd. Coletas": 0,
+            "Qtd. Sucesso": 0,
+            "Diferença": None,
+            "Resultado %": None,
+        }
+
+    qtd_total = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0).sum()
+    qtd_sucesso = pd.to_numeric(grupo.get("QTD_SUCESSO_CALC"), errors="coerce").fillna(0).sum()
+
+    if modelo == "parametro_coleta_critico":
+        meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
+        diferenca = qtd_sucesso - meta
+    else:
+        meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
+        meta_serie = meta_serie[meta_serie.notna() & (meta_serie > 0)]
+        meta = meta_serie.max() if len(meta_serie) else None
+        diferenca = qtd_total - qtd_sucesso
+
+    resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
+
+    return {
+        "Meta": meta,
+        "Qtd. Coletas": qtd_total,
+        "Qtd. Sucesso": qtd_sucesso,
+        "Diferença": diferenca,
+        "Resultado %": resultado,
+    }
+
+
+def cor_resultado_qualidade_por_linha(row, indicador=None):
+    estilos = ["" for _ in row.index]
+
+    if "Resultado %" not in row.index:
+        return estilos
+
+    resultado = row["Resultado %"]
+    meta = row["Meta"] if "Meta" in row.index else None
+
+    if pd.isna(resultado):
+        return estilos
+
+    idx_result = list(row.index).index("Resultado %")
+
+    # Crítico: quanto menor, melhor. Usa meta como limite absoluto,
+    # mas para a taxa usa destaque simples: até 10% verde, acima laranja.
+    if indicador and modelo_qualidade(indicador) == "parametro_coleta_critico":
+        estilos[idx_result] = f"color: {COR_VERDE}; font-weight:bold" if resultado <= 0.10 else f"color: {COR_LARANJA}; font-weight:bold"
+        return estilos
+
+    # Avaliação e Parâmetro: quanto maior, melhor.
+    if pd.notna(meta):
+        estilos[idx_result] = f"color: {COR_VERDE}; font-weight:bold" if resultado >= meta else f"color: {COR_LARANJA}; font-weight:bold"
+
+    return estilos
+
+
+def cor_diferenca_qualidade(v):
+    if pd.isna(v):
+        return ""
+
+    # Para avaliação/parâmetro, diferença positiva significa falta para atingir o ideal.
+    # Por padrão, deixa positivo em laranja e zero/negativo em verde.
+    return f"color: {COR_VERDE}; font-weight:bold" if v <= 0 else f"color: {COR_LARANJA}; font-weight:bold"
+
+
 def filtrar(df, indicador, filial):
     cfg = INDICADORES[indicador]
 
@@ -874,6 +1074,9 @@ def filtrar(df, indicador, filial):
 
     if cfg["tipo"] == "tecfil":
         return consolidar_tecfil(df, filial, indicador)
+
+    if cfg["tipo"] == "qualidade":
+        return consolidar_qualidade(aplicar_filtro_base(df, cfg, filial), indicador)
 
     if cfg["tipo"] == "simples":
         return consolidar_campos(aplicar_filtro_base(df, cfg, filial), indicador)
@@ -1261,6 +1464,53 @@ def tabela_completa_ano(d, ano, indicador):
 
         return pd.DataFrame(rows)
 
+    if eh_qualidade(indicador):
+        rows = []
+        base_ano = d[d["ANO"] == ano].copy()
+        acumulado = 0
+
+        for i in range(1, 13):
+            mes_nome = MESES_MAPA[i]
+            sub = base_ano[base_ano["MÊS"] == i]
+
+            if not sub.empty:
+                resumo = resumo_qualidade_por_grupo(sub, indicador)
+                acumulado += resumo["Diferença"] if pd.notna(resumo["Diferença"]) else 0
+
+                rows.append({
+                    "Mês": mes_nome,
+                    "Meta": resumo["Meta"],
+                    "Qtd. Coletas": resumo["Qtd. Coletas"],
+                    "Qtd. Sucesso": resumo["Qtd. Sucesso"],
+                    "Diferença": resumo["Diferença"],
+                    "Resultado %": resumo["Resultado %"],
+                    "Acumulado": acumulado,
+                })
+            else:
+                rows.append({
+                    "Mês": mes_nome,
+                    "Meta": None,
+                    "Qtd. Coletas": None,
+                    "Qtd. Sucesso": None,
+                    "Diferença": None,
+                    "Resultado %": None,
+                    "Acumulado": acumulado if acumulado != 0 else None,
+                })
+
+        resumo_total = resumo_qualidade_por_grupo(base_ano, indicador)
+
+        rows.append({
+            "Mês": "TOTAL",
+            "Meta": resumo_total["Meta"],
+            "Qtd. Coletas": resumo_total["Qtd. Coletas"],
+            "Qtd. Sucesso": resumo_total["Qtd. Sucesso"],
+            "Diferença": resumo_total["Diferença"],
+            "Resultado %": resumo_total["Resultado %"],
+            "Acumulado": resumo_total["Diferença"],
+        })
+
+        return pd.DataFrame(rows)
+
     if eh_tecfil(indicador):
         rows = []
         base_ano = d[d["ANO"] == ano].copy()
@@ -1540,6 +1790,32 @@ def calcular_mom(d, indicador):
         base["MoM_%"] = base["Resultado R$"].pct_change() * 100
         return base.replace([float("inf"), float("-inf")], pd.NA)
 
+    if eh_qualidade(indicador):
+        linhas = []
+        acumulado_por_ano = {}
+
+        for (ano, mes, mes_nome, mes_ordem), sub in d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"]):
+            resumo = resumo_qualidade_por_grupo(sub, indicador)
+            acumulado_por_ano.setdefault(ano, 0)
+            acumulado_por_ano[ano] += resumo["Diferença"] if pd.notna(resumo["Diferença"]) else 0
+
+            linhas.append({
+                "ANO": ano,
+                "MÊS": mes,
+                "Mês": mes_nome,
+                "Meta": resumo["Meta"],
+                "Qtd. Coletas": resumo["Qtd. Coletas"],
+                "Qtd. Sucesso": resumo["Qtd. Sucesso"],
+                "Diferença": resumo["Diferença"],
+                "Resultado %": resumo["Resultado %"],
+                "Acumulado": acumulado_por_ano[ano],
+                "MÊS_ORDEM": mes_ordem,
+            })
+
+        base = pd.DataFrame(linhas).sort_values("MÊS_ORDEM").reset_index(drop=True)
+        base["MoM_%"] = base["Resultado %"].pct_change() * 100
+        return base.replace([float("inf"), float("-inf")], pd.NA)
+
     if eh_tecfil(indicador):
         linhas = []
         acumulado_por_ano = {}
@@ -1694,6 +1970,28 @@ def calcular_yoy(d, indicador):
 
         return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
 
+    if eh_qualidade(indicador):
+        linhas = []
+        for ano, sub in d.groupby("ANO"):
+            resumo = resumo_qualidade_por_grupo(sub, indicador)
+            linhas.append({
+                "ANO": ano,
+                "Meta": resumo["Meta"],
+                "Qtd. Coletas": resumo["Qtd. Coletas"],
+                "Qtd. Sucesso": resumo["Qtd. Sucesso"],
+                "Diferença": resumo["Diferença"],
+                "Resultado %": resumo["Resultado %"],
+                "Meses c/ dado": sub["MÊS"].nunique(),
+                # compatibilidade
+                "Realizado": resumo["Qtd. Sucesso"],
+                "Meta_Compat": resumo["Meta"],
+                "Atingimento": resumo["Resultado %"],
+            })
+
+        df_yoy = pd.DataFrame(linhas).sort_values("ANO")
+        df_yoy["YoY_%"] = df_yoy["Resultado %"].pct_change() * 100
+        return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
+
     if eh_tecfil(indicador):
         linhas = []
         for ano, sub in d.groupby("ANO"):
@@ -1842,6 +2140,28 @@ def comparativo_filiais(d, ano, indicador):
 
         return pd.DataFrame(linhas).sort_values("Resultado R$", ascending=False)
 
+    if eh_qualidade(indicador):
+        linhas = []
+        base = d[d["ANO"] == ano].copy()
+
+        for filial_nome, sub in base.groupby("FILIAL"):
+            resumo = resumo_qualidade_por_grupo(sub, indicador)
+            linhas.append({
+                "FILIAL": filial_nome,
+                "Meta": resumo["Meta"],
+                "Qtd. Coletas": resumo["Qtd. Coletas"],
+                "Qtd. Sucesso": resumo["Qtd. Sucesso"],
+                "Diferença": resumo["Diferença"],
+                "Resultado %": resumo["Resultado %"],
+                # compatibilidade
+                "Realizado": resumo["Qtd. Sucesso"],
+                "Meta_Compat": resumo["Meta"],
+                "Gap": resumo["Diferença"],
+                "Atingimento": resumo["Resultado %"],
+            })
+
+        return pd.DataFrame(linhas).sort_values("Resultado %", ascending=False)
+
     if eh_tecfil(indicador):
         linhas = []
         base = d[d["ANO"] == ano].copy()
@@ -1988,6 +2308,49 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
         ])
 
         return remover_meta_moto_anos_sem_meta(tabela_periodo_moto)
+
+    if eh_qualidade(indicador):
+        resumo_ant = resumo_qualidade_por_grupo(anterior_periodo, indicador)
+        resumo_atual = resumo_qualidade_por_grupo(atual_periodo, indicador)
+
+        var_resultado = ((resumo_atual["Resultado %"] / resumo_ant["Resultado %"]) - 1) if resumo_ant["Resultado %"] not in [None, 0] and pd.notna(resumo_ant["Resultado %"]) else None
+
+        return pd.DataFrame([
+            {
+                "Ano": ano_anterior,
+                "Período": periodo_txt,
+                "Meta": resumo_ant["Meta"],
+                "Qtd. Coletas": resumo_ant["Qtd. Coletas"],
+                "Qtd. Sucesso": resumo_ant["Qtd. Sucesso"],
+                "Diferença": resumo_ant["Diferença"],
+                "Resultado %": resumo_ant["Resultado %"],
+                "Variação Resultado": None,
+                # compatibilidade
+                "Realizado": resumo_ant["Qtd. Sucesso"],
+                "Meta_Compat": resumo_ant["Meta"],
+                "Gap (R$)": resumo_ant["Diferença"],
+                "Atingimento": resumo_ant["Resultado %"],
+                "Variação Realizado": None,
+                "Variação Meta": None,
+            },
+            {
+                "Ano": ano_referencia,
+                "Período": periodo_txt,
+                "Meta": resumo_atual["Meta"],
+                "Qtd. Coletas": resumo_atual["Qtd. Coletas"],
+                "Qtd. Sucesso": resumo_atual["Qtd. Sucesso"],
+                "Diferença": resumo_atual["Diferença"],
+                "Resultado %": resumo_atual["Resultado %"],
+                "Variação Resultado": var_resultado,
+                # compatibilidade
+                "Realizado": resumo_atual["Qtd. Sucesso"],
+                "Meta_Compat": resumo_atual["Meta"],
+                "Gap (R$)": resumo_atual["Diferença"],
+                "Atingimento": resumo_atual["Resultado %"],
+                "Variação Realizado": var_resultado,
+                "Variação Meta": None,
+            }
+        ])
 
     if eh_tecfil(indicador):
         resumo_ant = resumo_tecfil_por_grupo(anterior_periodo)
@@ -2254,6 +2617,49 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
             "moto_margem": True,
         }
 
+    if eh_qualidade(indicador):
+        base_mes = base_ano[base_ano["MÊS"] == mes_referencia].copy()
+        resumo_mes = resumo_qualidade_por_grupo(base_mes, indicador)
+        resumo_ano = resumo_qualidade_por_grupo(base_ano, indicador)
+
+        df_periodo = comparar_mesmo_periodo(df, indicador, ano_selecionado)
+        realizado_ant = None
+        var_real = None
+        periodo_txt = None
+        if not df_periodo.empty and len(df_periodo) >= 2:
+            realizado_ant = df_periodo.iloc[0]["Resultado %"]
+            var_real = df_periodo.iloc[1]["Variação Resultado"]
+            periodo_txt = df_periodo.iloc[1]["Período"]
+
+        return {
+            "hoje": hoje,
+            "ano": ano_selecionado,
+            "mes_referencia": mes_referencia,
+            "nome_mes": MESES_MAPA.get(mes_referencia, str(mes_referencia)),
+            "realizado_mes": resumo_mes["Qtd. Sucesso"],
+            "meta_mes": resumo_mes["Meta"],
+            "gap_mes": resumo_mes["Diferença"],
+            "ating_mes": resumo_mes["Resultado %"],
+            "qtd_total_mes": resumo_mes["Qtd. Coletas"],
+            "qtd_sucesso_mes": resumo_mes["Qtd. Sucesso"],
+            "realizado_ano": resumo_ano["Qtd. Sucesso"],
+            "meta_ano": resumo_ano["Meta"],
+            "gap_ano": resumo_ano["Diferença"],
+            "ating_ano": resumo_ano["Resultado %"],
+            "qtd_total_ano": resumo_ano["Qtd. Coletas"],
+            "qtd_sucesso_ano": resumo_ano["Qtd. Sucesso"],
+            "dias_restantes": 0,
+            "necessario_dia": None,
+            "realizado_ant": realizado_ant,
+            "meta_ant": None,
+            "var_real": var_real,
+            "var_meta": None,
+            "periodo_txt": periodo_txt,
+            "qualidade": True,
+            "despesa": False,
+            "moto_margem": False,
+        }
+
     if eh_tecfil(indicador):
         base_mes = base_ano[base_ano["MÊS"] == mes_referencia].copy()
         resumo_mes = resumo_tecfil_por_grupo(base_mes)
@@ -2474,6 +2880,27 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     ano = resumo["ano"]
 
 
+    if resumo.get("qualidade"):
+        rot = rotulos_qualidade(indicador)
+        meta_txt = fmt_num(resumo["meta_mes"]) if modelo_qualidade(indicador) == "parametro_coleta_critico" else fmt_pct(resumo["meta_mes"])
+        texto = (
+            f"Hoje é dia {hoje_txt}. No mês de {nome_mes}/{ano}, o indicador {indicador} apresentou "
+            f"{fmt_num(resumo['qtd_sucesso_mes'])} em {rot['qtd_sucesso']}, sobre "
+            f"{fmt_num(resumo['qtd_total_mes'])} em {rot['qtd_total']}. "
+            f"O resultado do mês foi {fmt_pct(resumo['ating_mes'])}, contra meta/limite de {meta_txt}. "
+            f"A diferença do mês foi {fmt_num(resumo['gap_mes'])}. "
+        )
+
+        meta_ano_txt = fmt_num(resumo["meta_ano"]) if modelo_qualidade(indicador) == "parametro_coleta_critico" else fmt_pct(resumo["meta_ano"])
+        texto += (
+            f"No acumulado do ano, o resultado é {fmt_pct(resumo['ating_ano'])}, "
+            f"com {fmt_num(resumo['qtd_sucesso_ano'])} em {rot['qtd_sucesso']} "
+            f"para {fmt_num(resumo['qtd_total_ano'])} em {rot['qtd_total']}. "
+            f"A meta/limite acumulado considerado é {meta_ano_txt}."
+        )
+
+        return texto
+
     if resumo.get("tecfil"):
         texto = (
             f"Hoje é dia {hoje_txt}. No mês de {nome_mes}/{ano}, o realizado Tecfil foi de "
@@ -2659,6 +3086,59 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     return texto
 
 def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
+    if indicador and eh_qualidade(indicador):
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Resultado %"].notna())].copy()
+        if dados.empty:
+            return None
+
+        rot = rotulos_qualidade(indicador)
+        ultimo_mes = dados["Mês"].iloc[-1]
+        titulo_final = titulo or f"{indicador} — {rot['resultado']} x {rot['meta']} — até {ultimo_mes}/{ano}"
+
+        if modelo_qualidade(indicador) == "parametro_coleta_critico":
+            cores = [COR_VERDE if pd.notna(v) and v <= 0.10 else COR_LARANJA for v in dados["Resultado %"]]
+        else:
+            cores = [
+                COR_VERDE if pd.notna(r) and pd.notna(m) and r >= m else COR_LARANJA
+                for r, m in zip(dados["Resultado %"], dados["Meta"])
+            ]
+
+        fig = go.Figure()
+        fig.add_bar(
+            x=dados["Mês"],
+            y=dados["Resultado %"],
+            name=rot["resultado"],
+            marker_color=cores,
+            marker_cornerradius=4,
+            text=[fmt_pct(v) for v in dados["Resultado %"]],
+            textposition="outside",
+            textfont=dict(size=11),
+        )
+
+        if modelo_qualidade(indicador) != "parametro_coleta_critico":
+            fig.add_scatter(
+                x=dados["Mês"],
+                y=dados["Meta"],
+                name=rot["meta"],
+                mode="lines+markers",
+                line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                marker=dict(size=7),
+            )
+
+        fig.update_layout(
+            title=titulo_final,
+            height=420,
+            margin=dict(t=60, b=20, l=20, r=20),
+            legend=dict(orientation="h", y=-0.18),
+            yaxis_title="%",
+            bargap=0.22,
+            uniformtext_minsize=8,
+            uniformtext_mode="hide",
+            yaxis_tickformat=".0%",
+        )
+        fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
+        return fig
+
     if indicador and eh_tecfil(indicador):
         dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado R$"].notna())].copy()
         if dados.empty:
@@ -3009,7 +3489,29 @@ class PDFRelatorio(FPDF):
         self.fonte("", 10)
         self.set_text_color(0, 0, 0)
 
-        if resumo.get("tecfil"):
+        if resumo.get("qualidade"):
+            rot = rotulos_qualidade(self.indicador)
+            intro = (
+                f"Este relatório apresenta a análise do indicador {self.indicador}, considerando a base {self.filial}. "
+                f"Os dados abaixo resumem meta/limite, coletas, diferença e resultado percentual."
+            )
+            self.multi_cell(0, 6, self.safe(intro))
+            self.ln(3)
+
+            y_inicial = self.get_y()
+            self.kpi_box(12, y_inicial, 45, 20, rot["qtd_total"], fmt_num(resumo["qtd_total_ano"]))
+            self.kpi_box(60, y_inicial, 45, 20, rot["qtd_sucesso"], fmt_num(resumo["qtd_sucesso_ano"]))
+            self.kpi_box(108, y_inicial, 45, 20, rot["diferenca"], fmt_num(resumo["gap_ano"]))
+            self.kpi_box(156, y_inicial, 42, 20, rot["resultado"], fmt_pct(resumo["ating_ano"]))
+
+            y2 = y_inicial + 25
+            meta_mes_txt = fmt_num(resumo["meta_mes"]) if modelo_qualidade(self.indicador) == "parametro_coleta_critico" else fmt_pct(resumo["meta_mes"])
+            self.kpi_box(12, y2, 45, 20, f"{rot['meta']} {resumo['nome_mes']}", meta_mes_txt)
+            self.kpi_box(60, y2, 45, 20, f"Qtd. {resumo['nome_mes']}", fmt_num(resumo["qtd_total_mes"]))
+            self.kpi_box(108, y2, 45, 20, f"Sucesso {resumo['nome_mes']}", fmt_num(resumo["qtd_sucesso_mes"]))
+            self.kpi_box(156, y2, 42, 20, f"Result. {resumo['nome_mes']}", fmt_pct(resumo["ating_mes"]))
+
+        elif resumo.get("tecfil"):
             intro = (
                 f"Este relatório apresenta a análise do indicador {self.indicador}, considerando a base {self.filial}. "
                 f"Os dados abaixo resumem metas e realizados Tecfil em KG e R$."
@@ -3120,6 +3622,27 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 8)
         self.set_fill_color(240, 240, 240)
 
+
+
+        if "Qtd. Coletas" in df_completa.columns and "Resultado %" in df_completa.columns:
+            headers = ["Mês", "Meta", "Qtd.", "Qtd. Suc.", "Dif.", "Result.", "Acum."]
+            widths = [24, 22, 28, 28, 24, 24, 28]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_completa.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
+                self.cell(widths[1], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_num(row["Acumulado"]), border=1, align="R")
+                self.ln()
+            return
 
         if "Meta KG" in df_completa.columns and "Realizado R$" in df_completa.columns:
             headers = ["Mês", "Meta KG", "Real KG", "% KG", "Dif KG", "Meta R$", "Real R$", "% R$", "Dif R$"]
@@ -3287,6 +3810,27 @@ class PDFRelatorio(FPDF):
         self.set_fill_color(240, 240, 240)
 
 
+
+        if "Qtd. Coletas" in df_mom.columns and "Resultado %" in df_mom.columns:
+            headers = ["Mês", "Meta", "Qtd.", "Qtd. Suc.", "Dif.", "Result.", "Acum."]
+            widths = [24, 22, 28, 28, 24, 24, 28]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_mom.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
+                self.cell(widths[1], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_num(row["Acumulado"]), border=1, align="R")
+                self.ln()
+            return
+
         if "Meta KG" in df_mom.columns and "Realizado R$" in df_mom.columns:
             headers = ["Mês", "Meta KG", "Real KG", "% KG", "Dif KG", "Meta R$", "Real R$", "% R$", "Dif R$"]
             widths = [20, 22, 22, 18, 22, 28, 28, 18, 28]
@@ -3411,6 +3955,27 @@ class PDFRelatorio(FPDF):
         self.set_fill_color(240, 240, 240)
 
 
+
+        if "Qtd. Coletas" in df_yoy.columns and "Resultado %" in df_yoy.columns:
+            headers = ["Ano", "Meta", "Qtd.", "Qtd. Suc.", "Dif.", "Result.", "Meses"]
+            widths = [18, 22, 30, 30, 26, 26, 20]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_yoy.iterrows():
+                self.cell(widths[0], 6, str(int(row["ANO"])), border=1, align="C")
+                self.cell(widths[1], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.cell(widths[6], 6, str(int(row["Meses c/ dado"])), border=1, align="C")
+                self.ln()
+            return
+
         if "Meta KG" in df_yoy.columns and "Realizado R$" in df_yoy.columns:
             headers = ["Ano", "Meta KG", "Real KG", "% KG", "Dif KG", "Meta R$", "Real R$", "% R$", "Dif R$"]
             widths = [16, 22, 22, 18, 22, 28, 28, 18, 28]
@@ -3518,6 +4083,27 @@ class PDFRelatorio(FPDF):
         # Resultado Financeiro precisa vir antes de Despesa Geral,
         # porque os dois possuem Despesa, Receita e Resultado R$.
 
+
+        if "Qtd. Coletas" in df_periodo.columns and "Resultado %" in df_periodo.columns:
+            headers = ["Ano", "Período", "Meta", "Qtd.", "Qtd. Suc.", "Dif.", "Result."]
+            widths = [14, 22, 22, 30, 30, 24, 24]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_periodo.iterrows():
+                self.cell(widths[0], 6, str(int(row["Ano"])), border=1, align="C")
+                self.cell(widths[1], 6, self.safe(str(row["Período"])), border=1, align="C")
+                self.cell(widths[2], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.ln()
+            return
+
         if "Meta KG" in df_periodo.columns and "Realizado R$" in df_periodo.columns:
             headers = ["Ano", "Período", "Meta KG", "Real KG", "Dif KG", "Meta R$", "Real R$", "Dif R$"]
             widths = [14, 22, 22, 22, 22, 30, 30, 30]
@@ -3623,6 +4209,26 @@ class PDFRelatorio(FPDF):
         self.set_fill_color(240, 240, 240)
 
         # Resultado Financeiro antes de Despesa Geral.
+
+
+        if "Qtd. Coletas" in df_filiais.columns and "Resultado %" in df_filiais.columns:
+            headers = ["Filial", "Meta", "Qtd.", "Qtd. Suc.", "Dif.", "Result."]
+            widths = [45, 22, 30, 30, 26, 26]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_filiais.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["FILIAL"])), border=1)
+                self.cell(widths[1], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.ln()
+            return
 
         if "Meta KG" in df_filiais.columns and "Realizado R$" in df_filiais.columns:
             headers = ["Filial", "Meta KG", "Real KG", "Dif KG", "Meta R$", "Real R$", "Dif R$"]
@@ -3740,6 +4346,8 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").tail(12).copy()
     if eh_moto_margem(indicador):
         pdf.tabela_mom(df_mom[["Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]])
+    elif eh_qualidade(indicador):
+        pdf.tabela_mom(df_mom[["Mês", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Acumulado", "MoM_%"]])
     elif eh_tecfil(indicador):
         pdf.tabela_mom(df_mom[["Mês", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$", "MoM_%"]])
     elif eh_resultado_financeiro(indicador):
@@ -3812,6 +4420,11 @@ def diagnosticar_sem_dados(df_raw, indicador, filial):
     Isso ajuda a descobrir se o problema está no nome da filial, grupo, tipo de meta ou campo vazio.
     """
     cfg = INDICADORES[indicador]
+
+    if eh_qualidade(indicador):
+        st.warning("Nenhum dado encontrado para os filtros selecionados.")
+        st.caption("Para Qualidade, confira se existem linhas com TIPO = QUALIDADE, os grupos informados, REFERÊNCIA válida, META, VALOR REF 01 e VALOR REF 02.")
+        st.stop()
 
     if eh_tecfil(indicador):
         st.warning("Nenhum dado encontrado para os filtros selecionados.")
@@ -4193,6 +4806,61 @@ with tab0:
             hide_index=True,
         )
 
+    elif eh_qualidade(indicador):
+        rot = rotulos_qualidade(indicador)
+        resumo_ano_qualidade = resumo_qualidade_por_grupo(base_kpi, indicador)
+        periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
+
+        if not periodo_cmp.empty and len(periodo_cmp) == 2:
+            ytd_valor = periodo_cmp.iloc[1]["Resultado %"]
+            delta_ytd = periodo_cmp.iloc[1]["Variação Resultado"]
+            periodo_label = periodo_cmp.iloc[1]["Período"]
+        else:
+            ytd_valor = None
+            delta_ytd = None
+            periodo_label = "-"
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1:
+            st.markdown(card_html(rot["qtd_total"], fmt_num(resumo_ano_qualidade["Qtd. Coletas"])), unsafe_allow_html=True)
+        with c2:
+            st.markdown(card_html(rot["qtd_sucesso"], fmt_num(resumo_ano_qualidade["Qtd. Sucesso"])), unsafe_allow_html=True)
+        with c3:
+            meta_valor = fmt_num(resumo_ano_qualidade["Meta"]) if modelo_qualidade(indicador) == "parametro_coleta_critico" else fmt_pct(resumo_ano_qualidade["Meta"])
+            st.markdown(card_html(rot["meta"], meta_valor), unsafe_allow_html=True)
+        with c4:
+            st.markdown(card_html(rot["resultado"], fmt_pct(resumo_ano_qualidade["Resultado %"])), unsafe_allow_html=True)
+        with c5:
+            st.markdown(card_html(f"YTD {periodo_label}", fmt_pct(ytd_valor) if ytd_valor is not None else "-", delta_ytd), unsafe_allow_html=True)
+
+        st.divider()
+
+        df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
+        dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Resultado %"])
+
+        if not dados_chart.empty:
+            fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
+            st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_qualidade")
+
+        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        df_yoy_dashboard = calcular_yoy(df, indicador)
+
+        st.dataframe(
+            df_yoy_dashboard[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Meses c/ dado"]].style
+            .format({
+                "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else "—"),
+                "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Meses c/ dado": "{:.0f}",
+            })
+            .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
+            .map(cor_diferenca_qualidade, subset=["Diferença"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
     elif eh_tecfil(indicador):
         resumo_ano_tecfil = resumo_tecfil_por_grupo(base_kpi)
         periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
@@ -4512,7 +5180,23 @@ with tab1:
         )
     else:
         df_completa_tela = df_completa.copy()
-        if eh_tecfil(indicador):
+        if eh_qualidade(indicador):
+            st.dataframe(
+                df_completa_tela.style
+                .format({
+                    "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else ""),
+                    "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "",
+                    "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "",
+                    "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "",
+                    "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "",
+                    "Acumulado": lambda v: fmt_num(v) if pd.notna(v) else "",
+                })
+                .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
+                .map(cor_diferenca_qualidade, subset=["Diferença", "Acumulado"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        elif eh_tecfil(indicador):
             st.dataframe(
                 df_completa_tela.style
                 .format({
@@ -4720,6 +5404,62 @@ with tab2:
                 "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
             })
             .apply(cor_tx_sucesso_moto_por_linha, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    elif eh_qualidade(indicador):
+        linhas_finais_qualidade = []
+
+        for ano_q in sorted(df_mom["ANO"].dropna().unique()):
+            base_ano_q = df_mom[df_mom["ANO"] == ano_q].copy()
+
+            linhas_finais_qualidade.append(
+                base_ano_q[[
+                    "ANO", "MÊS", "Mês", "Meta", "Qtd. Coletas", "Qtd. Sucesso",
+                    "Diferença", "Resultado %", "Acumulado", "MoM_%"
+                ]]
+            )
+
+            resumo_total = resumo_qualidade_por_grupo(df[df["ANO"] == ano_q], indicador)
+
+            linhas_finais_qualidade.append(pd.DataFrame([{
+                "ANO": ano_q,
+                "MÊS": None,
+                "Mês": f"TOTAL {ano_q}",
+                "Meta": resumo_total["Meta"],
+                "Qtd. Coletas": resumo_total["Qtd. Coletas"],
+                "Qtd. Sucesso": resumo_total["Qtd. Sucesso"],
+                "Diferença": resumo_total["Diferença"],
+                "Resultado %": resumo_total["Resultado %"],
+                "Acumulado": resumo_total["Diferença"],
+                "MoM_%": None,
+            }]))
+
+        df_mom_qualidade_tela = pd.concat(linhas_finais_qualidade, ignore_index=True)
+
+        def destacar_total(row):
+            if str(row["Mês"]).startswith("TOTAL"):
+                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
+            return ["" for _ in row]
+
+        st.dataframe(
+            df_mom_qualidade_tela.style
+            .apply(destacar_total, axis=1)
+            .format({
+                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else "—"),
+                "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Acumulado": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+            })
+            .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
+            .map(cor_diferenca_qualidade, subset=["Diferença", "Acumulado"])
+            .map(cor_variacao, subset=["MoM_%"]),
             use_container_width=True,
             hide_index=True,
         )
@@ -5156,7 +5896,24 @@ with tab3:
             st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_moto")
 
     else:
-        if eh_tecfil(indicador):
+        if eh_qualidade(indicador):
+            st.dataframe(
+                df_yoy[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Meses c/ dado"]].style
+                .format({
+                    "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else "—"),
+                    "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                    "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                    "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                    "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Meses c/ dado": "{:.0f}",
+                })
+                .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
+                .map(cor_diferenca_qualidade, subset=["Diferença"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        elif eh_tecfil(indicador):
             st.dataframe(
                 df_yoy[["ANO", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Meses c/ dado"]].style
                 .format({
@@ -5281,7 +6038,24 @@ with tab3:
         df_periodo_tela = comparar_mesmo_periodo(df, indicador)
 
         if not df_periodo_tela.empty:
-            if eh_tecfil(indicador):
+            if eh_qualidade(indicador):
+                st.dataframe(
+                    df_periodo_tela[["Ano", "Período", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Variação Resultado"]].style
+                    .format({
+                        "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else "—"),
+                        "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                        "Variação Resultado": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                    })
+                    .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
+                    .map(cor_diferenca_qualidade, subset=["Diferença"])
+                    .map(cor_variacao, subset=["Variação Resultado"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            elif eh_tecfil(indicador):
                 st.dataframe(
                     df_periodo_tela[["Ano", "Período", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Variação KG", "Variação R$"]].style
                     .format({
@@ -5363,7 +6137,43 @@ with tab3:
 
             comp_filiais = comparativo_filiais(df_todas_unidades, ano_base_filial, indicador)
 
-            if eh_tecfil(indicador):
+            if eh_qualidade(indicador):
+                st.dataframe(
+                    comp_filiais[["FILIAL", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]].style
+                    .format({
+                        "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else "—"),
+                        "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    })
+                    .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
+                    .map(cor_diferenca_qualidade, subset=["Diferença"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                fig_filiais = go.Figure()
+                cores = []
+                for _, row in comp_filiais.iterrows():
+                    if modelo_qualidade(indicador) == "parametro_coleta_critico":
+                        cores.append(COR_VERDE if pd.notna(row["Resultado %"]) and row["Resultado %"] <= 0.10 else COR_LARANJA)
+                    else:
+                        cores.append(COR_VERDE if pd.notna(row["Resultado %"]) and pd.notna(row["Meta"]) and row["Resultado %"] >= row["Meta"] else COR_LARANJA)
+
+                fig_filiais.add_bar(
+                    x=comp_filiais["FILIAL"],
+                    y=comp_filiais["Resultado %"],
+                    name="Resultado %",
+                    marker_color=cores,
+                    marker_cornerradius=4,
+                    text=[fmt_pct(v) for v in comp_filiais["Resultado %"]],
+                    textposition="outside",
+                )
+                fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15), yaxis_tickformat=".0%")
+                st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_qualidade")
+
+            elif eh_tecfil(indicador):
                 st.dataframe(
                     comp_filiais[["FILIAL", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"]].style
                     .format({
