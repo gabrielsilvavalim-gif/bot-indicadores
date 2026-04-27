@@ -7,6 +7,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import calendar
 import os
+import unicodedata
 
 st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_icon="📊", layout="wide")
 
@@ -143,55 +144,72 @@ def carregar(arquivo):
     return pd.read_excel(arquivo)
 
 
+def normalizar_texto(valor):
+    """
+    Padroniza textos da planilha para comparação:
+    remove acentos, tira espaços, transforma em maiúsculo
+    e trata NaN/None/vazios.
+    """
+    if pd.isna(valor):
+        return ""
+    txt = str(valor).strip()
+    if txt.lower() in ["nan", "none", "null"]:
+        return ""
+    txt = unicodedata.normalize("NFKD", txt)
+    txt = "".join(ch for ch in txt if not unicodedata.combining(ch))
+    txt = " ".join(txt.split())
+    return txt.upper()
+
+
 def aplicar_filtro_coluna(df, coluna, valor):
     """
-    Aplica filtro tratando corretamente campos vazios.
+    Aplica filtro com tratamento robusto.
 
-    IMPORTANTE:
-    Na planilha, o campo vazio pode vir como NaN, None, string vazia "",
-    espaço em branco ou até texto "nan". Por isso, quando o filtro é None,
-    consideramos todos esses casos como vazio.
+    Corrige casos em que a planilha vem com:
+    - espaços extras;
+    - diferença entre maiúsculas/minúsculas;
+    - acentos;
+    - campo vazio como NaN, None, "", espaço, "nan" etc.
 
-    Isso corrige principalmente indicadores como:
-    - Faturamento Pneu Exceto Moto
-    - filtros em que GRUPO 02 ou GRUPO 03 precisam estar vazios
+    Incremental correto:
+    TIPO = ECONOMICO
+    GRUPO 01 = FATURAMENTO
+    GRUPO 02 = SERVICOS
+    GRUPO 03 = INCREMENTAL
     """
     if valor == QUALQUER:
         return df
 
-    serie = df[coluna]
+    serie_normalizada = df[coluna].apply(normalizar_texto)
 
     if valor is None:
-        vazio = (
-            serie.isna()
-            | (serie.astype(str).str.strip() == "")
-            | (serie.astype(str).str.strip().str.lower().isin(["nan", "none", "null"]))
-        )
-        return df[vazio]
+        return df[serie_normalizada == ""]
 
-    return df[serie.astype(str).str.strip() == str(valor).strip()]
-
-
+    valor_normalizado = normalizar_texto(valor)
+    return df[serie_normalizada == valor_normalizado]
 def aplicar_filtro_base(df, cfg, filial):
     d = df.copy()
 
     if cfg.get("TIPO") is not None:
-        d = d[d["TIPO"] == cfg["TIPO"]]
+        d = aplicar_filtro_coluna(d, "TIPO", cfg.get("TIPO"))
 
     d = aplicar_filtro_coluna(d, "GRUPO 01", cfg.get("GRUPO 01"))
     d = aplicar_filtro_coluna(d, "GRUPO 02", cfg.get("GRUPO 02"))
     d = aplicar_filtro_coluna(d, "GRUPO 03", cfg.get("GRUPO 03"))
 
     if cfg.get("TIPO DE META") is not None:
-        d = d[d["TIPO DE META"] == cfg["TIPO DE META"]]
+        d = aplicar_filtro_coluna(d, "TIPO DE META", cfg.get("TIPO DE META"))
 
     if filial == "Geral":
-        d = d[d["FILIAL"].isin(FILIAIS_REAIS)]
+        filiais_norm = [normalizar_texto(f) for f in FILIAIS_REAIS]
+        d = d[d["FILIAL"].apply(normalizar_texto).isin(filiais_norm)]
     else:
-        d = d[d["FILIAL"] == filial]
+        d = d[d["FILIAL"].apply(normalizar_texto) == normalizar_texto(filial)]
 
     d = d.copy()
-    d["REFERÊNCIA"] = pd.to_datetime(d["REFERÊNCIA"])
+    d["REFERÊNCIA"] = pd.to_datetime(d["REFERÊNCIA"], errors="coerce")
+    d = d[d["REFERÊNCIA"].notna()].copy()
+
     d["ANO"] = d["REFERÊNCIA"].dt.year
     d["MÊS"] = d["REFERÊNCIA"].dt.month
     d["DIA"] = d["REFERÊNCIA"].dt.day
@@ -199,8 +217,6 @@ def aplicar_filtro_base(df, cfg, filial):
     d["MÊS_NOME"] = d["MÊS"].map(MESES_MAPA) + "/" + d["ANO"].astype(str)
 
     return d.sort_values(["ANO", "MÊS", "FILIAL"]).reset_index(drop=True)
-
-
 def consolidar_campos(df, nome_indicador):
     d = df.copy()
     categoria = INDICADORES[nome_indicador].get("categoria", "faturamento")
