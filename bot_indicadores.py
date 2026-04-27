@@ -23,8 +23,6 @@ LOGO_ARQUIVO = "MazolaCertificado.ico"
 TZ_BR = ZoneInfo("America/Sao_Paulo")
 LIMITE_DESPESA_GERAL_PADRAO = 0.71  # 71% - limite válido a partir de 2026 para Despesa Geral
 META_RESULTADO_FINANCEIRO_PADRAO = 0.05  # 5% - meta padrão do Resultado Financeiro
-META_AVALIACAO_EQUIPE_PADRAO = 0.97  # 97% - meta correta da Avaliação de Equipe
-META_PARAMETRO_COLETA_PADRAO = 0.98  # 98% - meta correta do Parâmetro de Coleta
 
 try:
     client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
@@ -925,29 +923,26 @@ def consolidar_qualidade(df, indicador):
     """
     Indicadores de Qualidade.
 
-    1. Avaliação de Equipe
-    TIPO = QUALIDADE
-    GRUPO 01 = AVALIACAO EQUIPE
-    GRUPO 02 = vazio
-    GRUPO 03 = vazio
+    A meta deve vir da própria planilha, mês a mês e ano a ano.
 
-    META correta do modelo = 97%
+    Filtros:
+    1. Avaliação de Equipe
+       TIPO = QUALIDADE
+       GRUPO 01 = AVALIACAO EQUIPE
+       GRUPO 02 = vazio
+       GRUPO 03 = vazio
 
     2. Parâmetro de Coleta
-    TIPO = QUALIDADE
-    GRUPO 01 = PARAMETROS COLETAS
-    GRUPO 02 = vazio
-    GRUPO 03 = vazio
-
-    META correta do modelo = 98%
+       TIPO = QUALIDADE
+       GRUPO 01 = PARAMETROS COLETAS
+       GRUPO 02 = vazio
+       GRUPO 03 = vazio
 
     3. Parâmetro de Coleta Crítico
-    TIPO = QUALIDADE
-    GRUPO 01 = PARAMETROS COLETAS
-    GRUPO 02 = CRITICO
-    GRUPO 03 = vazio
-
-    META = limite crítico absoluto
+       TIPO = QUALIDADE
+       GRUPO 01 = PARAMETROS COLETAS
+       GRUPO 02 = CRITICO
+       GRUPO 03 = vazio
     """
     d = df.copy()
     modelo = modelo_qualidade(indicador)
@@ -964,23 +959,17 @@ def consolidar_qualidade(df, indicador):
         indice_1_base=12
     )
 
-    if modelo == "avaliacao_equipe":
-        # Corrige o problema de puxar 98% de outro quadro.
-        # Avaliação de Equipe usa 97%.
-        d["META_QUALIDADE_CALC"] = META_AVALIACAO_EQUIPE_PADRAO
-        d["DIFERENCA_CALC"] = d["QTD_TOTAL_CALC"] - d["QTD_SUCESSO_CALC"]
-
-    elif modelo == "parametro_coleta":
-        # Parâmetro de Coleta usa 98%.
-        d["META_QUALIDADE_CALC"] = META_PARAMETRO_COLETA_PADRAO
-        d["DIFERENCA_CALC"] = d["QTD_TOTAL_CALC"] - d["QTD_SUCESSO_CALC"]
-
-    elif modelo == "parametro_coleta_critico":
-        # Crítico usa a meta da planilha como limite absoluto.
+    if modelo == "parametro_coleta_critico":
+        # Crítico: a meta é limite absoluto, então não é percentual.
         d["META_QUALIDADE_CALC"] = pd.to_numeric(d.get("META", 0), errors="coerce").fillna(0)
         d["DIFERENCA_CALC"] = d["QTD_SUCESSO_CALC"] - d["META_QUALIDADE_CALC"]
-
     else:
+        # Avaliação de Equipe e Parâmetro de Coleta:
+        # A meta vem da coluna META da planilha.
+        # Exemplo da imagem:
+        # 01/01/2026 = 0,97
+        # 01/02/2026 = 0,97
+        # ...
         d["META_QUALIDADE_CALC"] = ajustar_percentual_meta(d.get("META", 0))
         d["DIFERENCA_CALC"] = d["QTD_TOTAL_CALC"] - d["QTD_SUCESSO_CALC"]
 
@@ -1009,9 +998,19 @@ def resumo_qualidade_por_grupo(grupo, indicador):
     qtd_sucesso = pd.to_numeric(grupo.get("QTD_SUCESSO_CALC"), errors="coerce").fillna(0).sum()
 
     if modelo == "parametro_coleta_critico":
+        # Crítico: META é limite absoluto, então totaliza como soma.
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
         diferenca = qtd_sucesso - meta
     else:
+        # Meta vem da planilha e deve ser ponderada pela QTD. COLETAS.
+        #
+        # Fórmula:
+        # Meta = SOMARPRODUTO(META; QTD. COLETAS) / SOMA(QTD. COLETAS)
+        #
+        # Isso funciona para:
+        # - meta de cada mês
+        # - meta total do ano
+        # - anos diferentes com metas diferentes
         meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
         peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
 
@@ -1020,10 +1019,16 @@ def resumo_qualidade_por_grupo(grupo, indicador):
         if validos.any() and peso[validos].sum() > 0:
             meta = (meta_serie[validos] * peso[validos]).sum() / peso[validos].sum()
         else:
-            meta = None
+            # Se ainda não tem coleta, mas existe meta cadastrada no mês, mostra a meta da planilha.
+            metas_sem_peso = meta_serie[meta_serie.notna() & (meta_serie > 0)]
+            meta = float(metas_sem_peso.iloc[0]) if len(metas_sem_peso) else None
 
+        # Fórmula:
+        # DIFER. = QTD. COLETAS - QTD.COL. OTIMO+BOM / QTD. COLETAS NORMAIS
         diferenca = qtd_total - qtd_sucesso
 
+    # Fórmula:
+    # TX SUCESSO % = QTD. SUCESSO / QTD. COLETAS
     resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
 
     return {
