@@ -20,6 +20,7 @@ QUALQUER = "__ANY__"
 LOGO_ARQUIVO = "MazolaCertificado.ico"
 TZ_BR = ZoneInfo("America/Sao_Paulo")
 LIMITE_DESPESA_GERAL_PADRAO = 0.71  # 71% - limite válido a partir de 2026 para Despesa Geral
+META_RESULTADO_FINANCEIRO_PADRAO = 0.05  # 5% - meta padrão do Resultado Financeiro
 
 try:
     client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
@@ -514,24 +515,15 @@ def eh_resultado_financeiro(indicador):
 
 def meta_ponderada_resultado_financeiro(grupo):
     """
-    Meta total do Resultado Financeiro.
+    Meta do Resultado Financeiro.
 
-    Para esse modelo, a meta deve permanecer igual à meta limite da planilha.
-    Exemplo da sua tela: 5,0%.
-
-    Usei a maior meta válida do grupo para evitar distorção quando existirem linhas auxiliares,
-    médias, linhas zeradas ou linhas com meta vazia.
+    Conforme o modelo da planilha, a meta do Resultado Financeiro deve ser 5,0%.
+    Portanto, a meta não deve variar por ano nem puxar percentuais antigos da base.
     """
     if grupo is None or grupo.empty:
         return None
 
-    meta = pd.to_numeric(grupo.get("META_PERCENTUAL_CALC"), errors="coerce")
-    meta = meta[meta.notna() & (meta > 0)]
-
-    if len(meta) == 0:
-        return None
-
-    return meta.max()
+    return META_RESULTADO_FINANCEIRO_PADRAO
 
 def resumo_resultado_financeiro_por_grupo(grupo):
     if grupo is None or grupo.empty:
@@ -580,16 +572,18 @@ def consolidar_resultado_financeiro(df):
     TIPO DE META = %
 
     Fórmulas:
+    META % = 5,0%
     Resultado % = 1 - (Despesa / Receita)
     Resultado R$ = (Receita x Resultado %) - (Receita x Meta %)
 
-    Importante:
-    Total do Resultado R$ deve ser SOMA dos resultados mensais/linhas,
-    não recálculo pela receita e despesa total.
+    Observação:
+    A meta do Resultado Financeiro não deve puxar 14%, 13%, etc. de anos anteriores.
+    Para esse modelo, a meta correta é 5,0% em todos os anos.
     """
     d = df.copy()
 
-    d["META_PERCENTUAL_CALC"] = ajustar_percentual_meta(d.get("META", 0))
+    # Meta fixa correta do modelo Resultado Financeiro
+    d["META_PERCENTUAL_CALC"] = META_RESULTADO_FINANCEIRO_PADRAO
 
     # Despesa: coluna J:J / VALOR REF 01
     d["DESPESA_CALC"] = serie_numerica_por_coluna(
@@ -606,6 +600,9 @@ def consolidar_resultado_financeiro(df):
     )
 
     d["RESULTADO_PERCENTUAL_CALC"] = 1 - (d["DESPESA_CALC"] / d["RECEITA_CALC"].replace(0, pd.NA))
+
+    # Fórmula da planilha:
+    # Resultado R$ = (Receita x Resultado %) - (Receita x Meta %)
     d["RESULTADO_RS"] = (d["RECEITA_CALC"] * d["RESULTADO_PERCENTUAL_CALC"]) - (d["RECEITA_CALC"] * d["META_PERCENTUAL_CALC"])
 
     # Compatibilidade
