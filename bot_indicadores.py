@@ -30,52 +30,6 @@ except Exception:
     client = None
 
 
-
-
-def obter_anos_disponiveis_seguro(df_filtrado):
-    """
-    Retorna a lista de anos disponíveis no dataframe filtrado sem quebrar quando:
-    - df está vazio
-    - df não possui coluna ANO
-    - ANO está todo vazio
-    """
-    try:
-        if df_filtrado is None or df_filtrado.empty:
-            return []
-
-        if "ANO" not in df_filtrado.columns:
-            return []
-
-        anos = pd.to_numeric(df_filtrado["ANO"], errors="coerce").dropna().unique()
-        anos = sorted([int(a) for a in anos])
-
-        return anos
-    except Exception:
-        return []
-
-
-def obter_ano_pdf_seguro(df_filtrado, df_base=None):
-    """
-    Retorna um ano seguro para gerar o PDF.
-
-    Evita erro quando o indicador filtrado ainda não retornou dados
-    ou quando o dataframe não possui a coluna ANO.
-    """
-    try:
-        if df_filtrado is not None and "ANO" in df_filtrado.columns and df_filtrado["ANO"].notna().any():
-            return int(pd.to_numeric(df_filtrado["ANO"], errors="coerce").dropna().max())
-    except Exception:
-        pass
-
-    try:
-        if df_base is not None and "ANO" in df_base.columns and df_base["ANO"].notna().any():
-            return int(pd.to_numeric(df_base["ANO"], errors="coerce").dropna().max())
-    except Exception:
-        pass
-
-    return agora_br().year
-
-
 def enviar_email_relatorio(destinatario, assunto, corpo, nome_arquivo, pdf_bytes):
     """
     Envia o relatório em PDF por e-mail usando SMTP.
@@ -965,112 +919,42 @@ def rotulos_qualidade(indicador):
         "resultado": "RESULT. %",
     }
 
-
-def coluna_vazia_ou_nula(serie):
-    """
-    Identifica campos vazios vindos do Excel.
-
-    Além de NaN e string vazia, aceita:
-    - "-"
-    - "0"
-    - "0.0"
-    - "None"
-    - "Null"
-
-    Isso evita que linhas corretas de Qualidade sejam descartadas por causa
-    da forma como o Excel/Streamlit leu as células vazias.
-    """
-    s = serie.astype(str).str.strip()
-    s_norm = s.apply(normalizar_texto)
-
-    return (
-        serie.isna()
-        | (s == "")
-        | s_norm.isin(["", "-", "0", "00", "0.0", "0,0", "NAN", "NONE", "NULL"])
-    )
-
-def aplicar_filtro_qualidade_exato(df, indicador, filial):
-    """
-    Filtro específico para Qualidade.
-
-    A busca é feita por:
-    - TIPO
-    - GRUPO 01
-    - GRUPO 02/03 conforme a estrutura do indicador
-
-    Se o filtro exato não encontrar dados, usa fallback pelo filtro base
-    para evitar tela vazia.
-    """
-    d = df.copy()
-    modelo = modelo_qualidade(indicador)
-    cfg = INDICADORES.get(indicador, {})
-
-    # Filial
-    if filial != "Geral" and "FILIAL" in d.columns:
-        d = d[d["FILIAL"].apply(normalizar_texto) == normalizar_texto(filial)].copy()
-
-    # Se faltarem colunas obrigatórias, volta vazio.
-    obrigatorias = ["TIPO", "GRUPO 01", "GRUPO 02", "GRUPO 03"]
-    if any(c not in d.columns for c in obrigatorias):
-        return pd.DataFrame()
-
-    # TIPO
-    d = d[d["TIPO"].apply(normalizar_texto) == normalizar_texto("QUALIDADE")].copy()
-
-    if modelo == "avaliacao_equipe":
-        d_exato = d[d["GRUPO 01"].apply(normalizar_texto) == normalizar_texto("AVALIACAO EQUIPE")].copy()
-        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 02"])].copy()
-        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 03"])].copy()
-
-    elif modelo == "parametro_coleta":
-        d_exato = d[d["GRUPO 01"].apply(normalizar_texto) == normalizar_texto("PARAMETROS COLETAS")].copy()
-        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 02"])].copy()
-        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 03"])].copy()
-
-    elif modelo == "parametro_coleta_critico":
-        d_exato = d[d["GRUPO 01"].apply(normalizar_texto) == normalizar_texto("PARAMETROS COLETAS")].copy()
-        d_exato = d_exato[d_exato["GRUPO 02"].apply(normalizar_texto).eq(normalizar_texto("CRITICO"))].copy()
-        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 03"])].copy()
-
-    else:
-        d_exato = aplicar_filtro_base(df, cfg, filial)
-
-    # Fallback: se o exato não achou nada, usa o filtro base original.
-    # Isso evita a tela "Nenhum dado encontrado" quando o Excel leu vazio de forma inesperada.
-    if d_exato.empty:
-        try:
-            d_fallback = aplicar_filtro_base(df, cfg, filial)
-            if not d_fallback.empty:
-                return d_fallback
-        except Exception:
-            pass
-
-    return d_exato
-
 def consolidar_qualidade(df, indicador):
     """
     Indicadores de Qualidade.
 
-    A meta deve vir da própria planilha, mês a mês e ano a ano.
-
-    Filtros:
     1. Avaliação de Equipe
-       TIPO = QUALIDADE
-       GRUPO 01 = AVALIACAO EQUIPE
-       GRUPO 02 = vazio
-       GRUPO 03 = vazio
+    TIPO = QUALIDADE
+    GRUPO 01 = AVALIACAO EQUIPE
+    GRUPO 02 = vazio
+    GRUPO 03 = vazio
+    META = meta %
+    VALOR REF 01 = quantidade coletada
+    VALOR REF 02 = quantidade coletada ótimo + bom
+    Resultado = VALOR REF 02 / VALOR REF 01
+    Diferença = VALOR REF 01 - VALOR REF 02
 
     2. Parâmetro de Coleta
-       TIPO = QUALIDADE
-       GRUPO 01 = PARAMETROS COLETAS
-       GRUPO 02 = vazio
-       GRUPO 03 = vazio
+    TIPO = QUALIDADE
+    GRUPO 01 = PARAMETROS COLETAS
+    GRUPO 02 = vazio
+    GRUPO 03 = vazio
+    META = meta %
+    VALOR REF 01 = quantidade coletada
+    VALOR REF 02 = coletas normais
+    Resultado = VALOR REF 02 / VALOR REF 01
+    Diferença = VALOR REF 01 - VALOR REF 02
 
     3. Parâmetro de Coleta Crítico
-       TIPO = QUALIDADE
-       GRUPO 01 = PARAMETROS COLETAS
-       GRUPO 02 = CRITICO
-       GRUPO 03 = vazio
+    TIPO = QUALIDADE
+    GRUPO 01 = PARAMETROS COLETAS
+    GRUPO 02 = CRITICO
+    GRUPO 03 = vazio
+    META = limite crítico
+    VALOR REF 01 = quantidade coletada
+    VALOR REF 02 = quantidade crítica
+    Resultado = VALOR REF 02 / VALOR REF 01
+    Diferença = VALOR REF 02 - META
     """
     d = df.copy()
     modelo = modelo_qualidade(indicador)
@@ -1088,16 +972,9 @@ def consolidar_qualidade(df, indicador):
     )
 
     if modelo == "parametro_coleta_critico":
-        # Crítico: a meta é limite absoluto, então não é percentual.
         d["META_QUALIDADE_CALC"] = pd.to_numeric(d.get("META", 0), errors="coerce").fillna(0)
         d["DIFERENCA_CALC"] = d["QTD_SUCESSO_CALC"] - d["META_QUALIDADE_CALC"]
     else:
-        # Avaliação de Equipe e Parâmetro de Coleta:
-        # A meta vem da coluna META da planilha.
-        # Exemplo da imagem:
-        # 01/01/2026 = 0,97
-        # 01/02/2026 = 0,97
-        # ...
         d["META_QUALIDADE_CALC"] = ajustar_percentual_meta(d.get("META", 0))
         d["DIFERENCA_CALC"] = d["QTD_TOTAL_CALC"] - d["QTD_SUCESSO_CALC"]
 
@@ -1109,6 +986,7 @@ def consolidar_qualidade(df, indicador):
     d["ATINGIMENTO_CALC"] = d["RESULTADO_QUALIDADE_CALC"]
 
     return d.replace([float("inf"), float("-inf")], pd.NA)
+
 
 def resumo_qualidade_por_grupo(grupo, indicador):
     modelo = modelo_qualidade(indicador)
@@ -1130,32 +1008,34 @@ def resumo_qualidade_por_grupo(grupo, indicador):
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
         diferenca = qtd_sucesso - meta
     else:
-        # Meta vem da planilha e deve ser ponderada pela QTD. COLETAS.
+        # Avaliação de Equipe e Parâmetro de Coleta:
+        # Fórmula da meta total conforme a planilha:
+        # SOMARPRODUTO(META; QTD. COLETAS) / SOMA(QTD. COLETAS)
         #
-        # Fórmula:
-        # Meta = SOMARPRODUTO(META; QTD. COLETAS) / SOMA(QTD. COLETAS)
-        #
-        # Isso funciona para:
-        # - meta de cada mês
-        # - meta total do ano
-        # - anos diferentes com metas diferentes
+        # Importante:
+        # Usa somente linhas válidas, com meta > 0 e QTD. COLETAS > 0.
+        # Isso evita que linhas de média, linhas vazias ou registros antigos distorçam a meta.
         meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
         peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
 
         validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
 
         if validos.any() and peso[validos].sum() > 0:
-            meta = (meta_serie[validos] * peso[validos]).sum() / peso[validos].sum()
+            # Se todas as metas válidas forem iguais, preserva exatamente a meta do modelo.
+            # Exemplo: 97%, 97%, 97%, 97% => 97%.
+            metas_validas = meta_serie[validos].round(6).dropna().unique()
+            if len(metas_validas) == 1:
+                meta = float(metas_validas[0])
+            else:
+                meta = (meta_serie[validos] * peso[validos]).sum() / peso[validos].sum()
         else:
-            # Se ainda não tem coleta, mas existe meta cadastrada no mês, mostra a meta da planilha.
-            metas_sem_peso = meta_serie[meta_serie.notna() & (meta_serie > 0)]
-            meta = float(metas_sem_peso.iloc[0]) if len(metas_sem_peso) else None
+            meta = None
 
-        # Fórmula:
+        # Fórmula da planilha:
         # DIFER. = QTD. COLETAS - QTD.COL. OTIMO+BOM / QTD. COLETAS NORMAIS
         diferenca = qtd_total - qtd_sucesso
 
-    # Fórmula:
+    # Fórmula da taxa de sucesso:
     # TX SUCESSO % = QTD. SUCESSO / QTD. COLETAS
     resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
 
@@ -1229,7 +1109,7 @@ def filtrar(df, indicador, filial):
         return consolidar_tecfil(df, filial, indicador)
 
     if cfg["tipo"] == "qualidade":
-        return consolidar_qualidade(aplicar_filtro_qualidade_exato(df, indicador, filial), indicador)
+        return consolidar_qualidade(aplicar_filtro_base(df, cfg, filial), indicador)
 
     if cfg["tipo"] == "simples":
         return consolidar_campos(aplicar_filtro_base(df, cfg, filial), indicador)
@@ -4814,74 +4694,61 @@ with tab0:
     st.subheader(f"Dashboard — {indicador} | {filial}")
     col_pdf_dashboard_espaco, col_pdf_dashboard = st.columns([3, 1])
     with col_pdf_dashboard:
-        ano_pdf_dashboard = obter_ano_pdf_seguro(df, df_todas_unidades)
+        ano_pdf_dashboard = int(df["ANO"].max())
         nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
 
-        pode_gerar_pdf = df is not None and not df.empty and "ANO" in df.columns
+        with st.spinner("Gerando PDF..."):
+            pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
 
-        if pode_gerar_pdf:
-            with st.spinner("Gerando PDF..."):
-                pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
+        st.download_button(
+            label="📄 Baixar PDF",
+            data=pdf_bytes_dashboard,
+            file_name=nome_pdf_dashboard,
+            mime="application/pdf",
+            use_container_width=True,
+            key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
+        )
 
-            st.download_button(
-                label="📄 Baixar PDF",
-                data=pdf_bytes_dashboard,
-                file_name=nome_pdf_dashboard,
-                mime="application/pdf",
-                use_container_width=True,
-                key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
-            )
+        with st.expander("✉️ Enviar por e-mail"):
+            with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
+                email_destino = st.text_input("E-mail do destinatário")
+                assunto_email = st.text_input(
+                    "Assunto",
+                    value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
+                )
+                corpo_email = st.text_area(
+                    "Mensagem",
+                    value=(
+                        f"Olá,\n\n"
+                        f"Segue em anexo o relatório de indicadores referente a {indicador}, "
+                        f"base {filial}, ano {ano_pdf_dashboard}.\n\n"
+                        f"Atenciosamente."
+                    ),
+                    height=140
+                )
 
-            with st.expander("✉️ Enviar por e-mail"):
-                with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
-                    email_destino = st.text_input("E-mail do destinatário")
-                    assunto_email = st.text_input(
-                        "Assunto",
-                        value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
-                    )
-                    corpo_email = st.text_area(
-                        "Mensagem",
-                        value=(
-                            f"Olá,\n\n"
-                            f"Segue em anexo o relatório de indicadores referente a {indicador}, "
-                            f"base {filial}, ano {ano_pdf_dashboard}.\n\n"
-                            f"Atenciosamente."
-                        ),
-                        height=140
-                    )
+                enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
 
-                    enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
+                if enviar_email:
+                    if not email_destino or "@" not in email_destino:
+                        st.warning("Informe um e-mail válido.")
+                    else:
+                        with st.spinner("Enviando e-mail..."):
+                            ok, msg_envio = enviar_email_relatorio(
+                                destinatario=email_destino,
+                                assunto=assunto_email,
+                                corpo=corpo_email,
+                                nome_arquivo=nome_pdf_dashboard,
+                                pdf_bytes=pdf_bytes_dashboard,
+                            )
 
-                    if enviar_email:
-                        if not email_destino or "@" not in email_destino:
-                            st.warning("Informe um e-mail válido.")
+                        if ok:
+                            st.success(msg_envio)
                         else:
-                            with st.spinner("Enviando e-mail..."):
-                                ok, msg_envio = enviar_email_relatorio(
-                                    destinatario=email_destino,
-                                    assunto=assunto_email,
-                                    corpo=corpo_email,
-                                    nome_arquivo=nome_pdf_dashboard,
-                                    pdf_bytes=pdf_bytes_dashboard,
-                                )
-
-                            if ok:
-                                st.success(msg_envio)
-                            else:
-                                st.error(msg_envio)
-        else:
-            st.button("📄 Baixar PDF", disabled=True, use_container_width=True)
-            st.caption("PDF disponível quando houver dados para o filtro selecionado.")
+                            st.error(msg_envio)
 
 
-    anos = obter_anos_disponiveis_seguro(df)
-
-if not anos:
-    st.warning("Nenhum dado encontrado para os filtros selecionados.")
-    if eh_qualidade(indicador):
-        st.caption("Para Qualidade, confira se existem linhas com TIPO = QUALIDADE, GRUPO 01 correto, REFERÊNCIA, META, VALOR REF 01 e VALOR REF 02.")
-    st.stop()
-
+    anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
     base_kpi = df[df["ANO"] == ano_kpi].copy()
 
@@ -5319,7 +5186,7 @@ with tab1:
     with col_title:
         st.subheader(f"{indicador} — {filial}")
 
-    anos = obter_anos_disponiveis_seguro(df)
+    anos = sorted(df["ANO"].dropna().unique())
     ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos) - 1)
     if eh_moto_margem(indicador):
         df_completa = tabela_pneus_moto_ano(df, ano_selecionado)
