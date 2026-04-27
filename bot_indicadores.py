@@ -887,38 +887,37 @@ def rotulos_qualidade(indicador):
     if modelo == "avaliacao_equipe":
         return {
             "meta": "Meta",
-            "qtd_total": "Qtd. Coletas",
-            "qtd_sucesso": "Qtd. Ótimo+Bom",
-            "diferenca": "Diferença",
-            "resultado": "Tx. Sucesso",
+            "qtd_total": "QTD. COLETAS",
+            "qtd_sucesso": "QTD.COL. OTIMO+BOM",
+            "diferenca": "DIFER.",
+            "resultado": "TX SUCESSO %",
         }
 
     if modelo == "parametro_coleta":
         return {
             "meta": "Meta",
-            "qtd_total": "Qtd. Coletas",
-            "qtd_sucesso": "Qtd. Coletas Normais",
-            "diferenca": "Diferença",
-            "resultado": "Resultado %",
+            "qtd_total": "QTD. COLETAS",
+            "qtd_sucesso": "QTD. COLETAS NORMAIS",
+            "diferenca": "DIFER.",
+            "resultado": "RESULT. %",
         }
 
     if modelo == "parametro_coleta_critico":
         return {
             "meta": "Limite Crítico",
-            "qtd_total": "Qtd. Coletas",
-            "qtd_sucesso": "Qtd. Col. Crítico",
-            "diferenca": "Diferença",
-            "resultado": "Tx. Sucesso",
+            "qtd_total": "QTD. COLETAS",
+            "qtd_sucesso": "QTD. COL. CRÍTICO",
+            "diferenca": "DIFER.",
+            "resultado": "TX SUCESSO %",
         }
 
     return {
         "meta": "Meta",
-        "qtd_total": "Qtd. Coletas",
-        "qtd_sucesso": "Qtd. Sucesso",
-        "diferenca": "Diferença",
-        "resultado": "Resultado %",
+        "qtd_total": "QTD. COLETAS",
+        "qtd_sucesso": "QTD. SUCESSO",
+        "diferenca": "DIFER.",
+        "resultado": "RESULT. %",
     }
-
 
 def consolidar_qualidade(df, indicador):
     """
@@ -1005,14 +1004,29 @@ def resumo_qualidade_por_grupo(grupo, indicador):
     qtd_sucesso = pd.to_numeric(grupo.get("QTD_SUCESSO_CALC"), errors="coerce").fillna(0).sum()
 
     if modelo == "parametro_coleta_critico":
+        # Crítico: META é limite absoluto, então totaliza como soma.
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
         diferenca = qtd_sucesso - meta
     else:
+        # Avaliação de Equipe e Parâmetro de Coleta:
+        # Meta total precisa ser ponderada pela QTD. COLETAS, igual à fórmula do Excel:
+        # =SEERRO(SOMARPRODUTO(META; QTD_COLETAS) / SOMA(QTD_COLETAS); 0)
         meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
-        meta_serie = meta_serie[meta_serie.notna() & (meta_serie > 0)]
-        meta = meta_serie.max() if len(meta_serie) else None
+        peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
+
+        validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
+
+        if validos.any() and peso[validos].sum() > 0:
+            meta = (meta_serie[validos] * peso[validos]).sum() / peso[validos].sum()
+        else:
+            meta = None
+
+        # Fórmula da planilha:
+        # DIFER. = QTD. COLETAS - QTD.COL. OTIMO+BOM / QTD. COLETAS NORMAIS
         diferenca = qtd_total - qtd_sucesso
 
+    # Fórmula da taxa de sucesso:
+    # TX SUCESSO % = QTD. SUCESSO / QTD. COLETAS
     resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
 
     return {
@@ -1023,6 +1037,16 @@ def resumo_qualidade_por_grupo(grupo, indicador):
         "Resultado %": resultado,
     }
 
+
+def renomear_colunas_qualidade_para_exibicao(df_exibir, indicador):
+    rot = rotulos_qualidade(indicador)
+    return df_exibir.rename(columns={
+        "Meta": rot["meta"],
+        "Qtd. Coletas": rot["qtd_total"],
+        "Qtd. Sucesso": rot["qtd_sucesso"],
+        "Diferença": rot["diferenca"],
+        "Resultado %": rot["resultado"],
+    })
 
 def cor_resultado_qualidade_por_linha(row, indicador=None):
     estilos = ["" for _ in row.index]
