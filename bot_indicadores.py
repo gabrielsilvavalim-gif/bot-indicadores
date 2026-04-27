@@ -31,6 +31,29 @@ except Exception:
 
 
 
+
+def obter_anos_disponiveis_seguro(df_filtrado):
+    """
+    Retorna a lista de anos disponíveis no dataframe filtrado sem quebrar quando:
+    - df está vazio
+    - df não possui coluna ANO
+    - ANO está todo vazio
+    """
+    try:
+        if df_filtrado is None or df_filtrado.empty:
+            return []
+
+        if "ANO" not in df_filtrado.columns:
+            return []
+
+        anos = pd.to_numeric(df_filtrado["ANO"], errors="coerce").dropna().unique()
+        anos = sorted([int(a) for a in anos])
+
+        return anos
+    except Exception:
+        return []
+
+
 def obter_ano_pdf_seguro(df_filtrado, df_base=None):
     """
     Retorna um ano seguro para gerar o PDF.
@@ -4811,7 +4834,14 @@ with tab0:
             st.caption("PDF disponível quando houver dados para o filtro selecionado.")
 
 
-    anos = sorted(df["ANO"].dropna().unique())
+    anos = obter_anos_disponiveis_seguro(df)
+
+if not anos:
+    st.warning("Nenhum dado encontrado para os filtros selecionados.")
+    if eh_qualidade(indicador):
+        st.caption("Para Qualidade, confira se o filtro está exatamente correto: TIPO = QUALIDADE, GRUPO 01, GRUPO 02/03 vazios quando necessário, REFERÊNCIA, META, VALOR REF 01 e VALOR REF 02.")
+    st.stop()
+
     ano_kpi = int(anos[-1])
     base_kpi = df[df["ANO"] == ano_kpi].copy()
 
@@ -5249,7 +5279,7 @@ with tab1:
     with col_title:
         st.subheader(f"{indicador} — {filial}")
 
-    anos = sorted(df["ANO"].dropna().unique())
+    anos = obter_anos_disponiveis_seguro(df)
     ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos) - 1)
     if eh_moto_margem(indicador):
         df_completa = tabela_pneus_moto_ano(df, ano_selecionado)
