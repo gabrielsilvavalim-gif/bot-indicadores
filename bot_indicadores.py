@@ -1711,6 +1711,26 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
 
+        if "Pago em Hora Extra" in df_mom.columns:
+            headers = ["Mês", "Limite", "Pago HE", "Salário", "HE Folha", "Saldo", "Res. %"]
+            widths = [28, 26, 30, 30, 24, 28, 24]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_mom.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
+                self.cell(widths[1], 6, fmt_brl(row["Limite"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Pago em Hora Extra"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Salário"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_pct(row["HE da Folha"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_brl(row["Saldo do Limite"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.ln()
+            return
+
         if "Margem Bruta" in df_mom.columns:
             headers = ["Mês", "Meta %", "Compra", "Fatur.", "Margem", "Tx.", "Acumul."]
             widths = [28, 22, 27, 30, 30, 22, 30]
@@ -1893,11 +1913,12 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     pdf.add_page()
     pdf.secao("4. Variação Mês a Mês - Últimos 12 meses")
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").tail(12).copy()
-    pdf.tabela_mom(
-        df_mom[["Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]]
-        if eh_moto_margem(indicador)
-        else df_mom[["Mês", "Realizado", "META", "Gap", "Ating.", "MoM_%"]]
-    )
+    if eh_moto_margem(indicador):
+        pdf.tabela_mom(df_mom[["Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]])
+    elif eh_despesa_hora_extra(indicador):
+        pdf.tabela_mom(df_mom[["Mês", "Limite", "Pago em Hora Extra", "Salário", "HE da Folha", "Saldo do Limite", "Resultado %", "MoM_%"]])
+    else:
+        pdf.tabela_mom(df_mom[["Mês", "Realizado", "META", "Gap", "Ating.", "MoM_%"]])
 
     pdf.add_page()
     pdf.secao("5. Comparativo Ano a Ano (YoY)")
