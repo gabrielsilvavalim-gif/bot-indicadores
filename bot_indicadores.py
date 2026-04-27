@@ -514,21 +514,24 @@ def eh_resultado_financeiro(indicador):
 
 def meta_ponderada_resultado_financeiro(grupo):
     """
-    Meta total ponderada pela receita:
-    SOMARPRODUTO(Receita; Meta %) / SOMA(Receita)
+    Meta total do Resultado Financeiro.
+
+    Para esse modelo, a meta deve permanecer igual à meta limite da planilha.
+    Exemplo da sua tela: 5,0%.
+
+    Usei a maior meta válida do grupo para evitar distorção quando existirem linhas auxiliares,
+    médias, linhas zeradas ou linhas com meta vazia.
     """
     if grupo is None or grupo.empty:
         return None
 
-    receita = pd.to_numeric(grupo.get("RECEITA_CALC"), errors="coerce").fillna(0)
-    meta = pd.to_numeric(grupo.get("META_PERCENTUAL_CALC"), errors="coerce").fillna(0)
-    total_receita = receita.sum()
+    meta = pd.to_numeric(grupo.get("META_PERCENTUAL_CALC"), errors="coerce")
+    meta = meta[meta.notna() & (meta > 0)]
 
-    if total_receita > 0:
-        return (receita * meta).sum() / total_receita
+    if len(meta) == 0:
+        return None
 
-    return meta.mean() if len(meta) else None
-
+    return meta.max()
 
 def resumo_resultado_financeiro_por_grupo(grupo):
     if grupo is None or grupo.empty:
@@ -544,13 +547,15 @@ def resumo_resultado_financeiro_por_grupo(grupo):
     receita = pd.to_numeric(grupo.get("RECEITA_CALC"), errors="coerce").fillna(0).sum()
     meta_pct = meta_ponderada_resultado_financeiro(grupo)
 
+    # Fórmula do Resultado %:
+    # =SEERRO((1-Despesa/Receita);0)
     resultado_pct = (1 - (despesa / receita)) if receita > 0 else None
 
-    # Ponto principal: igual à planilha.
-    # O total é a soma dos RESULTADO_RS das linhas, não o recálculo pelo total.
-    if "RESULTADO_RS" in grupo.columns:
-        resultado_rs = pd.to_numeric(grupo["RESULTADO_RS"], errors="coerce").fillna(0).sum()
-    elif receita > 0 and resultado_pct is not None and meta_pct is not None and pd.notna(meta_pct):
+    # Fórmula do Resultado R$:
+    # =(Receita*Resultado%) - (Receita*Meta%)
+    # Exemplo total da planilha:
+    # Receita total x (-21,5%) - Receita total x 5,0%
+    if receita > 0 and resultado_pct is not None and meta_pct is not None and pd.notna(meta_pct):
         resultado_rs = (receita * resultado_pct) - (receita * meta_pct)
     else:
         resultado_rs = None
@@ -968,10 +973,8 @@ def tabela_completa_ano(d, ano, indicador):
 
             if not sub.empty:
                 resumo = resumo_resultado_financeiro_por_grupo(sub)
-                resultado_mes = resumo["Resultado R$"]
-
-                if pd.notna(resultado_mes):
-                    acumulado += resultado_mes
+                if pd.notna(resumo["Resultado R$"]):
+                    acumulado += resumo["Resultado R$"]
                     acumulado_exibir = acumulado
                 else:
                     acumulado_exibir = None
@@ -981,7 +984,7 @@ def tabela_completa_ano(d, ano, indicador):
                     "Meta %": resumo["Meta %"],
                     "Despesa": resumo["Despesa"],
                     "Receita": resumo["Receita"],
-                    "Resultado R$": resultado_mes,
+                    "Resultado R$": resumo["Resultado R$"],
                     "Resultado %": resumo["Resultado %"],
                     "Acumulado": acumulado_exibir,
                 })
@@ -996,18 +999,16 @@ def tabela_completa_ano(d, ano, indicador):
                     "Acumulado": acumulado if acumulado != 0 else None,
                 })
 
-        # TOTAL igual à planilha: soma dos resultados mensais/linhas.
         resumo_total = resumo_resultado_financeiro_por_grupo(base_ano)
-        resultado_total = resumo_total["Resultado R$"]
 
         rows.append({
             "Mês": "TOTAL",
             "Meta %": resumo_total["Meta %"],
             "Despesa": resumo_total["Despesa"],
             "Receita": resumo_total["Receita"],
-            "Resultado R$": resultado_total,
+            "Resultado R$": resumo_total["Resultado R$"],
             "Resultado %": resumo_total["Resultado %"],
-            "Acumulado": resultado_total,
+            "Acumulado": resumo_total["Resultado R$"],
         })
 
         return pd.DataFrame(rows)
@@ -2789,6 +2790,26 @@ class PDFRelatorio(FPDF):
     def tabela_yoy(self, df_yoy):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
+
+        if "Resultado %" in df_yoy.columns and "Meta %" in df_yoy.columns and "Resultado R$" in df_yoy.columns:
+            headers = ["Ano", "Meta %", "Desp.", "Receita", "Result.", "Result. %", "Meses"]
+            widths = [18, 24, 30, 30, 30, 24, 20]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_yoy.iterrows():
+                self.cell(widths[0], 6, str(int(row["ANO"])), border=1, align="C")
+                self.cell(widths[1], 6, fmt_pct(row["Meta %"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Despesa"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Receita"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Resultado R$"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.cell(widths[6], 6, str(int(row["Meses c/ dado"])), border=1, align="C")
+                self.ln()
+            return
 
         if "Despesa" in df_yoy.columns and "Receita" in df_yoy.columns and "Resultado R$" in df_yoy.columns:
             headers = ["Ano", "Limite %", "Desp.", "Receita", "Result.", "Tx.", "Meses"]
