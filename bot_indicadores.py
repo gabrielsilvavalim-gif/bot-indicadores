@@ -2162,12 +2162,17 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         ultimo_mes = dados["Mês"].iloc[-1]
         titulo_final = titulo or f"Receita x Despesa — Resultado Financeiro — até {ultimo_mes}/{ano}"
 
+        cores_receita = [
+            COR_LARANJA if pd.notna(receita) and pd.notna(despesa) and receita < despesa else COR_VERDE
+            for receita, despesa in zip(dados["Receita"], dados["Despesa"])
+        ]
+
         fig = go.Figure()
         fig.add_bar(
             x=dados["Mês"],
             y=dados["Receita"],
             name="Receita",
-            marker_color=COR_VERDE,
+            marker_color=cores_receita,
             marker_cornerradius=4,
             text=[fmt_brl(v) for v in dados["Receita"]],
             textposition="outside",
@@ -4467,12 +4472,17 @@ with tab3:
                     hide_index=True,
                 )
 
+                cores_receita_filiais = [
+                    COR_LARANJA if pd.notna(receita) and pd.notna(despesa) and receita < despesa else COR_VERDE
+                    for receita, despesa in zip(comp_filiais["Receita"], comp_filiais["Despesa"])
+                ]
+
                 fig_filiais = go.Figure()
                 fig_filiais.add_bar(
                     x=comp_filiais["FILIAL"],
                     y=comp_filiais["Receita"],
                     name="Receita",
-                    marker_color=COR_VERDE,
+                    marker_color=cores_receita_filiais,
                     marker_cornerradius=4,
                     text=[fmt_brl(v) for v in comp_filiais["Receita"]],
                     textposition="outside",
