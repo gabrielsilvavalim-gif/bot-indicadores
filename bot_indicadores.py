@@ -745,14 +745,17 @@ def consolidar_tecfil(df_raw, filial):
         return pd.DataFrame()
 
     if filial == "Geral":
-        # Para o geral da Tecfil, a planilha usa XX GERAL XX.
-        geral_norm = normalizar_texto("XX GERAL XX")
-        base_geral = base[base["FILIAL_NORM"] == geral_norm].copy()
+        # Para o geral da Tecfil, a coluna C possui os estados.
+        # Devem entrar no consolidado geral apenas:
+        # SP, MS, ES e PR.
+        estados_tecfil = ["SP", "MS", "ES", "PR"]
+        estados_norm = [normalizar_texto(e) for e in estados_tecfil]
 
-        # Se por algum motivo não existir XX GERAL XX, usa todas as linhas como fallback.
-        base = base_geral if not base_geral.empty else base.copy()
+        base = base[base["FILIAL_NORM"].isin(estados_norm)].copy()
         base["FILIAL"] = "Geral"
     else:
+        # Caso no futuro queira analisar um estado específico,
+        # o filtro usa exatamente o valor selecionado.
         base = base[base["FILIAL_NORM"] == normalizar_texto(filial)].copy()
         base["FILIAL"] = filial
 
@@ -3791,7 +3794,7 @@ def diagnosticar_sem_dados(df_raw, indicador, filial):
 
     if eh_tecfil(indicador):
         st.warning("Nenhum dado encontrado para os filtros selecionados.")
-        st.caption("Para Tecfil, confira se a planilha possui: coluna B = TECFIL KG/TECFIL VALOR, coluna C = base/filial, coluna F = data, coluna H = meta e coluna J = realizado.")
+        st.caption("Para Tecfil, confira se a planilha possui: coluna B = TECFIL KG/TECFIL VALOR, coluna C = estado/base, coluna F = data, coluna H = meta e coluna J = realizado.")
         st.stop()
 
     st.warning("Nenhum dado encontrado para os filtros selecionados.")
