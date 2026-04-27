@@ -102,28 +102,49 @@ MESES_MAPA = {
 # FUNÇÕES AUXILIARES
 # =========================
 
+
 def eh_despesa_manutencao(indicador):
     return normalizar_texto(indicador) == "DESPESA MANUTENCAO"
 
 
+def eh_despesa_hora_extra(indicador):
+    return normalizar_texto(indicador) == "DESPESA HORA EXTRA"
+
+
+def eh_despesa_com_limite(indicador):
+    return eh_despesa_manutencao(indicador) or eh_despesa_hora_extra(indicador)
+
+
 def rotulo_meta(indicador):
-    return "Limite" if eh_despesa_manutencao(indicador) else "Meta"
+    return "Limite" if eh_despesa_com_limite(indicador) else "Meta"
 
 
 def rotulo_realizado(indicador):
-    return "Despesa" if eh_despesa_manutencao(indicador) else "Realizado"
+    if eh_despesa_hora_extra(indicador):
+        return "Pago em Hora Extra"
+    if eh_despesa_manutencao(indicador):
+        return "Despesa"
+    return "Realizado"
 
 
 def rotulo_gap(indicador):
-    return "Saldo do Limite" if eh_despesa_manutencao(indicador) else "Gap"
+    return "Saldo do Limite" if eh_despesa_com_limite(indicador) else "Gap"
+
+
+def rotulo_percentual(indicador):
+    if eh_despesa_hora_extra(indicador):
+        return "Resultado %"
+    if eh_despesa_manutencao(indicador):
+        return "Uso do Limite"
+    return "Atingimento"
 
 
 def atingimento_despesa_manutencao(realizado, limite):
     """
-    Para Despesa Manutenção:
+    Para despesas com limite:
     - Limite é o máximo que pode gastar.
     - Se a despesa for menor ou igual ao limite, está bom.
-    - Indicador mostrado = Despesa / Limite.
+    - Indicador mostrado = Despesa/Pago / Limite.
     """
     if limite is None or pd.isna(limite) or limite == 0:
         return None
@@ -132,14 +153,13 @@ def atingimento_despesa_manutencao(realizado, limite):
 
 def cor_despesa_manutencao(v):
     """
-    Para Despesa Manutenção:
-    verde quando despesa <= limite, laranja quando despesa > limite.
-    Como o valor formatado é Despesa / Limite, verde até 100%.
+    Para Despesa Manutenção e Despesa Hora Extra:
+    verde quando despesa/pago <= limite, laranja quando passar do limite.
+    Como o valor formatado é Despesa ou Pago / Limite, verde até 100%.
     """
     if pd.isna(v):
         return ""
     return f"color: {COR_VERDE}; font-weight:bold" if v <= 1 else f"color: {COR_LARANJA}; font-weight:bold"
-
 
 def agora_br():
     return datetime.now(TZ_BR)
@@ -335,12 +355,27 @@ def consolidar_campos(df, nome_indicador):
     d["META_CALC"] = pd.to_numeric(d.get("META"), errors="coerce").fillna(0)
     d["VALOR1"] = pd.to_numeric(d.get("VALOR REF 01"), errors="coerce").fillna(0)
 
-    if eh_despesa_manutencao(nome_indicador):
+    if eh_despesa_hora_extra(nome_indicador):
+        # Para Despesa Hora Extra:
+        # META_CALC representa o LIMITE máximo de gasto com HE.
+        # REALIZADO_CALC representa o valor PAGO EM HORA EXTRA.
+        # SALARIO_CALC busca o salário/folha na coluna L:L.
+        # HE_FOLHA_CALC = Pago em Hora Extra / Salário.
+        # RESULTADO % = Pago em Hora Extra / Limite.
+        d["REALIZADO_CALC"] = d["VALOR1"]
+        d["SALARIO_CALC"] = serie_numerica_por_coluna(
+            d,
+            nomes_preferidos=["VALOR REF 02", "SALARIO", "SALÁRIO", "SALARIOS", "SALÁRIOS", "FOLHA", "FOLHA R$"],
+            indice_1_base=12
+        )
+        d["HE_FOLHA_CALC"] = d["REALIZADO_CALC"] / d["SALARIO_CALC"].replace(0, pd.NA)
+        d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
+        d["ATINGIMENTO_CALC"] = d["REALIZADO_CALC"] / d["META_CALC"].replace(0, pd.NA)
+
+    elif eh_despesa_manutencao(nome_indicador):
         # Para Despesa Manutenção:
         # META_CALC representa o LIMITE máximo de gasto.
         # REALIZADO_CALC representa a DESPESA realizada.
-        # Saldo positivo = ainda está dentro do limite.
-        # Saldo negativo = passou do limite.
         d["REALIZADO_CALC"] = d["VALOR1"]
         d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
         d["ATINGIMENTO_CALC"] = d["REALIZADO_CALC"] / d["META_CALC"].replace(0, pd.NA)
@@ -356,7 +391,6 @@ def consolidar_campos(df, nome_indicador):
         d["ATINGIMENTO_CALC"] = d["REALIZADO_CALC"] / d["META_CALC"].replace(0, pd.NA)
 
     return d.replace([float("inf"), float("-inf")], pd.NA)
-
 
 def filtrar(df, indicador, filial):
     cfg = INDICADORES[indicador]
@@ -594,6 +628,64 @@ def tabela_completa_ano(d, ano, indicador):
 
         return pd.DataFrame(rows)
 
+    if eh_despesa_hora_extra(indicador):
+        rows = []
+        base_ano = d[d["ANO"] == ano].copy()
+
+        mensal = (
+            base_ano.groupby("MÊS", as_index=False)
+            .agg({"META_CALC": "sum", "REALIZADO_CALC": "sum", "SALARIO_CALC": "sum"})
+            .sort_values("MÊS")
+        )
+
+        for i in range(1, 13):
+            mes_nome = MESES_MAPA[i]
+            sub = mensal[mensal["MÊS"] == i]
+
+            if len(sub) > 0:
+                limite = sub["META_CALC"].values[0]
+                pago_he = sub["REALIZADO_CALC"].values[0]
+                salario = sub["SALARIO_CALC"].values[0]
+                he_folha = pago_he / salario if salario > 0 else None
+                saldo = limite - pago_he
+                resultado_pct = pago_he / limite if limite > 0 else None
+            else:
+                limite = None
+                pago_he = None
+                salario = None
+                he_folha = None
+                saldo = None
+                resultado_pct = None
+
+            rows.append({
+                "Mês": mes_nome,
+                "Limite": limite,
+                "Pago em Hora Extra": pago_he,
+                "Salário": salario,
+                "HE da Folha": he_folha,
+                "Saldo do Limite": saldo,
+                "Resultado %": resultado_pct,
+            })
+
+        total_limite = base_ano["META_CALC"].sum()
+        total_pago = base_ano["REALIZADO_CALC"].sum()
+        total_salario = base_ano["SALARIO_CALC"].sum() if "SALARIO_CALC" in base_ano.columns else 0
+        total_he_folha = total_pago / total_salario if total_salario > 0 else None
+        total_saldo = total_limite - total_pago
+        total_resultado = total_pago / total_limite if total_limite > 0 else None
+
+        rows.append({
+            "Mês": "TOTAL",
+            "Limite": total_limite,
+            "Pago em Hora Extra": total_pago,
+            "Salário": total_salario,
+            "HE da Folha": total_he_folha,
+            "Saldo do Limite": total_saldo,
+            "Resultado %": total_resultado,
+        })
+
+        return pd.DataFrame(rows)
+
     rows = []
     base_ano = d[d["ANO"] == ano].copy()
 
@@ -659,7 +751,6 @@ def tabela_completa_ano(d, ano, indicador):
 
     return pd.DataFrame(rows)
 
-
 def calcular_mom(d, indicador):
     if eh_moto_margem(indicador):
         linhas = []
@@ -694,6 +785,27 @@ def calcular_mom(d, indicador):
         base["MoM_%"] = base["Realizado"].pct_change() * 100
         return base.replace([float("inf"), float("-inf")], pd.NA)
 
+    if eh_despesa_hora_extra(indicador):
+        base = (
+            d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"], as_index=False)
+            .agg({"META_CALC": "sum", "REALIZADO_CALC": "sum", "SALARIO_CALC": "sum"})
+            .sort_values("MÊS_ORDEM")
+            .reset_index(drop=True)
+        )
+        base["HE da Folha"] = base["REALIZADO_CALC"] / base["SALARIO_CALC"].replace(0, pd.NA)
+        base["Resultado %"] = base["REALIZADO_CALC"] / base["META_CALC"].replace(0, pd.NA)
+        base["Gap"] = base["META_CALC"] - base["REALIZADO_CALC"]
+        base["MoM_%"] = base["REALIZADO_CALC"].pct_change() * 100
+        base = base.replace([float("inf"), float("-inf")], pd.NA)
+
+        return base.rename(columns={
+            "MÊS_NOME": "Mês",
+            "REALIZADO_CALC": "Pago em Hora Extra",
+            "META_CALC": "Limite",
+            "SALARIO_CALC": "Salário",
+            "Gap": "Saldo do Limite",
+        })[["ANO", "MÊS", "Mês", "Limite", "Pago em Hora Extra", "Salário", "HE da Folha", "Saldo do Limite", "Resultado %", "MoM_%", "MÊS_ORDEM"]]
+
     base = (
         d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"], as_index=False)
         .agg({"META_CALC": "sum", "REALIZADO_CALC": "sum"})
@@ -720,7 +832,6 @@ def calcular_mom(d, indicador):
         "META_CALC": "META"
     })[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating.", "MoM_%", "MÊS_ORDEM"]]
 
-
 def calcular_yoy(d, indicador):
     if eh_moto_margem(indicador):
         linhas = []
@@ -746,6 +857,35 @@ def calcular_yoy(d, indicador):
         df_yoy["Realizado"] = df_yoy["Faturamento"]
         df_yoy["Meta"] = df_yoy["Meta %"]
         df_yoy["Atingimento"] = df_yoy["Tx. Sucesso"]
+
+        return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
+
+    if eh_despesa_hora_extra(indicador):
+        df_yoy = (
+            d.groupby("ANO", as_index=False)
+            .agg({
+                "REALIZADO_CALC": "sum",
+                "META_CALC": "sum",
+                "SALARIO_CALC": "sum",
+                "MÊS": "nunique"
+            })
+            .sort_values("ANO")
+            .rename(columns={
+                "REALIZADO_CALC": "Pago em Hora Extra",
+                "META_CALC": "Limite",
+                "SALARIO_CALC": "Salário",
+                "MÊS": "Meses c/ dado"
+            })
+        )
+        df_yoy["HE da Folha"] = df_yoy["Pago em Hora Extra"] / df_yoy["Salário"].replace(0, pd.NA)
+        df_yoy["Saldo do Limite"] = df_yoy["Limite"] - df_yoy["Pago em Hora Extra"]
+        df_yoy["Resultado %"] = df_yoy["Pago em Hora Extra"] / df_yoy["Limite"].replace(0, pd.NA)
+        df_yoy["YoY_%"] = df_yoy["Pago em Hora Extra"].pct_change() * 100
+
+        # Compatibilidade com blocos antigos
+        df_yoy["Realizado"] = df_yoy["Pago em Hora Extra"]
+        df_yoy["Meta"] = df_yoy["Limite"]
+        df_yoy["Atingimento"] = df_yoy["Resultado %"]
 
         return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
 
@@ -799,6 +939,30 @@ def comparativo_filiais(d, ano, indicador):
             })
 
         return pd.DataFrame(linhas).sort_values("Margem Bruta", ascending=False)
+
+    if eh_despesa_hora_extra(indicador):
+        comp = (
+            d[d["ANO"] == ano]
+            .groupby("FILIAL", as_index=False)
+            .agg({"REALIZADO_CALC": "sum", "META_CALC": "sum", "SALARIO_CALC": "sum"})
+            .rename(columns={
+                "REALIZADO_CALC": "Pago em Hora Extra",
+                "META_CALC": "Limite",
+                "SALARIO_CALC": "Salário",
+            })
+            .sort_values("Pago em Hora Extra", ascending=False)
+        )
+        comp["HE da Folha"] = comp["Pago em Hora Extra"] / comp["Salário"].replace(0, pd.NA)
+        comp["Saldo do Limite"] = comp["Limite"] - comp["Pago em Hora Extra"]
+        comp["Resultado %"] = comp["Pago em Hora Extra"] / comp["Limite"].replace(0, pd.NA)
+
+        # Compatibilidade com blocos antigos
+        comp["Realizado"] = comp["Pago em Hora Extra"]
+        comp["Meta"] = comp["Limite"]
+        comp["Gap"] = comp["Saldo do Limite"]
+        comp["Atingimento"] = comp["Resultado %"]
+
+        return comp
 
     comp = (
         d[d["ANO"] == ano]
@@ -1217,6 +1381,55 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     return texto
 
 def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
+    if indicador and eh_despesa_hora_extra(indicador):
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Pago em Hora Extra"].notna())].copy()
+        if dados.empty:
+            return None
+
+        ultimo_mes = dados["Mês"].iloc[-1]
+        titulo_final = titulo or f"Pago em Hora Extra x Limite — até {ultimo_mes}/{ano}"
+        nome_realizado = "Pago em Hora Extra"
+        nome_meta = "Limite"
+
+        cor_barras = [
+            COR_VERDE if pd.notna(r) and pd.notna(m) and r <= m else COR_LARANJA
+            for r, m in zip(dados["Pago em Hora Extra"], dados["Limite"])
+        ]
+
+        fig = go.Figure()
+        fig.add_bar(
+            x=dados["Mês"],
+            y=dados["Pago em Hora Extra"],
+            name=nome_realizado,
+            marker_color=cor_barras,
+            marker_cornerradius=4,
+            text=[fmt_brl(v) for v in dados["Pago em Hora Extra"]],
+            textposition="outside",
+            textfont=dict(size=11),
+            hovertemplate=f"<b>%{{x}}</b><br>{nome_realizado}: R$ %{{y:,.0f}}<extra></extra>",
+        )
+        fig.add_scatter(
+            x=dados["Mês"],
+            y=dados["Limite"],
+            name=nome_meta,
+            mode="lines+markers",
+            line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            marker=dict(size=7),
+            hovertemplate=f"<b>%{{x}}</b><br>{nome_meta}: R$ %{{y:,.0f}}<extra></extra>",
+        )
+        fig.update_layout(
+            title=titulo_final,
+            height=420,
+            margin=dict(t=60, b=20, l=20, r=20),
+            legend=dict(orientation="h", y=-0.18),
+            yaxis_title="R$",
+            bargap=0.22,
+            uniformtext_minsize=8,
+            uniformtext_mode="hide",
+        )
+        fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
+        return fig
+
     dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
     if dados.empty:
         return None
@@ -1270,7 +1483,6 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
     )
     fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
     return fig
-
 
 def card_html(titulo, valor, delta=None):
     delta_html = ""
@@ -2080,7 +2292,7 @@ with tab0:
         dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Realizado"])
         if not dados_chart.empty:
             ultimo_mes = dados_chart["Mês"].iloc[-1]
-            fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, titulo=(f"Despesa x Limite — até {ultimo_mes}/{ano_kpi}" if eh_despesa_manutencao(indicador) else f"Realizado x Meta — até {ultimo_mes}/{ano_kpi}"), indicador=indicador)
+            fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard")
 
         st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
@@ -2171,7 +2383,23 @@ with tab1:
         )
     else:
         df_completa_tela = df_completa.copy()
-        if eh_despesa_manutencao(indicador):
+        if eh_despesa_hora_extra(indicador):
+            st.dataframe(
+                df_completa_tela.style
+                .format({
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "",
+                    "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+                    "Resultado %": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
+                .map(cor_despesa_manutencao, subset=["Resultado %"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        elif eh_despesa_manutencao(indicador):
             df_completa_tela = df_completa_tela.rename(columns={
                 "Realizado": "Despesa",
                 "Meta": "Limite",
@@ -2317,49 +2545,101 @@ with tab2:
         )
 
     else:
-        linhas_finais = []
-        for ano in sorted(df_mom["ANO"].dropna().unique()):
-            base_ano = df_mom[df_mom["ANO"] == ano].copy()
-            linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating.", "MoM_%"]])
+        if eh_despesa_hora_extra(indicador):
+            df_mom_tela = pd.DataFrame()
+        else:
+            linhas_finais = []
+            for ano in sorted(df_mom["ANO"].dropna().unique()):
+                base_ano = df_mom[df_mom["ANO"] == ano].copy()
+                linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating.", "MoM_%"]])
 
-            total_meta = base_ano["META"].sum()
-            total_realizado = base_ano["Realizado"].sum()
+                total_meta = base_ano["META"].sum()
+                total_realizado = base_ano["Realizado"].sum()
 
-            if eh_despesa_manutencao(indicador):
-                # Despesa Manutenção:
-                # Limite é o máximo que pode gastar.
-                # Uso do Limite = Despesa / Limite.
-                # Exemplo correto: R$ 323.496 / R$ 496.414 = 65%.
-                total_gap = total_meta - total_realizado
-                total_ating = total_realizado / total_meta if total_meta > 0 else None
+                if eh_despesa_manutencao(indicador):
+                    # Despesa Manutenção:
+                    # Limite é o máximo que pode gastar.
+                    # Uso do Limite = Despesa / Limite.
+                    total_gap = total_meta - total_realizado
+                    total_ating = total_realizado / total_meta if total_meta > 0 else None
 
-            elif eh_despesa(indicador):
-                total_gap = total_meta - total_realizado
-                total_ating = total_meta / total_realizado if total_realizado > 0 else None
+                elif eh_despesa(indicador):
+                    total_gap = total_meta - total_realizado
+                    total_ating = total_meta / total_realizado if total_realizado > 0 else None
 
-            else:
-                total_gap = total_realizado - total_meta
-                total_ating = total_realizado / total_meta if total_meta > 0 else None
+                else:
+                    total_gap = total_realizado - total_meta
+                    total_ating = total_realizado / total_meta if total_meta > 0 else None
 
-            linhas_finais.append(pd.DataFrame([{
-                "ANO": ano,
-                "MÊS": None,
-                "Mês": f"TOTAL {ano}",
-                "META": total_meta,
-                "Realizado": total_realizado,
-                "Gap": total_gap,
-                "Ating.": total_ating,
-                "MoM_%": None,
-            }]))
+                linhas_finais.append(pd.DataFrame([{
+                    "ANO": ano,
+                    "MÊS": None,
+                    "Mês": f"TOTAL {ano}",
+                    "META": total_meta,
+                    "Realizado": total_realizado,
+                    "Gap": total_gap,
+                    "Ating.": total_ating,
+                    "MoM_%": None,
+                }]))
 
-        df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
+            df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
 
         def destacar_total(row):
             if str(row["Mês"]).startswith("TOTAL"):
                 return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
             return ["" for _ in row]
 
-        if eh_despesa_manutencao(indicador):
+        if eh_despesa_hora_extra(indicador):
+            # A tabela de Hora Extra já vem com os nomes finais.
+            linhas_finais_he = []
+            for ano_he in sorted(df_mom["ANO"].dropna().unique()):
+                base_ano_he = df_mom[df_mom["ANO"] == ano_he].copy()
+                linhas_finais_he.append(base_ano_he[["ANO", "MÊS", "Mês", "Limite", "Pago em Hora Extra", "Salário", "HE da Folha", "Saldo do Limite", "Resultado %", "MoM_%"]])
+
+                total_limite = base_ano_he["Limite"].sum()
+                total_pago = base_ano_he["Pago em Hora Extra"].sum()
+                total_salario = base_ano_he["Salário"].sum()
+                total_he_folha = total_pago / total_salario if total_salario > 0 else None
+                total_saldo = total_limite - total_pago
+                total_resultado = total_pago / total_limite if total_limite > 0 else None
+
+                linhas_finais_he.append(pd.DataFrame([{
+                    "ANO": ano_he,
+                    "MÊS": None,
+                    "Mês": f"TOTAL {ano_he}",
+                    "Limite": total_limite,
+                    "Pago em Hora Extra": total_pago,
+                    "Salário": total_salario,
+                    "HE da Folha": total_he_folha,
+                    "Saldo do Limite": total_saldo,
+                    "Resultado %": total_resultado,
+                    "MoM_%": None,
+                }]))
+
+            df_mom_he_tela = pd.concat(linhas_finais_he, ignore_index=True)
+
+            st.dataframe(
+                df_mom_he_tela.style
+                .apply(destacar_total, axis=1)
+                .format({
+                    "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                    "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                    "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Resultado %": lambda v: f"{v:.0%}" if pd.notna(v) else "—",
+                    "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
+                .map(cor_despesa_manutencao, subset=["Resultado %"])
+                .map(cor_variacao, subset=["MoM_%"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        elif eh_despesa_manutencao(indicador):
             df_mom_tela_exibir = df_mom_tela.rename(columns={
                 "META": "Limite",
                 "Realizado": "Despesa",
