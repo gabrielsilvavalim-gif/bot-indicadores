@@ -428,11 +428,15 @@ def resumo_despesa_geral_por_grupo(grupo):
     if limite_pct is None or pd.isna(limite_pct):
         limite_rs = None
         resultado = None
+        tx_sucesso = None
     else:
         limite_rs = receita * limite_pct
         resultado = limite_rs - despesa
 
-    tx_sucesso = despesa / receita if receita > 0 else None
+        # Fórmula solicitada:
+        # Tx. Sucesso = (Receita x Limite %) / Despesa
+        # Excel: =SEERRO((AD5*AB5)/AC5;"0")
+        tx_sucesso = limite_rs / despesa if despesa > 0 else None
 
     return {
         "Limite %": limite_pct,
@@ -457,7 +461,10 @@ def consolidar_despesa_geral(df):
     DESPESA = coluna J:J / VALOR REF 01
     RECEITA = coluna L:L / VALOR REF 02
     RESULTADO R$ = (RECEITA x LIMITE %) - DESPESA
-    TX. SUCESSO = DESPESA / RECEITA
+    TX. SUCESSO = (RECEITA x LIMITE %) / DESPESA
+
+    Fórmula da Tx. Sucesso no Excel:
+    =SEERRO((AD5*AB5)/AC5;"0")
 
     2023, 2024 e 2025 não têm limite/meta.
     """
@@ -484,7 +491,10 @@ def consolidar_despesa_geral(df):
 
     d["LIMITE_RS_CALC"] = d["RECEITA_CALC"] * d["LIMITE_PERCENTUAL_CALC"]
     d["RESULTADO_RS"] = d["LIMITE_RS_CALC"] - d["DESPESA_CALC"]
-    d["TX_SUCESSO_CALC"] = d["DESPESA_CALC"] / d["RECEITA_CALC"].replace(0, pd.NA)
+
+    # Fórmula solicitada:
+    # Tx. Sucesso = (Receita x Limite %) / Despesa
+    d["TX_SUCESSO_CALC"] = d["LIMITE_RS_CALC"] / d["DESPESA_CALC"].replace(0, pd.NA)
 
     # Campos de compatibilidade
     d["META_CALC"] = d["LIMITE_PERCENTUAL_CALC"]
@@ -650,9 +660,12 @@ def remover_meta_moto_anos_sem_meta(df_tabela):
 
 def cor_tx_sucesso_despesa_geral_por_linha(row):
     """
-    Para Despesa Geral:
-    - Verde quando Tx. Sucesso <= 71%.
-    - Laranja quando Tx. Sucesso > 71%.
+    Para Despesa Geral com a fórmula:
+    Tx. Sucesso = (Receita x Limite %) / Despesa
+
+    Interpretação:
+    - Verde quando Tx. Sucesso >= 100%.
+    - Laranja quando Tx. Sucesso < 100%.
     - Se o ano não possui limite, mantém sem destaque.
     """
     estilos = ["" for _ in row.index]
@@ -675,7 +688,7 @@ def cor_tx_sucesso_despesa_geral_por_linha(row):
 
     if pd.notna(tx):
         idx = list(row.index).index("Tx. Sucesso")
-        estilos[idx] = f"color: {COR_VERDE}; font-weight:bold" if tx <= LIMITE_DESPESA_GERAL_PADRAO else f"color: {COR_LARANJA}; font-weight:bold"
+        estilos[idx] = f"color: {COR_VERDE}; font-weight:bold" if tx >= 1 else f"color: {COR_LARANJA}; font-weight:bold"
 
     return estilos
 
@@ -1626,7 +1639,7 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
             f"Hoje é dia {hoje_txt}. No mês de {nome_mes}/{ano}, a despesa geral foi de "
             f"{fmt_brl(resumo['realizado_mes'])}, contra uma receita de {fmt_brl(resumo['receita_mes'])}. "
             f"O limite do mês é de {fmt_pct(resumo['meta_mes'])}, equivalente a {fmt_brl(resumo['limite_rs_mes'])}. "
-            f"A taxa de sucesso realizada foi de {fmt_pct(resumo['ating_mes'])}. "
+            f"A taxa de sucesso, calculada como limite permitido dividido pela despesa, foi de {fmt_pct(resumo['ating_mes'])}. "
         )
 
         if resumo["gap_mes"] is not None:
