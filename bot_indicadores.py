@@ -539,9 +539,13 @@ def resumo_resultado_financeiro_por_grupo(grupo):
     # =SEERRO((1-Despesa/Receita);0)
     resultado_pct = (1 - (despesa / receita)) if receita > 0 else None
 
-    # Fórmula do Resultado R$:
-    # =(Receita * Resultado %) - (Receita * Meta)
-    if receita > 0 and resultado_pct is not None and meta_pct is not None and pd.notna(meta_pct):
+    # Para bater com a planilha, o Resultado R$ total deve somar os resultados das linhas.
+    # Nas linhas, a fórmula é:
+    # Resultado R$ = (Receita x Resultado %) - (Receita x Meta %)
+    # equivalente a: Receita - Despesa - (Receita x Meta %)
+    if "RESULTADO_RS" in grupo.columns:
+        resultado_rs = pd.to_numeric(grupo.get("RESULTADO_RS"), errors="coerce").fillna(0).sum()
+    elif receita > 0 and resultado_pct is not None and meta_pct is not None and pd.notna(meta_pct):
         resultado_rs = (receita * resultado_pct) - (receita * meta_pct)
     else:
         resultado_rs = None
@@ -553,7 +557,6 @@ def resumo_resultado_financeiro_por_grupo(grupo):
         "Resultado R$": resultado_rs,
         "Resultado %": resultado_pct,
     }
-
 
 def consolidar_resultado_financeiro(df):
     """
@@ -589,15 +592,17 @@ def consolidar_resultado_financeiro(df):
     )
 
     d["RESULTADO_PERCENTUAL_CALC"] = 1 - (d["DESPESA_CALC"] / d["RECEITA_CALC"].replace(0, pd.NA))
+
+    # Fórmula da planilha:
+    # Resultado R$ = (Receita x Resultado %) - (Receita x Meta %)
     d["RESULTADO_RS"] = (d["RECEITA_CALC"] * d["RESULTADO_PERCENTUAL_CALC"]) - (d["RECEITA_CALC"] * d["META_PERCENTUAL_CALC"])
 
-    # Campos de compatibilidade com blocos padrão
+    # Campos de compatibilidade
     d["META_CALC"] = d["META_PERCENTUAL_CALC"]
     d["REALIZADO_CALC"] = d["RESULTADO_RS"]
     d["ATINGIMENTO_CALC"] = d["RESULTADO_PERCENTUAL_CALC"]
 
     return d.replace([float("inf"), float("-inf")], pd.NA)
-
 
 def filtrar(df, indicador, filial):
     cfg = INDICADORES[indicador]
@@ -2141,32 +2146,30 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
 
 def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
     if indicador and eh_resultado_financeiro(indicador):
-        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Resultado R$"].notna())].copy()
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Receita"].notna())].copy()
         if dados.empty:
             return None
 
         ultimo_mes = dados["Mês"].iloc[-1]
-        titulo_final = titulo or f"Resultado Financeiro — até {ultimo_mes}/{ano}"
-
-        cores = [COR_VERDE if v >= 0 else COR_LARANJA for v in dados["Resultado R$"]]
+        titulo_final = titulo or f"Receita x Despesa — Resultado Financeiro — até {ultimo_mes}/{ano}"
 
         fig = go.Figure()
         fig.add_bar(
             x=dados["Mês"],
-            y=dados["Resultado R$"],
-            name="Resultado R$",
-            marker_color=cores,
+            y=dados["Receita"],
+            name="Receita",
+            marker_color=COR_VERDE,
             marker_cornerradius=4,
-            text=[fmt_brl(v) for v in dados["Resultado R$"]],
+            text=[fmt_brl(v) for v in dados["Receita"]],
             textposition="outside",
             textfont=dict(size=11),
         )
         fig.add_scatter(
             x=dados["Mês"],
-            y=dados["Receita"] * dados["Meta %"],
-            name="Meta R$",
+            y=dados["Despesa"],
+            name="Despesa",
             mode="lines+markers",
-            line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            line=dict(color=COR_LARANJA, width=3),
             marker=dict(size=7),
         )
         fig.update_layout(
@@ -2676,6 +2679,26 @@ class PDFRelatorio(FPDF):
     def tabela_mom(self, df_mom):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
+
+        if "Resultado %" in df_mom.columns and "Meta %" in df_mom.columns and "Resultado R$" in df_mom.columns:
+            headers = ["Mês", "Meta %", "Desp.", "Receita", "Result.", "Result. %", "Acum."]
+            widths = [28, 22, 28, 30, 30, 24, 28]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_mom.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
+                self.cell(widths[1], 6, fmt_pct(row["Meta %"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Despesa"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Receita"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Resultado R$"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_brl(row["Acumulado"]), border=1, align="R")
+                self.ln()
+            return
 
         if "Despesa" in df_mom.columns and "Receita" in df_mom.columns and "Resultado R$" in df_mom.columns:
             headers = ["Mês", "Limite %", "Desp.", "Receita", "Result.", "Tx.", "Acum."]
@@ -4333,15 +4356,21 @@ with tab3:
                 )
 
                 fig_filiais = go.Figure()
-                cores = [COR_VERDE if v >= 0 else COR_LARANJA for v in comp_filiais["Resultado R$"]]
                 fig_filiais.add_bar(
                     x=comp_filiais["FILIAL"],
-                    y=comp_filiais["Resultado R$"],
-                    name="Resultado R$",
-                    marker_color=cores,
+                    y=comp_filiais["Receita"],
+                    name="Receita",
+                    marker_color=COR_VERDE,
                     marker_cornerradius=4,
-                    text=[fmt_brl(v) for v in comp_filiais["Resultado R$"]],
+                    text=[fmt_brl(v) for v in comp_filiais["Receita"]],
                     textposition="outside",
+                )
+                fig_filiais.add_scatter(
+                    x=comp_filiais["FILIAL"],
+                    y=comp_filiais["Despesa"],
+                    name="Despesa",
+                    mode="lines+markers",
+                    line=dict(color=COR_LARANJA, width=3),
                 )
                 fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
                 st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_resultado_financeiro")
