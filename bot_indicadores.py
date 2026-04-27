@@ -1623,6 +1623,34 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 8)
         self.set_fill_color(240, 240, 240)
 
+        if "Pago em Hora Extra" in df_completa.columns:
+            headers = ["Mês", "Limite", "Pago HE", "Salário", "HE Folha", "Saldo", "Resultado %"]
+            widths = [22, 26, 30, 30, 25, 28, 28]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            for _, row in df_completa.iterrows():
+                is_total = row["Mês"] == "TOTAL"
+                fill = is_total
+                if is_total:
+                    self.set_fill_color(255, 243, 232)
+                    self.fonte("B", 7)
+                else:
+                    self.set_fill_color(255, 255, 255)
+                    self.fonte("", 7)
+
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1, align="C", fill=fill)
+                self.cell(widths[1], 6, fmt_brl(row["Limite"]), border=1, align="R", fill=fill)
+                self.cell(widths[2], 6, fmt_brl(row["Pago em Hora Extra"]), border=1, align="R", fill=fill)
+                self.cell(widths[3], 6, fmt_brl(row["Salário"]), border=1, align="R", fill=fill)
+                self.cell(widths[4], 6, fmt_pct(row["HE da Folha"]), border=1, align="R", fill=fill)
+                self.cell(widths[5], 6, fmt_brl(row["Saldo do Limite"]), border=1, align="R", fill=fill)
+                self.cell(widths[6], 6, fmt_pct(row["Resultado %"]), border=1, align="R", fill=fill)
+                self.ln()
+            return
+
         if "Faturamento" in df_completa.columns and "Margem Bruta" in df_completa.columns:
             headers = ["Mês", "Meta %", "Compra", "Fatur.", "Margem", "Tx.", "Acumul."]
             widths = [22, 24, 27, 30, 30, 22, 30]
@@ -2306,7 +2334,39 @@ with tab0:
 
         st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
         df_yoy_dashboard = calcular_yoy(df, indicador)
-        if eh_despesa_manutencao(indicador):
+        if eh_despesa_hora_extra(indicador):
+            df_yoy_dashboard_exibir = df_yoy_dashboard[[
+                "ANO",
+                "Pago em Hora Extra",
+                "Limite",
+                "Salário",
+                "Meses c/ dado",
+                "HE da Folha",
+                "Saldo do Limite",
+                "Resultado %",
+                "YoY_%"
+            ]].copy()
+
+            st.dataframe(
+                df_yoy_dashboard_exibir.style
+                .format({
+                    "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Meses c/ dado": "{:.0f}",
+                    "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                    "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
+                .map(cor_despesa_manutencao, subset=["Resultado %"])
+                .map(cor_variacao, subset=["YoY_%"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        elif eh_despesa_manutencao(indicador):
             df_yoy_dashboard_exibir = df_yoy_dashboard.rename(columns={
                 "Realizado": "Despesa",
                 "Meta": "Limite",
@@ -2798,7 +2858,39 @@ with tab3:
             st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_moto")
 
     else:
-        if eh_despesa_manutencao(indicador):
+        if eh_despesa_hora_extra(indicador):
+            df_yoy_exibir = df_yoy[[
+                "ANO",
+                "Pago em Hora Extra",
+                "Limite",
+                "Salário",
+                "Meses c/ dado",
+                "HE da Folha",
+                "Saldo do Limite",
+                "Resultado %",
+                "YoY_%"
+            ]].copy()
+
+            st.dataframe(
+                df_yoy_exibir.style
+                .format({
+                    "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Meses c/ dado": "{:.0f}",
+                    "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                    "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
+                .map(cor_despesa_manutencao, subset=["Resultado %"])
+                .map(cor_variacao, subset=["YoY_%"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        elif eh_despesa_manutencao(indicador):
             df_yoy_exibir = df_yoy.rename(columns={
                 "Realizado": "Despesa",
                 "Meta": "Limite",
