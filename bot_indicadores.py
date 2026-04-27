@@ -373,7 +373,11 @@ def tabela_pneus_moto_ano(d, ano):
         })
 
     resumo_total = resumo_moto_por_grupo(base_ano) if not base_ano.empty else {
-        "Meta %": None, "Compra": 0, "Faturamento": 0, "Margem Bruta": 0, "Tx. Sucesso": None
+        "Meta %": None,
+        "Compra": 0,
+        "Faturamento": 0,
+        "Margem Bruta": 0,
+        "Tx. Sucesso": None
     }
 
     rows.append({
@@ -386,7 +390,15 @@ def tabela_pneus_moto_ano(d, ano):
         "Acumulado": resumo_total["Margem Bruta"],
     })
 
-    return pd.DataFrame(rows)
+    tabela = pd.DataFrame(rows)
+
+    # Pneus Velhos Moto:
+    # 2023, 2024 e 2025 não possuem meta na planilha.
+    # Portanto a meta deve ficar vazia em todos os meses e também no TOTAL.
+    if int(ano) < 2026:
+        tabela["Meta"] = pd.NA
+
+    return tabela
 
 def meta_ponderada_moto(grupo):
     """
@@ -1873,14 +1885,15 @@ with tab0:
                 textposition="outside",
             )
 
-            fig_dash.add_scatter(
-                x=dados_chart["Mês"],
-                y=dados_chart["Meta"],
-                name="Meta %",
-                mode="lines+markers",
-                line=dict(color=COR_LARANJA, width=3, dash="dot"),
-                marker=dict(size=7),
-            )
+            if ano_kpi >= 2026:
+                fig_dash.add_scatter(
+                    x=dados_chart["Mês"],
+                    y=dados_chart["Meta"],
+                    name="Meta %",
+                    mode="lines+markers",
+                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                    marker=dict(size=7),
+                )
 
             fig_dash.update_layout(
                 title=f"Pneus Moto — Taxa de Sucesso x Meta — {ano_kpi}",
@@ -2054,14 +2067,15 @@ with tab1:
                 textposition="outside",
             )
 
-            fig_ano.add_scatter(
-                x=dados_chart["Mês"],
-                y=dados_chart["Meta"],
-                name="Meta %",
-                mode="lines+markers",
-                line=dict(color=COR_LARANJA, width=3, dash="dot"),
-                marker=dict(size=7),
-            )
+            if ano_selecionado >= 2026:
+                fig_ano.add_scatter(
+                    x=dados_chart["Mês"],
+                    y=dados_chart["Meta"],
+                    name="Meta %",
+                    mode="lines+markers",
+                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                    marker=dict(size=7),
+                )
 
             fig_ano.update_layout(
                 title=f"Pneus Moto — Taxa de Sucesso x Meta — {ano_selecionado}",
@@ -2087,16 +2101,26 @@ with tab2:
 
     if eh_moto_margem(indicador):
         linhas_finais = []
+
         for ano in sorted(df_mom["ANO"].dropna().unique()):
             base_ano = df_mom[df_mom["ANO"] == ano].copy()
-            linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Compra", "Realizado", "Margem Bruta", "Ating.", "Acumulado"]])
+
+            # Pneus Velhos Moto: anos anteriores a 2026 não têm meta.
+            if int(ano) < 2026:
+                base_ano["META"] = pd.NA
+
+            linhas_finais.append(
+                base_ano[["ANO", "MÊS", "Mês", "META", "Compra", "Realizado", "Margem Bruta", "Ating.", "Acumulado"]]
+            )
 
             resumo_total = resumo_moto_por_grupo(df[df["ANO"] == ano])
+            meta_total = resumo_total["Meta %"] if int(ano) >= 2026 else pd.NA
+
             linhas_finais.append(pd.DataFrame([{
                 "ANO": ano,
                 "MÊS": None,
                 "Mês": f"TOTAL {ano}",
-                "META": resumo_total["Meta %"],
+                "META": meta_total,
                 "Compra": resumo_total["Compra"],
                 "Realizado": resumo_total["Faturamento"],
                 "Margem Bruta": resumo_total["Margem Bruta"],
