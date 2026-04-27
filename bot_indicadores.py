@@ -967,45 +967,85 @@ def rotulos_qualidade(indicador):
 
 
 def coluna_vazia_ou_nula(serie):
-    return serie.isna() | (serie.astype(str).str.strip() == "") | (serie.astype(str).str.strip().str.lower().isin(["nan", "none", "null"]))
+    """
+    Identifica campos vazios vindos do Excel.
 
+    Além de NaN e string vazia, aceita:
+    - "-"
+    - "0"
+    - "0.0"
+    - "None"
+    - "Null"
+
+    Isso evita que linhas corretas de Qualidade sejam descartadas por causa
+    da forma como o Excel/Streamlit leu as células vazias.
+    """
+    s = serie.astype(str).str.strip()
+    s_norm = s.apply(normalizar_texto)
+
+    return (
+        serie.isna()
+        | (s == "")
+        | s_norm.isin(["", "-", "0", "00", "0.0", "0,0", "NAN", "NONE", "NULL"])
+    )
 
 def aplicar_filtro_qualidade_exato(df, indicador, filial):
     """
     Filtro específico para Qualidade.
 
-    Motivo:
-    O filtro padrão pode tratar GRUPO 02 = None como qualquer valor.
-    Para Qualidade, quando a estrutura pede vazio, precisa ser vazio de verdade,
-    senão a meta pode misturar outras linhas e aparecer 96,6% em vez de 97,0%.
+    A busca é feita por:
+    - TIPO
+    - GRUPO 01
+    - GRUPO 02/03 conforme a estrutura do indicador
+
+    Se o filtro exato não encontrar dados, usa fallback pelo filtro base
+    para evitar tela vazia.
     """
     d = df.copy()
     modelo = modelo_qualidade(indicador)
+    cfg = INDICADORES.get(indicador, {})
 
     # Filial
     if filial != "Geral" and "FILIAL" in d.columns:
         d = d[d["FILIAL"].apply(normalizar_texto) == normalizar_texto(filial)].copy()
 
+    # Se faltarem colunas obrigatórias, volta vazio.
+    obrigatorias = ["TIPO", "GRUPO 01", "GRUPO 02", "GRUPO 03"]
+    if any(c not in d.columns for c in obrigatorias):
+        return pd.DataFrame()
+
     # TIPO
     d = d[d["TIPO"].apply(normalizar_texto) == normalizar_texto("QUALIDADE")].copy()
 
     if modelo == "avaliacao_equipe":
-        d = d[d["GRUPO 01"].apply(normalizar_texto) == normalizar_texto("AVALIACAO EQUIPE")].copy()
-        d = d[coluna_vazia_ou_nula(d["GRUPO 02"])].copy()
-        d = d[coluna_vazia_ou_nula(d["GRUPO 03"])].copy()
+        d_exato = d[d["GRUPO 01"].apply(normalizar_texto) == normalizar_texto("AVALIACAO EQUIPE")].copy()
+        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 02"])].copy()
+        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 03"])].copy()
 
     elif modelo == "parametro_coleta":
-        d = d[d["GRUPO 01"].apply(normalizar_texto) == normalizar_texto("PARAMETROS COLETAS")].copy()
-        d = d[coluna_vazia_ou_nula(d["GRUPO 02"])].copy()
-        d = d[coluna_vazia_ou_nula(d["GRUPO 03"])].copy()
+        d_exato = d[d["GRUPO 01"].apply(normalizar_texto) == normalizar_texto("PARAMETROS COLETAS")].copy()
+        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 02"])].copy()
+        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 03"])].copy()
 
     elif modelo == "parametro_coleta_critico":
-        d = d[d["GRUPO 01"].apply(normalizar_texto) == normalizar_texto("PARAMETROS COLETAS")].copy()
-        d = d[d["GRUPO 02"].apply(normalizar_texto).eq(normalizar_texto("CRITICO"))].copy()
-        d = d[coluna_vazia_ou_nula(d["GRUPO 03"])].copy()
+        d_exato = d[d["GRUPO 01"].apply(normalizar_texto) == normalizar_texto("PARAMETROS COLETAS")].copy()
+        d_exato = d_exato[d_exato["GRUPO 02"].apply(normalizar_texto).eq(normalizar_texto("CRITICO"))].copy()
+        d_exato = d_exato[coluna_vazia_ou_nula(d_exato["GRUPO 03"])].copy()
 
-    return d
+    else:
+        d_exato = aplicar_filtro_base(df, cfg, filial)
 
+    # Fallback: se o exato não achou nada, usa o filtro base original.
+    # Isso evita a tela "Nenhum dado encontrado" quando o Excel leu vazio de forma inesperada.
+    if d_exato.empty:
+        try:
+            d_fallback = aplicar_filtro_base(df, cfg, filial)
+            if not d_fallback.empty:
+                return d_fallback
+        except Exception:
+            pass
+
+    return d_exato
 
 def consolidar_qualidade(df, indicador):
     """
@@ -4839,7 +4879,7 @@ with tab0:
 if not anos:
     st.warning("Nenhum dado encontrado para os filtros selecionados.")
     if eh_qualidade(indicador):
-        st.caption("Para Qualidade, confira se o filtro está exatamente correto: TIPO = QUALIDADE, GRUPO 01, GRUPO 02/03 vazios quando necessário, REFERÊNCIA, META, VALOR REF 01 e VALOR REF 02.")
+        st.caption("Para Qualidade, confira se existem linhas com TIPO = QUALIDADE, GRUPO 01 correto, REFERÊNCIA, META, VALOR REF 01 e VALOR REF 02.")
     st.stop()
 
     ano_kpi = int(anos[-1])
