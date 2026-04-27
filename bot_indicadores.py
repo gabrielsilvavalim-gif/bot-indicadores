@@ -360,9 +360,23 @@ def aplicar_filtro_base(df, cfg, filial):
     if cfg.get("TIPO DE META") is not None:
         d = aplicar_filtro_coluna(d, "TIPO DE META", cfg.get("TIPO DE META"))
 
-    if filial == "Geral":
-        filiais_norm = [normalizar_texto(f) for f in FILIAIS_REAIS]
-        d = d[d["FILIAL"].apply(normalizar_texto).isin(filiais_norm)]
+   if filial == "Geral":
+        # Tenta usar a linha "XX GERAL XX" da planilha primeiro
+        # (já tem meta consolidada e totais corretos do sistema)
+        opcoes_geral = [
+            normalizar_texto("XX GERAL XX"),
+            normalizar_texto("GERAL"),
+            normalizar_texto("TOTAL"),
+        ]
+        d_geral = d[d["FILIAL"].apply(normalizar_texto).isin(opcoes_geral)].copy()
+
+        if not d_geral.empty:
+            # Encontrou linha consolidada — usa ela
+            d = d_geral
+        else:
+            # Não tem linha consolidada — soma as 4 filiais (fallback)
+            filiais_norm = [normalizar_texto(f) for f in FILIAIS_REAIS]
+            d = d[d["FILIAL"].apply(normalizar_texto).isin(filiais_norm)]
     else:
         d = d[d["FILIAL"].apply(normalizar_texto) == normalizar_texto(filial)]
 
