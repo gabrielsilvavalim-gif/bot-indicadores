@@ -2289,7 +2289,16 @@ with tab0:
         st.divider()
 
         df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
-        dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Realizado"])
+
+        if eh_despesa_hora_extra(indicador):
+            dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Pago em Hora Extra"])
+        else:
+            dados_chart = (
+            df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Pago em Hora Extra"])
+            if eh_despesa_hora_extra(indicador)
+            else df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Realizado"])
+        )
+
         if not dados_chart.empty:
             ultimo_mes = dados_chart["Mês"].iloc[-1]
             fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
