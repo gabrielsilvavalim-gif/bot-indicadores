@@ -101,6 +101,46 @@ MESES_MAPA = {
 # =========================
 # FUNÇÕES AUXILIARES
 # =========================
+
+def eh_despesa_manutencao(indicador):
+    return normalizar_texto(indicador) == "DESPESA MANUTENCAO"
+
+
+def rotulo_meta(indicador):
+    return "Limite" if eh_despesa_manutencao(indicador) else "Meta"
+
+
+def rotulo_realizado(indicador):
+    return "Despesa" if eh_despesa_manutencao(indicador) else "Realizado"
+
+
+def rotulo_gap(indicador):
+    return "Saldo do Limite" if eh_despesa_manutencao(indicador) else "Gap"
+
+
+def atingimento_despesa_manutencao(realizado, limite):
+    """
+    Para Despesa Manutenção:
+    - Limite é o máximo que pode gastar.
+    - Se a despesa for menor ou igual ao limite, está bom.
+    - Indicador mostrado = Despesa / Limite.
+    """
+    if limite is None or pd.isna(limite) or limite == 0:
+        return None
+    return realizado / limite
+
+
+def cor_despesa_manutencao(v):
+    """
+    Para Despesa Manutenção:
+    verde quando despesa <= limite, laranja quando despesa > limite.
+    Como o valor formatado é Despesa / Limite, verde até 100%.
+    """
+    if pd.isna(v):
+        return ""
+    return f"color: {COR_VERDE}; font-weight:bold" if v <= 1 else f"color: {COR_LARANJA}; font-weight:bold"
+
+
 def agora_br():
     return datetime.now(TZ_BR)
 
@@ -295,10 +335,21 @@ def consolidar_campos(df, nome_indicador):
     d["META_CALC"] = pd.to_numeric(d.get("META"), errors="coerce").fillna(0)
     d["VALOR1"] = pd.to_numeric(d.get("VALOR REF 01"), errors="coerce").fillna(0)
 
-    if categoria == "despesa":
+    if eh_despesa_manutencao(nome_indicador):
+        # Para Despesa Manutenção:
+        # META_CALC representa o LIMITE máximo de gasto.
+        # REALIZADO_CALC representa a DESPESA realizada.
+        # Saldo positivo = ainda está dentro do limite.
+        # Saldo negativo = passou do limite.
+        d["REALIZADO_CALC"] = d["VALOR1"]
+        d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
+        d["ATINGIMENTO_CALC"] = d["REALIZADO_CALC"] / d["META_CALC"].replace(0, pd.NA)
+
+    elif categoria == "despesa":
         d["REALIZADO_CALC"] = d["VALOR1"]
         d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
         d["ATINGIMENTO_CALC"] = d["META_CALC"] / d["REALIZADO_CALC"].replace(0, pd.NA)
+
     else:
         d["REALIZADO_CALC"] = d["VALOR1"]
         d["RESULTADO_RS"] = d["REALIZADO_CALC"] - d["META_CALC"]
@@ -562,7 +613,10 @@ def tabela_completa_ano(d, ano, indicador):
             real = sub["REALIZADO_CALC"].values[0]
             meta = sub["META_CALC"].values[0]
 
-            if despesa:
+            if eh_despesa_manutencao(indicador):
+                gap = meta - real
+                ating = real / meta if meta > 0 else None
+            elif despesa:
                 gap = meta - real
                 ating = meta / real if real > 0 else None
             else:
@@ -585,7 +639,10 @@ def tabela_completa_ano(d, ano, indicador):
     total_real = base_ano["REALIZADO_CALC"].sum()
     total_meta = base_ano["META_CALC"].sum()
 
-    if despesa:
+    if eh_despesa_manutencao(indicador):
+        total_gap = total_meta - total_real
+        total_ating = total_real / total_meta if total_meta > 0 else None
+    elif despesa:
         total_gap = total_meta - total_real
         total_ating = total_meta / total_real if total_real > 0 else None
     else:
@@ -644,7 +701,10 @@ def calcular_mom(d, indicador):
         .reset_index(drop=True)
     )
 
-    if eh_despesa(indicador):
+    if eh_despesa_manutencao(indicador):
+        base["Ating."] = base["REALIZADO_CALC"] / base["META_CALC"].replace(0, pd.NA)
+        base["Gap"] = base["META_CALC"] - base["REALIZADO_CALC"]
+    elif eh_despesa(indicador):
         base["Ating."] = base["META_CALC"] / base["REALIZADO_CALC"].replace(0, pd.NA)
         base["Gap"] = base["META_CALC"] - base["REALIZADO_CALC"]
     else:
@@ -704,7 +764,9 @@ def calcular_yoy(d, indicador):
         })
     )
 
-    if eh_despesa(indicador):
+    if eh_despesa_manutencao(indicador):
+        df_yoy["Atingimento"] = df_yoy["Realizado"] / df_yoy["Meta"].replace(0, pd.NA)
+    elif eh_despesa(indicador):
         df_yoy["Atingimento"] = df_yoy["Meta"] / df_yoy["Realizado"].replace(0, pd.NA)
     else:
         df_yoy["Atingimento"] = df_yoy["Realizado"] / df_yoy["Meta"].replace(0, pd.NA)
@@ -746,7 +808,10 @@ def comparativo_filiais(d, ano, indicador):
         .sort_values("Realizado", ascending=False)
     )
 
-    if eh_despesa(indicador):
+    if eh_despesa_manutencao(indicador):
+        comp["Gap"] = comp["Meta"] - comp["Realizado"]
+        comp["Atingimento"] = comp["Realizado"] / comp["Meta"].replace(0, pd.NA)
+    elif eh_despesa(indicador):
         comp["Gap"] = comp["Meta"] - comp["Realizado"]
         comp["Atingimento"] = comp["Meta"] / comp["Realizado"].replace(0, pd.NA)
     else:
@@ -842,7 +907,12 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
     real_ant = anterior_periodo["REALIZADO_CALC"].sum()
     meta_ant = anterior_periodo["META_CALC"].sum()
 
-    if eh_despesa(indicador):
+    if eh_despesa_manutencao(indicador):
+        ating_atual = real_atual / meta_atual if meta_atual > 0 else None
+        ating_ant = real_ant / meta_ant if meta_ant > 0 else None
+        gap_atual = meta_atual - real_atual
+        gap_ant = meta_ant - real_ant
+    elif eh_despesa(indicador):
         ating_atual = meta_atual / real_atual if real_atual > 0 else None
         ating_ant = meta_ant / real_ant if real_ant > 0 else None
         gap_atual = meta_atual - real_atual
@@ -949,7 +1019,10 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
     realizado_mes = base_mes["REALIZADO_CALC"].sum()
     meta_mes = base_mes["META_CALC"].sum()
 
-    if despesa:
+    if eh_despesa_manutencao(indicador):
+        gap_mes = meta_mes - realizado_mes
+        ating_mes = realizado_mes / meta_mes if meta_mes > 0 else None
+    elif despesa:
         gap_mes = meta_mes - realizado_mes
         ating_mes = meta_mes / realizado_mes if realizado_mes > 0 else None
     else:
@@ -959,7 +1032,10 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
     realizado_ano = base_ano["REALIZADO_CALC"].sum()
     meta_ano = base_ano["META_CALC"].sum()
 
-    if despesa:
+    if eh_despesa_manutencao(indicador):
+        gap_ano = meta_ano - realizado_ano
+        ating_ano = realizado_ano / meta_ano if meta_ano > 0 else None
+    elif despesa:
         gap_ano = meta_ano - realizado_ano
         ating_ano = meta_ano / realizado_ano if realizado_ano > 0 else None
     else:
@@ -1024,6 +1100,32 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     hoje_txt = resumo["hoje"].strftime("%d/%m/%Y")
     nome_mes = resumo["nome_mes"]
     ano = resumo["ano"]
+
+
+    if eh_despesa_manutencao(indicador):
+        texto = (
+            f"Hoje é dia {hoje_txt}. No mês de {nome_mes}/{ano}, a despesa de manutenção foi de "
+            f"{fmt_brl(resumo['realizado_mes'])}, contra um limite de {fmt_brl(resumo['meta_mes'])}. "
+        )
+
+        if resumo["gap_mes"] is not None:
+            if resumo["gap_mes"] >= 0:
+                texto += f"A despesa ficou dentro do limite, com saldo disponível de {fmt_brl(resumo['gap_mes'])}. "
+            else:
+                texto += f"A despesa ultrapassou o limite em {fmt_brl(abs(resumo['gap_mes']))}. "
+
+        texto += (
+            f"No acumulado do ano, a despesa realizada está em {fmt_brl(resumo['realizado_ano'])}, "
+            f"contra um limite de {fmt_brl(resumo['meta_ano'])}. "
+        )
+
+        if resumo["gap_ano"] is not None:
+            if resumo["gap_ano"] >= 0:
+                texto += f"O saldo anual disponível dentro do limite é de {fmt_brl(resumo['gap_ano'])}."
+            else:
+                texto += f"O limite anual foi ultrapassado em {fmt_brl(abs(resumo['gap_ano']))}."
+
+        return texto
 
     if resumo.get("moto_margem"):
         texto = (
@@ -1114,36 +1216,47 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
 
     return texto
 
-def grafico_realizado_meta(df_completa, ano, titulo=None):
+def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
     dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
     if dados.empty:
         return None
 
     ultimo_mes = dados["Mês"].iloc[-1]
-    titulo_final = titulo or f"Realizado x Meta — até {ultimo_mes}/{ano}"
 
-    cores = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(dados["Realizado"], dados["Meta"])]
+    if indicador and eh_despesa_manutencao(indicador):
+        titulo_final = titulo or f"Despesa x Limite — até {ultimo_mes}/{ano}"
+        nome_realizado = "Despesa"
+        nome_meta = "Limite"
+        cor_barras = [
+            COR_VERDE if pd.notna(r) and pd.notna(m) and r <= m else COR_LARANJA
+            for r, m in zip(dados["Realizado"], dados["Meta"])
+        ]
+    else:
+        titulo_final = titulo or f"Realizado x Meta — até {ultimo_mes}/{ano}"
+        nome_realizado = "Realizado"
+        nome_meta = "Meta"
+        cor_barras = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(dados["Realizado"], dados["Meta"])]
 
     fig = go.Figure()
     fig.add_bar(
         x=dados["Mês"],
         y=dados["Realizado"],
-        name="Realizado",
-        marker_color=cores,
+        name=nome_realizado,
+        marker_color=cor_barras,
         marker_cornerradius=4,
         text=[fmt_brl(v) for v in dados["Realizado"]],
         textposition="outside",
         textfont=dict(size=11),
-        hovertemplate="<b>%{x}</b><br>Realizado: R$ %{y:,.0f}<extra></extra>",
+        hovertemplate=f"<b>%{{x}}</b><br>{nome_realizado}: R$ %{{y:,.0f}}<extra></extra>",
     )
     fig.add_scatter(
         x=dados["Mês"],
         y=dados["Meta"],
-        name="Meta",
+        name=nome_meta,
         mode="lines+markers",
         line=dict(color=COR_LARANJA, width=3, dash="dot"),
         marker=dict(size=7),
-        hovertemplate="<b>%{x}</b><br>Meta: R$ %{y:,.0f}<extra></extra>",
+        hovertemplate=f"<b>%{{x}}</b><br>{nome_meta}: R$ %{{y:,.0f}}<extra></extra>",
     )
     fig.update_layout(
         title=titulo_final,
@@ -1326,7 +1439,10 @@ class PDFRelatorio(FPDF):
                 self.ln()
             return
 
-        headers = ["Mês", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
+        if eh_despesa_manutencao(self.indicador):
+            headers = ["Mês", "Despesa", "Limite", "Saldo", "Uso"]
+        else:
+            headers = ["Mês", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
         widths = [30, 40, 40, 40, 35]
 
         for h, w in zip(headers, widths):
@@ -1948,13 +2064,13 @@ with tab0:
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown(card_html("Realizado Ano", fmt_brl(realizado_total)), unsafe_allow_html=True)
+            st.markdown(card_html(f"{rotulo_realizado(indicador)} Ano", fmt_brl(realizado_total)), unsafe_allow_html=True)
         with c2:
-            st.markdown(card_html("Meta Ano", fmt_brl(meta_total)), unsafe_allow_html=True)
+            st.markdown(card_html(f"{rotulo_meta(indicador)} Ano", fmt_brl(meta_total)), unsafe_allow_html=True)
         with c3:
-            st.markdown(card_html("Gap Ano", fmt_brl(gap_total)), unsafe_allow_html=True)
+            st.markdown(card_html(f"{rotulo_gap(indicador)} Ano", fmt_brl(gap_total)), unsafe_allow_html=True)
         with c4:
-            st.markdown(card_html("Atingimento da meta", fmt_pct(ating_total)), unsafe_allow_html=True)
+            st.markdown(card_html(("Uso do limite" if eh_despesa_manutencao(indicador) else "Atingimento da meta"), fmt_pct(ating_total)), unsafe_allow_html=True)
         with c5:
             st.markdown(card_html(f"YTD {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-", delta_ytd), unsafe_allow_html=True)
 
@@ -1964,25 +2080,46 @@ with tab0:
         dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Realizado"])
         if not dados_chart.empty:
             ultimo_mes = dados_chart["Mês"].iloc[-1]
-            fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, titulo=f"Realizado x Meta — até {ultimo_mes}/{ano_kpi}")
+            fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, titulo=(f"Despesa x Limite — até {ultimo_mes}/{ano_kpi}" if eh_despesa_manutencao(indicador) else f"Realizado x Meta — até {ultimo_mes}/{ano_kpi}"), indicador=indicador)
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard")
 
         st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
         df_yoy_dashboard = calcular_yoy(df, indicador)
-        st.dataframe(
-            df_yoy_dashboard.style
-            .format({
-                "Realizado": "R$ {:,.0f}",
-                "Meta": "R$ {:,.0f}",
-                "Atingimento": "{:.1%}",
-                "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-                "Meses c/ dado": "{:.0f}",
+        if eh_despesa_manutencao(indicador):
+            df_yoy_dashboard_exibir = df_yoy_dashboard.rename(columns={
+                "Realizado": "Despesa",
+                "Meta": "Limite",
+                "Atingimento": "Uso do Limite",
             })
-            .map(cor_variacao, subset=["YoY_%"])
-            .map(cor_atingimento, subset=["Atingimento"]),
-            use_container_width=True,
-            hide_index=True,
-        )
+            st.dataframe(
+                df_yoy_dashboard_exibir.style
+                .format({
+                    "Despesa": "R$ {:,.0f}",
+                    "Limite": "R$ {:,.0f}",
+                    "Uso do Limite": "{:.1%}",
+                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                    "Meses c/ dado": "{:.0f}",
+                })
+                .map(cor_variacao, subset=["YoY_%"])
+                .map(cor_despesa_manutencao, subset=["Uso do Limite"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.dataframe(
+                df_yoy_dashboard.style
+                .format({
+                    "Realizado": "R$ {:,.0f}",
+                    "Meta": "R$ {:,.0f}",
+                    "Atingimento": "{:.1%}",
+                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                    "Meses c/ dado": "{:.0f}",
+                })
+                .map(cor_variacao, subset=["YoY_%"])
+                .map(cor_atingimento, subset=["Atingimento"]),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 # =========================
@@ -2033,19 +2170,41 @@ with tab1:
             hide_index=True,
         )
     else:
-        st.dataframe(
-            df_completa.style
-            .format({
-                "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
-                "Atingimento": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+        df_completa_tela = df_completa.copy()
+        if eh_despesa_manutencao(indicador):
+            df_completa_tela = df_completa_tela.rename(columns={
+                "Realizado": "Despesa",
+                "Meta": "Limite",
+                "Gap (R$)": "Saldo do Limite",
+                "Atingimento": "Uso do Limite",
             })
-            .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap (R$)"])
-            .map(cor_atingimento, subset=["Atingimento"]),
-            use_container_width=True,
-            hide_index=True,
-        )
+            st.dataframe(
+                df_completa_tela.style
+                .format({
+                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+                    "Uso do Limite": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
+                .map(cor_despesa_manutencao, subset=["Uso do Limite"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.dataframe(
+                df_completa_tela.style
+                .format({
+                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+                    "Atingimento": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+                })
+                .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap (R$)"])
+                .map(cor_atingimento, subset=["Atingimento"]),
+                use_container_width=True,
+                hide_index=True,
+            )
 
     st.divider()
     if eh_moto_margem(indicador):
@@ -2087,7 +2246,7 @@ with tab1:
 
             st.plotly_chart(fig_ano, use_container_width=True, key="grafico_por_ano_moto")
     else:
-        fig_ano = grafico_realizado_meta(df_completa, ano_selecionado)
+        fig_ano = grafico_realizado_meta(df_completa, ano_selecionado, indicador=indicador)
         if fig_ano is not None:
             st.plotly_chart(fig_ano, use_container_width=True, key="grafico_por_ano")
 
@@ -2190,24 +2349,51 @@ with tab2:
                 return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
             return ["" for _ in row]
 
-        st.dataframe(
-            df_mom_tela.style
-            .apply(destacar_total, axis=1)
-            .format({
-                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "META": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Gap": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
-                "Ating.": lambda v: f"{v:.0%}" if pd.notna(v) else "—",
-                "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+        if eh_despesa_manutencao(indicador):
+            df_mom_tela_exibir = df_mom_tela.rename(columns={
+                "META": "Limite",
+                "Realizado": "Despesa",
+                "Gap": "Saldo do Limite",
+                "Ating.": "Uso do Limite",
+                "MoM_%": "MoM_%",
             })
-            .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
-            .map(cor_atingimento, subset=["Ating."])
-            .map(cor_variacao, subset=["MoM_%"]),
-            use_container_width=True,
-            hide_index=True,
-        )
+            st.dataframe(
+                df_mom_tela_exibir.style
+                .apply(destacar_total, axis=1)
+                .format({
+                    "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                    "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Uso do Limite": lambda v: f"{v:.0%}" if pd.notna(v) else "—",
+                    "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
+                .map(cor_despesa_manutencao, subset=["Uso do Limite"])
+                .map(cor_variacao, subset=["MoM_%"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.dataframe(
+                df_mom_tela.style
+                .apply(destacar_total, axis=1)
+                .format({
+                    "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                    "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                    "META": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Gap": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Ating.": lambda v: f"{v:.0%}" if pd.notna(v) else "—",
+                    "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                })
+                .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
+                .map(cor_atingimento, subset=["Ating."])
+                .map(cor_variacao, subset=["MoM_%"]),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 # =========================
@@ -2313,20 +2499,41 @@ with tab3:
             st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_moto")
 
     else:
-        st.dataframe(
-            df_yoy.style
-            .format({
-                "Realizado": "R$ {:,.0f}",
-                "Meta": "R$ {:,.0f}",
-                "Atingimento": "{:.1%}",
-                "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-                "Meses c/ dado": "{:.0f}",
+        if eh_despesa_manutencao(indicador):
+            df_yoy_exibir = df_yoy.rename(columns={
+                "Realizado": "Despesa",
+                "Meta": "Limite",
+                "Atingimento": "Uso do Limite",
             })
-            .map(cor_variacao, subset=["YoY_%"])
-            .map(cor_atingimento, subset=["Atingimento"]),
-            use_container_width=True,
-            hide_index=True,
-        )
+            st.dataframe(
+                df_yoy_exibir.style
+                .format({
+                    "Despesa": "R$ {:,.0f}",
+                    "Limite": "R$ {:,.0f}",
+                    "Uso do Limite": "{:.1%}",
+                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                    "Meses c/ dado": "{:.0f}",
+                })
+                .map(cor_variacao, subset=["YoY_%"])
+                .map(cor_despesa_manutencao, subset=["Uso do Limite"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.dataframe(
+                df_yoy.style
+                .format({
+                    "Realizado": "R$ {:,.0f}",
+                    "Meta": "R$ {:,.0f}",
+                    "Atingimento": "{:.1%}",
+                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                    "Meses c/ dado": "{:.0f}",
+                })
+                .map(cor_variacao, subset=["YoY_%"])
+                .map(cor_atingimento, subset=["Atingimento"]),
+                use_container_width=True,
+                hide_index=True,
+            )
 
         st.divider()
         st.subheader("Mesmo período x ano anterior")
