@@ -23,6 +23,8 @@ LOGO_ARQUIVO = "MazolaCertificado.ico"
 TZ_BR = ZoneInfo("America/Sao_Paulo")
 LIMITE_DESPESA_GERAL_PADRAO = 0.71  # 71% - limite válido a partir de 2026 para Despesa Geral
 META_RESULTADO_FINANCEIRO_PADRAO = 0.05  # 5% - meta padrão do Resultado Financeiro
+META_AVALIACAO_EQUIPE_PADRAO = 0.97  # 97% - meta correta da Avaliação de Equipe
+META_PARAMETRO_COLETA_PADRAO = 0.98  # 98% - meta correta do Parâmetro de Coleta
 
 try:
     client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
@@ -928,33 +930,24 @@ def consolidar_qualidade(df, indicador):
     GRUPO 01 = AVALIACAO EQUIPE
     GRUPO 02 = vazio
     GRUPO 03 = vazio
-    META = meta %
-    VALOR REF 01 = quantidade coletada
-    VALOR REF 02 = quantidade coletada ótimo + bom
-    Resultado = VALOR REF 02 / VALOR REF 01
-    Diferença = VALOR REF 01 - VALOR REF 02
+
+    META correta do modelo = 97%
 
     2. Parâmetro de Coleta
     TIPO = QUALIDADE
     GRUPO 01 = PARAMETROS COLETAS
     GRUPO 02 = vazio
     GRUPO 03 = vazio
-    META = meta %
-    VALOR REF 01 = quantidade coletada
-    VALOR REF 02 = coletas normais
-    Resultado = VALOR REF 02 / VALOR REF 01
-    Diferença = VALOR REF 01 - VALOR REF 02
+
+    META correta do modelo = 98%
 
     3. Parâmetro de Coleta Crítico
     TIPO = QUALIDADE
     GRUPO 01 = PARAMETROS COLETAS
     GRUPO 02 = CRITICO
     GRUPO 03 = vazio
-    META = limite crítico
-    VALOR REF 01 = quantidade coletada
-    VALOR REF 02 = quantidade crítica
-    Resultado = VALOR REF 02 / VALOR REF 01
-    Diferença = VALOR REF 02 - META
+
+    META = limite crítico absoluto
     """
     d = df.copy()
     modelo = modelo_qualidade(indicador)
@@ -971,9 +964,22 @@ def consolidar_qualidade(df, indicador):
         indice_1_base=12
     )
 
-    if modelo == "parametro_coleta_critico":
+    if modelo == "avaliacao_equipe":
+        # Corrige o problema de puxar 98% de outro quadro.
+        # Avaliação de Equipe usa 97%.
+        d["META_QUALIDADE_CALC"] = META_AVALIACAO_EQUIPE_PADRAO
+        d["DIFERENCA_CALC"] = d["QTD_TOTAL_CALC"] - d["QTD_SUCESSO_CALC"]
+
+    elif modelo == "parametro_coleta":
+        # Parâmetro de Coleta usa 98%.
+        d["META_QUALIDADE_CALC"] = META_PARAMETRO_COLETA_PADRAO
+        d["DIFERENCA_CALC"] = d["QTD_TOTAL_CALC"] - d["QTD_SUCESSO_CALC"]
+
+    elif modelo == "parametro_coleta_critico":
+        # Crítico usa a meta da planilha como limite absoluto.
         d["META_QUALIDADE_CALC"] = pd.to_numeric(d.get("META", 0), errors="coerce").fillna(0)
         d["DIFERENCA_CALC"] = d["QTD_SUCESSO_CALC"] - d["META_QUALIDADE_CALC"]
+
     else:
         d["META_QUALIDADE_CALC"] = ajustar_percentual_meta(d.get("META", 0))
         d["DIFERENCA_CALC"] = d["QTD_TOTAL_CALC"] - d["QTD_SUCESSO_CALC"]
@@ -986,7 +992,6 @@ def consolidar_qualidade(df, indicador):
     d["ATINGIMENTO_CALC"] = d["RESULTADO_QUALIDADE_CALC"]
 
     return d.replace([float("inf"), float("-inf")], pd.NA)
-
 
 def resumo_qualidade_por_grupo(grupo, indicador):
     modelo = modelo_qualidade(indicador)
@@ -1004,70 +1009,21 @@ def resumo_qualidade_por_grupo(grupo, indicador):
     qtd_sucesso = pd.to_numeric(grupo.get("QTD_SUCESSO_CALC"), errors="coerce").fillna(0).sum()
 
     if modelo == "parametro_coleta_critico":
-        # Crítico: META é limite absoluto, então totaliza como soma.
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
         diferenca = qtd_sucesso - meta
     else:
-        # Avaliação de Equipe e Parâmetro de Coleta:
-        #
-        # Correção importante:
-        # A meta do mês deve bater com a planilha. No seu exemplo, jan/26 = 97,0%.
-        # Por isso, quando o grupo representa um único mês, usamos a maior meta válida do mês.
-        #
-        # Para o total, seguimos a lógica da planilha:
-        # Meta Total = SOMARPRODUTO(Meta Mensal; QTD. COLETAS Mensal) / SOMA(QTD. COLETAS Mensal)
-        meta = None
+        meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
+        peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
 
-        if "ANO" in grupo.columns and "MÊS" in grupo.columns:
-            meses_validos = grupo[["ANO", "MÊS"]].drop_duplicates()
+        validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
 
-            # Um único mês: meta do mês = maior meta válida do mês.
-            if len(meses_validos) <= 1:
-                meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
-                peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
-
-                validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
-
-                if validos.any():
-                    meta = float(meta_serie[validos].max())
-                else:
-                    meta = None
-
-            # Vários meses: média ponderada das metas mensais pela QTD. COLETAS mensal.
-            else:
-                partes = []
-
-                for _, sub_mes in grupo.groupby(["ANO", "MÊS"]):
-                    meta_mes_serie = pd.to_numeric(sub_mes.get("META_QUALIDADE_CALC"), errors="coerce")
-                    qtd_mes_serie = pd.to_numeric(sub_mes.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
-
-                    validos_mes = meta_mes_serie.notna() & (meta_mes_serie > 0) & (qtd_mes_serie > 0)
-
-                    if validos_mes.any():
-                        meta_mes = float(meta_mes_serie[validos_mes].max())
-                        qtd_mes = qtd_mes_serie[validos_mes].sum()
-                        partes.append((meta_mes, qtd_mes))
-
-                total_peso = sum(peso for _, peso in partes)
-
-                if total_peso > 0:
-                    meta = sum(meta_mes * peso for meta_mes, peso in partes) / total_peso
-                else:
-                    meta = None
+        if validos.any() and peso[validos].sum() > 0:
+            meta = (meta_serie[validos] * peso[validos]).sum() / peso[validos].sum()
         else:
-            # Fallback: maior meta válida com quantidade maior que zero.
-            meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
-            peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
+            meta = None
 
-            validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
-            meta = float(meta_serie[validos].max()) if validos.any() else None
-
-        # Fórmula da planilha:
-        # DIFER. = QTD. COLETAS - QTD.COL. OTIMO+BOM / QTD. COLETAS NORMAIS
         diferenca = qtd_total - qtd_sucesso
 
-    # Fórmula da taxa de sucesso:
-    # TX SUCESSO % = QTD. SUCESSO / QTD. COLETAS
     resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
 
     return {
