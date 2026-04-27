@@ -1009,27 +1009,58 @@ def resumo_qualidade_por_grupo(grupo, indicador):
         diferenca = qtd_sucesso - meta
     else:
         # Avaliação de Equipe e Parâmetro de Coleta:
-        # Fórmula da meta total conforme a planilha:
-        # SOMARPRODUTO(META; QTD. COLETAS) / SOMA(QTD. COLETAS)
         #
-        # Importante:
-        # Usa somente linhas válidas, com meta > 0 e QTD. COLETAS > 0.
-        # Isso evita que linhas de média, linhas vazias ou registros antigos distorçam a meta.
-        meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
-        peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
+        # Correção importante:
+        # A meta do mês deve bater com a planilha. No seu exemplo, jan/26 = 97,0%.
+        # Por isso, quando o grupo representa um único mês, usamos a maior meta válida do mês.
+        #
+        # Para o total, seguimos a lógica da planilha:
+        # Meta Total = SOMARPRODUTO(Meta Mensal; QTD. COLETAS Mensal) / SOMA(QTD. COLETAS Mensal)
+        meta = None
 
-        validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
+        if "ANO" in grupo.columns and "MÊS" in grupo.columns:
+            meses_validos = grupo[["ANO", "MÊS"]].drop_duplicates()
 
-        if validos.any() and peso[validos].sum() > 0:
-            # Se todas as metas válidas forem iguais, preserva exatamente a meta do modelo.
-            # Exemplo: 97%, 97%, 97%, 97% => 97%.
-            metas_validas = meta_serie[validos].round(6).dropna().unique()
-            if len(metas_validas) == 1:
-                meta = float(metas_validas[0])
+            # Um único mês: meta do mês = maior meta válida do mês.
+            if len(meses_validos) <= 1:
+                meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
+                peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
+
+                validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
+
+                if validos.any():
+                    meta = float(meta_serie[validos].max())
+                else:
+                    meta = None
+
+            # Vários meses: média ponderada das metas mensais pela QTD. COLETAS mensal.
             else:
-                meta = (meta_serie[validos] * peso[validos]).sum() / peso[validos].sum()
+                partes = []
+
+                for _, sub_mes in grupo.groupby(["ANO", "MÊS"]):
+                    meta_mes_serie = pd.to_numeric(sub_mes.get("META_QUALIDADE_CALC"), errors="coerce")
+                    qtd_mes_serie = pd.to_numeric(sub_mes.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
+
+                    validos_mes = meta_mes_serie.notna() & (meta_mes_serie > 0) & (qtd_mes_serie > 0)
+
+                    if validos_mes.any():
+                        meta_mes = float(meta_mes_serie[validos_mes].max())
+                        qtd_mes = qtd_mes_serie[validos_mes].sum()
+                        partes.append((meta_mes, qtd_mes))
+
+                total_peso = sum(peso for _, peso in partes)
+
+                if total_peso > 0:
+                    meta = sum(meta_mes * peso for meta_mes, peso in partes) / total_peso
+                else:
+                    meta = None
         else:
-            meta = None
+            # Fallback: maior meta válida com quantidade maior que zero.
+            meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
+            peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
+
+            validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
+            meta = float(meta_serie[validos].max()) if validos.any() else None
 
         # Fórmula da planilha:
         # DIFER. = QTD. COLETAS - QTD.COL. OTIMO+BOM / QTD. COLETAS NORMAIS
