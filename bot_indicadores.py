@@ -2324,9 +2324,19 @@ with tab2:
 
             total_meta = base_ano["META"].sum()
             total_realizado = base_ano["Realizado"].sum()
-            if eh_despesa(indicador):
+
+            if eh_despesa_manutencao(indicador):
+                # Despesa Manutenção:
+                # Limite é o máximo que pode gastar.
+                # Uso do Limite = Despesa / Limite.
+                # Exemplo correto: R$ 323.496 / R$ 496.414 = 65%.
+                total_gap = total_meta - total_realizado
+                total_ating = total_realizado / total_meta if total_meta > 0 else None
+
+            elif eh_despesa(indicador):
                 total_gap = total_meta - total_realizado
                 total_ating = total_meta / total_realizado if total_realizado > 0 else None
+
             else:
                 total_gap = total_realizado - total_meta
                 total_ating = total_realizado / total_meta if total_meta > 0 else None
