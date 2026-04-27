@@ -616,6 +616,12 @@ def calcular_mom(d, indicador):
             })
 
         base = pd.DataFrame(linhas).sort_values("MÊS_ORDEM").reset_index(drop=True)
+
+        # Pneus Velhos Moto: 2023, 2024 e 2025 não possuem meta
+        mask_sem_meta = pd.to_numeric(base["ANO"], errors="coerce") < 2026
+        base.loc[mask_sem_meta, "META"] = pd.NA
+        base.loc[mask_sem_meta, "Gap"] = pd.NA
+
         base["MoM_%"] = base["Realizado"].pct_change() * 100
         return base.replace([float("inf"), float("-inf")], pd.NA)
 
@@ -1852,28 +1858,39 @@ with tab0:
 
         if not dados_chart.empty:
             fig_dash = go.Figure()
+
+            cores_tx = [
+                COR_VERDE if pd.notna(tx) and pd.notna(meta) and tx >= meta else COR_LARANJA
+                for tx, meta in zip(dados_chart["Tx. Sucesso"], dados_chart["Meta"])
+            ]
+
             fig_dash.add_bar(
                 x=dados_chart["Mês"],
-                y=dados_chart["Margem Bruta"],
-                name="Margem Bruta",
-                marker_color=COR_VERDE,
-                text=[fmt_brl(v) for v in dados_chart["Margem Bruta"]],
+                y=dados_chart["Tx. Sucesso"],
+                name="Tx. Sucesso",
+                marker_color=cores_tx,
+                text=[fmt_pct(v) for v in dados_chart["Tx. Sucesso"]],
                 textposition="outside",
             )
+
             fig_dash.add_scatter(
                 x=dados_chart["Mês"],
-                y=dados_chart["Faturamento"] * dados_chart["Meta"],
-                name="Meta Margem R$",
+                y=dados_chart["Meta"],
+                name="Meta %",
                 mode="lines+markers",
                 line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                marker=dict(size=7),
             )
+
             fig_dash.update_layout(
-                title=f"Pneus Moto — Margem Bruta x Meta de Margem — {ano_kpi}",
+                title=f"Pneus Moto — Taxa de Sucesso x Meta — {ano_kpi}",
                 height=420,
                 legend=dict(orientation="h", y=-0.18),
-                yaxis_title="R$",
+                yaxis_title="%",
                 margin=dict(t=60, b=20, l=20, r=20),
+                yaxis_tickformat=".0%",
             )
+
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_moto")
 
         st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
@@ -2022,9 +2039,38 @@ with tab1:
         dados_chart = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Faturamento"].notna())]
         if not dados_chart.empty:
             fig_ano = go.Figure()
-            fig_ano.add_bar(x=dados_chart["Mês"], y=dados_chart["Faturamento"], name="Faturamento", marker_color=COR_VERDE)
-            fig_ano.add_bar(x=dados_chart["Mês"], y=dados_chart["Compra"], name="Compra", marker_color=COR_LARANJA)
-            fig_ano.update_layout(title=f"Pneus Moto - Compra x Faturamento — {ano_selecionado}", height=420, barmode="group", legend=dict(orientation="h", y=-0.18))
+
+            cores_tx = [
+                COR_VERDE if pd.notna(tx) and pd.notna(meta) and tx >= meta else COR_LARANJA
+                for tx, meta in zip(dados_chart["Tx. Sucesso"], dados_chart["Meta"])
+            ]
+
+            fig_ano.add_bar(
+                x=dados_chart["Mês"],
+                y=dados_chart["Tx. Sucesso"],
+                name="Tx. Sucesso",
+                marker_color=cores_tx,
+                text=[fmt_pct(v) for v in dados_chart["Tx. Sucesso"]],
+                textposition="outside",
+            )
+
+            fig_ano.add_scatter(
+                x=dados_chart["Mês"],
+                y=dados_chart["Meta"],
+                name="Meta %",
+                mode="lines+markers",
+                line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                marker=dict(size=7),
+            )
+
+            fig_ano.update_layout(
+                title=f"Pneus Moto — Taxa de Sucesso x Meta — {ano_selecionado}",
+                height=420,
+                legend=dict(orientation="h", y=-0.18),
+                yaxis_title="%",
+                yaxis_tickformat=".0%",
+            )
+
             st.plotly_chart(fig_ano, use_container_width=True, key="grafico_por_ano_moto")
     else:
         fig_ano = grafico_realizado_meta(df_completa, ano_selecionado)
@@ -2209,22 +2255,37 @@ with tab3:
             )
 
             fig_filiais = go.Figure()
+
+            cores_tx = [
+                COR_VERDE if pd.notna(tx) and pd.notna(meta) and tx >= meta else COR_LARANJA
+                for tx, meta in zip(comp_filiais["Tx. Sucesso"], comp_filiais["Meta %"])
+            ]
+
             fig_filiais.add_bar(
                 x=comp_filiais["FILIAL"],
-                y=comp_filiais["Margem Bruta"],
-                name="Margem Bruta",
-                marker_color=COR_VERDE,
-                text=[fmt_brl(v) for v in comp_filiais["Margem Bruta"]],
+                y=comp_filiais["Tx. Sucesso"],
+                name="Tx. Sucesso",
+                marker_color=cores_tx,
+                text=[fmt_pct(v) for v in comp_filiais["Tx. Sucesso"]],
                 textposition="outside",
             )
+
             fig_filiais.add_scatter(
                 x=comp_filiais["FILIAL"],
-                y=comp_filiais["Meta Margem (R$)"],
-                name="Meta Margem R$",
+                y=comp_filiais["Meta %"],
+                name="Meta %",
                 mode="lines+markers",
                 line=dict(color=COR_LARANJA, width=3, dash="dot"),
             )
-            fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
+
+            fig_filiais.update_layout(
+                height=420,
+                margin=dict(t=30, b=20, l=20, r=20),
+                legend=dict(orientation="h", y=-0.15),
+                yaxis_title="%",
+                yaxis_tickformat=".0%",
+            )
+
             st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_moto")
 
     else:
