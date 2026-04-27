@@ -1009,15 +1009,25 @@ def resumo_qualidade_por_grupo(grupo, indicador):
         diferenca = qtd_sucesso - meta
     else:
         # Avaliação de Equipe e Parâmetro de Coleta:
-        # Meta total precisa ser ponderada pela QTD. COLETAS, igual à fórmula do Excel:
-        # =SEERRO(SOMARPRODUTO(META; QTD_COLETAS) / SOMA(QTD_COLETAS); 0)
+        # Fórmula da meta total conforme a planilha:
+        # SOMARPRODUTO(META; QTD. COLETAS) / SOMA(QTD. COLETAS)
+        #
+        # Importante:
+        # Usa somente linhas válidas, com meta > 0 e QTD. COLETAS > 0.
+        # Isso evita que linhas de média, linhas vazias ou registros antigos distorçam a meta.
         meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
         peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
 
         validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
 
         if validos.any() and peso[validos].sum() > 0:
-            meta = (meta_serie[validos] * peso[validos]).sum() / peso[validos].sum()
+            # Se todas as metas válidas forem iguais, preserva exatamente a meta do modelo.
+            # Exemplo: 97%, 97%, 97%, 97% => 97%.
+            metas_validas = meta_serie[validos].round(6).dropna().unique()
+            if len(metas_validas) == 1:
+                meta = float(metas_validas[0])
+            else:
+                meta = (meta_serie[validos] * peso[validos]).sum() / peso[validos].sum()
         else:
             meta = None
 
@@ -1036,7 +1046,6 @@ def resumo_qualidade_por_grupo(grupo, indicador):
         "Diferença": diferenca,
         "Resultado %": resultado,
     }
-
 
 def renomear_colunas_qualidade_para_exibicao(df_exibir, indicador):
     rot = rotulos_qualidade(indicador)
@@ -4846,16 +4855,18 @@ with tab0:
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown(card_html(rot["qtd_total"], fmt_num(resumo_ano_qualidade["Qtd. Coletas"])), unsafe_allow_html=True)
-        with c2:
-            st.markdown(card_html(rot["qtd_sucesso"], fmt_num(resumo_ano_qualidade["Qtd. Sucesso"])), unsafe_allow_html=True)
-        with c3:
             meta_valor = fmt_num(resumo_ano_qualidade["Meta"]) if modelo_qualidade(indicador) == "parametro_coleta_critico" else fmt_pct(resumo_ano_qualidade["Meta"])
             st.markdown(card_html(rot["meta"], meta_valor), unsafe_allow_html=True)
+        with c2:
+            st.markdown(card_html(rot["qtd_total"], fmt_num(resumo_ano_qualidade["Qtd. Coletas"])), unsafe_allow_html=True)
+        with c3:
+            st.markdown(card_html(rot["qtd_sucesso"], fmt_num(resumo_ano_qualidade["Qtd. Sucesso"])), unsafe_allow_html=True)
         with c4:
-            st.markdown(card_html(rot["resultado"], fmt_pct(resumo_ano_qualidade["Resultado %"])), unsafe_allow_html=True)
+            st.markdown(card_html(rot["diferenca"], fmt_num(resumo_ano_qualidade["Diferença"])), unsafe_allow_html=True)
         with c5:
-            st.markdown(card_html(f"YTD {periodo_label}", fmt_pct(ytd_valor) if ytd_valor is not None else "-", delta_ytd), unsafe_allow_html=True)
+            st.markdown(card_html(rot["resultado"], fmt_pct(resumo_ano_qualidade["Resultado %"])), unsafe_allow_html=True)
+
+        st.caption(f"YTD {periodo_label}: {fmt_pct(ytd_valor) if ytd_valor is not None else '-'}")
 
         st.divider()
 
