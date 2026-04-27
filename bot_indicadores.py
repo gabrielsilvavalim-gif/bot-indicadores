@@ -339,30 +339,21 @@ def filtrar(df, indicador, filial):
 
 
 
+
 def tabela_pneus_moto_ano(d, ano):
     base_ano = d[d["ANO"] == ano].copy()
     rows = []
     acumulado = 0
 
-    mensal = (
-        base_ano.groupby("MÊS", as_index=False)
-        .agg({
-            "META_PERCENTUAL_CALC": "mean",
-            "COMPRA_CALC": "sum",
-            "FATURAMENTO_MOTO_CALC": "sum",
-            "MARGEM_BRUTA_CALC": "sum",
-        })
-        .sort_values("MÊS")
-    )
-
     for i in range(1, 13):
-        sub = mensal[mensal["MÊS"] == i]
-        if len(sub) > 0:
-            meta = sub["META_PERCENTUAL_CALC"].values[0]
-            compra = sub["COMPRA_CALC"].values[0]
-            faturamento = sub["FATURAMENTO_MOTO_CALC"].values[0]
-            margem = sub["MARGEM_BRUTA_CALC"].values[0]
-            tx = margem / faturamento if faturamento > 0 else None
+        sub = base_ano[base_ano["MÊS"] == i]
+        if not sub.empty:
+            resumo = resumo_moto_por_grupo(sub)
+            meta = resumo["Meta %"]
+            compra = resumo["Compra"]
+            faturamento = resumo["Faturamento"]
+            margem = resumo["Margem Bruta"]
+            tx = resumo["Tx. Sucesso"]
             acumulado += margem
         else:
             meta = None
@@ -381,25 +372,108 @@ def tabela_pneus_moto_ano(d, ano):
             "Acumulado": acumulado if acumulado != 0 else None,
         })
 
-    total_compra = base_ano["COMPRA_CALC"].sum()
-    total_faturamento = base_ano["FATURAMENTO_MOTO_CALC"].sum()
-    total_margem = base_ano["MARGEM_BRUTA_CALC"].sum()
-    total_tx = total_margem / total_faturamento if total_faturamento > 0 else None
-    total_meta = base_ano["META_PERCENTUAL_CALC"].mean() if not base_ano.empty else None
+    resumo_total = resumo_moto_por_grupo(base_ano) if not base_ano.empty else {
+        "Meta %": None, "Compra": 0, "Faturamento": 0, "Margem Bruta": 0, "Tx. Sucesso": None
+    }
 
     rows.append({
         "Mês": "TOTAL",
-        "Meta": total_meta,
-        "Compra": total_compra,
-        "Faturamento": total_faturamento,
-        "Margem Bruta": total_margem,
-        "Tx. Sucesso": total_tx,
-        "Acumulado": total_margem,
+        "Meta": resumo_total["Meta %"],
+        "Compra": resumo_total["Compra"],
+        "Faturamento": resumo_total["Faturamento"],
+        "Margem Bruta": resumo_total["Margem Bruta"],
+        "Tx. Sucesso": resumo_total["Tx. Sucesso"],
+        "Acumulado": resumo_total["Margem Bruta"],
     })
 
     return pd.DataFrame(rows)
 
+def meta_ponderada_moto(grupo):
+    """
+    Meta total do ano/mês para Pneus Velhos Moto.
+    Fórmula equivalente ao Excel:
+    SOMARPRODUTO(FATURAMENTO; META %) / SOMA(FATURAMENTO)
+
+    Exemplo:
+    Meta Total = (Faturamento Jan x Meta Jan + Faturamento Fev x Meta Fev + ...) / Faturamento Total
+    """
+    faturamento = pd.to_numeric(grupo.get("FATURAMENTO_MOTO_CALC"), errors="coerce").fillna(0)
+    meta_pct = pd.to_numeric(grupo.get("META_PERCENTUAL_CALC"), errors="coerce").fillna(0)
+    total_faturamento = faturamento.sum()
+    if total_faturamento > 0:
+        return (faturamento * meta_pct).sum() / total_faturamento
+    return meta_pct.mean() if len(meta_pct) else None
+
+
+def resumo_moto_por_grupo(grupo):
+    faturamento = pd.to_numeric(grupo.get("FATURAMENTO_MOTO_CALC"), errors="coerce").fillna(0).sum()
+    compra = pd.to_numeric(grupo.get("COMPRA_CALC"), errors="coerce").fillna(0).sum()
+    margem = faturamento - compra
+    meta_pct = meta_ponderada_moto(grupo)
+    meta_margem = faturamento * meta_pct if meta_pct is not None and pd.notna(meta_pct) else None
+    gap = margem - meta_margem if meta_margem is not None and pd.notna(meta_margem) else None
+    tx_sucesso = margem / faturamento if faturamento > 0 else None
+
+    return {
+        "Faturamento": faturamento,
+        "Compra": compra,
+        "Margem Bruta": margem,
+        "Meta %": meta_pct,
+        "Meta Margem (R$)": meta_margem,
+        "Gap (R$)": gap,
+        "Tx. Sucesso": tx_sucesso,
+    }
+
+
 def tabela_completa_ano(d, ano, indicador):
+    if eh_moto_margem(indicador):
+        rows = []
+        base_ano = d[d["ANO"] == ano].copy()
+        acumulado = 0
+
+        for i in range(1, 13):
+            mes_nome = MESES_MAPA[i]
+            sub = base_ano[base_ano["MÊS"] == i]
+
+            if not sub.empty:
+                resumo = resumo_moto_por_grupo(sub)
+                acumulado += resumo["Margem Bruta"]
+                rows.append({
+                    "Mês": mes_nome,
+                    "Meta %": resumo["Meta %"],
+                    "Compra": resumo["Compra"],
+                    "Faturamento": resumo["Faturamento"],
+                    "Margem Bruta": resumo["Margem Bruta"],
+                    "Tx. Sucesso": resumo["Tx. Sucesso"],
+                    "Acumulado": acumulado,
+                })
+            else:
+                rows.append({
+                    "Mês": mes_nome,
+                    "Meta %": None,
+                    "Compra": None,
+                    "Faturamento": None,
+                    "Margem Bruta": None,
+                    "Tx. Sucesso": None,
+                    "Acumulado": acumulado if acumulado != 0 else None,
+                })
+
+        resumo_total = resumo_moto_por_grupo(base_ano) if not base_ano.empty else {
+            "Meta %": None, "Compra": 0, "Faturamento": 0, "Margem Bruta": 0, "Tx. Sucesso": None
+        }
+
+        rows.append({
+            "Mês": "TOTAL",
+            "Meta %": resumo_total["Meta %"],
+            "Compra": resumo_total["Compra"],
+            "Faturamento": resumo_total["Faturamento"],
+            "Margem Bruta": resumo_total["Margem Bruta"],
+            "Tx. Sucesso": resumo_total["Tx. Sucesso"],
+            "Acumulado": resumo_total["Margem Bruta"],
+        })
+
+        return pd.DataFrame(rows)
+
     rows = []
     base_ano = d[d["ANO"] == ano].copy()
 
@@ -461,6 +535,33 @@ def tabela_completa_ano(d, ano, indicador):
 
 
 def calcular_mom(d, indicador):
+    if eh_moto_margem(indicador):
+        linhas = []
+        acumulado_por_ano = {}
+
+        for (ano, mes, mes_nome, mes_ordem), sub in d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"]):
+            resumo = resumo_moto_por_grupo(sub)
+            acumulado_por_ano.setdefault(ano, 0)
+            acumulado_por_ano[ano] += resumo["Margem Bruta"]
+
+            linhas.append({
+                "ANO": ano,
+                "MÊS": mes,
+                "Mês": mes_nome,
+                "META": resumo["Meta %"],
+                "Compra": resumo["Compra"],
+                "Realizado": resumo["Faturamento"],
+                "Margem Bruta": resumo["Margem Bruta"],
+                "Gap": resumo["Gap (R$)"],
+                "Ating.": resumo["Tx. Sucesso"],
+                "Acumulado": acumulado_por_ano[ano],
+                "MÊS_ORDEM": mes_ordem,
+            })
+
+        base = pd.DataFrame(linhas).sort_values("MÊS_ORDEM").reset_index(drop=True)
+        base["MoM_%"] = base["Realizado"].pct_change() * 100
+        return base.replace([float("inf"), float("-inf")], pd.NA)
+
     base = (
         d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"], as_index=False)
         .agg({"META_CALC": "sum", "REALIZADO_CALC": "sum"})
@@ -487,23 +588,30 @@ def calcular_mom(d, indicador):
 
 def calcular_yoy(d, indicador):
     if eh_moto_margem(indicador):
-        df_yoy = (
-            d.groupby("ANO", as_index=False)
-            .agg({
-                "FATURAMENTO_MOTO_CALC": "sum",
-                "COMPRA_CALC": "sum",
-                "MARGEM_BRUTA_CALC": "sum",
-                "META_PERCENTUAL_CALC": "mean",
-                "MÊS": "nunique",
+        linhas = []
+        for ano, sub in d.groupby("ANO"):
+            resumo = resumo_moto_por_grupo(sub)
+            linhas.append({
+                "ANO": ano,
+                "Faturamento": resumo["Faturamento"],
+                "Compra": resumo["Compra"],
+                "Margem Bruta": resumo["Margem Bruta"],
+                "Meta %": resumo["Meta %"],
+                "Meta Margem (R$)": resumo["Meta Margem (R$)"],
+                "Gap (R$)": resumo["Gap (R$)"],
+                "Tx. Sucesso": resumo["Tx. Sucesso"],
+                "Meses c/ dado": sub["MÊS"].nunique(),
             })
-            .sort_values("ANO")
-        )
-        df_yoy["Realizado"] = df_yoy["FATURAMENTO_MOTO_CALC"]
-        df_yoy["Meta"] = df_yoy["META_PERCENTUAL_CALC"]
-        df_yoy["Atingimento"] = df_yoy["MARGEM_BRUTA_CALC"] / df_yoy["FATURAMENTO_MOTO_CALC"].replace(0, pd.NA)
-        df_yoy["YoY_%"] = df_yoy["Realizado"].pct_change() * 100
-        df_yoy = df_yoy.rename(columns={"MÊS": "Meses c/ dado"})
-        return df_yoy[["ANO", "Realizado", "Meta", "Meses c/ dado", "Atingimento", "YoY_%"]].replace([float("inf"), float("-inf")], pd.NA)
+
+        df_yoy = pd.DataFrame(linhas).sort_values("ANO")
+        df_yoy["YoY_%"] = df_yoy["Faturamento"].pct_change() * 100
+
+        # Colunas de compatibilidade para PDF/IA, mas a tela usa as colunas especiais
+        df_yoy["Realizado"] = df_yoy["Faturamento"]
+        df_yoy["Meta"] = df_yoy["Meta %"]
+        df_yoy["Atingimento"] = df_yoy["Tx. Sucesso"]
+
+        return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
 
     df_yoy = (
         d.groupby("ANO", as_index=False)
@@ -530,6 +638,30 @@ def calcular_yoy(d, indicador):
 
 
 def comparativo_filiais(d, ano, indicador):
+    if eh_moto_margem(indicador):
+        linhas = []
+        base = d[d["ANO"] == ano].copy()
+
+        for filial_nome, sub in base.groupby("FILIAL"):
+            resumo = resumo_moto_por_grupo(sub)
+            linhas.append({
+                "FILIAL": filial_nome,
+                "Faturamento": resumo["Faturamento"],
+                "Compra": resumo["Compra"],
+                "Margem Bruta": resumo["Margem Bruta"],
+                "Meta %": resumo["Meta %"],
+                "Meta Margem (R$)": resumo["Meta Margem (R$)"],
+                "Gap (R$)": resumo["Gap (R$)"],
+                "Tx. Sucesso": resumo["Tx. Sucesso"],
+                # Compatibilidade
+                "Realizado": resumo["Faturamento"],
+                "Meta": resumo["Meta %"],
+                "Gap": resumo["Gap (R$)"],
+                "Atingimento": resumo["Tx. Sucesso"],
+            })
+
+        return pd.DataFrame(linhas).sort_values("Margem Bruta", ascending=False)
+
     comp = (
         d[d["ANO"] == ano]
         .groupby("FILIAL", as_index=False)
@@ -568,6 +700,64 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
 
     atual_periodo = base_atual[base_atual["MÊS"] <= mes_limite]
     anterior_periodo = base_ant[base_ant["MÊS"] <= mes_limite]
+    periodo_txt = f"Jan a {MESES_MAPA[mes_limite]}"
+
+    if eh_moto_margem(indicador):
+        resumo_ant = resumo_moto_por_grupo(anterior_periodo) if not anterior_periodo.empty else {
+            "Faturamento": 0, "Compra": 0, "Margem Bruta": 0, "Meta %": None,
+            "Meta Margem (R$)": None, "Gap (R$)": None, "Tx. Sucesso": None
+        }
+        resumo_atual = resumo_moto_por_grupo(atual_periodo) if not atual_periodo.empty else {
+            "Faturamento": 0, "Compra": 0, "Margem Bruta": 0, "Meta %": None,
+            "Meta Margem (R$)": None, "Gap (R$)": None, "Tx. Sucesso": None
+        }
+
+        var_faturamento = ((resumo_atual["Faturamento"] / resumo_ant["Faturamento"]) - 1) if resumo_ant["Faturamento"] > 0 else None
+        var_margem = ((resumo_atual["Margem Bruta"] / resumo_ant["Margem Bruta"]) - 1) if resumo_ant["Margem Bruta"] > 0 else None
+
+        return pd.DataFrame([
+            {
+                "Ano": ano_anterior,
+                "Período": periodo_txt,
+                "Faturamento": resumo_ant["Faturamento"],
+                "Compra": resumo_ant["Compra"],
+                "Margem Bruta": resumo_ant["Margem Bruta"],
+                "Meta %": resumo_ant["Meta %"],
+                "Meta Margem (R$)": resumo_ant["Meta Margem (R$)"],
+                "Gap (R$)": resumo_ant["Gap (R$)"],
+                "Tx. Sucesso": resumo_ant["Tx. Sucesso"],
+                "Variação Faturamento": None,
+                "Variação Margem": None,
+                # Compatibilidade
+                "Realizado": resumo_ant["Faturamento"],
+                "Meta": resumo_ant["Meta %"],
+                "Atingimento": resumo_ant["Tx. Sucesso"],
+                "Variação Realizado": None,
+                "Variação Meta": None,
+            },
+            {
+                "Ano": ano_referencia,
+                "Período": periodo_txt,
+                "Faturamento": resumo_atual["Faturamento"],
+                "Compra": resumo_atual["Compra"],
+                "Margem Bruta": resumo_atual["Margem Bruta"],
+                "Meta %": resumo_atual["Meta %"],
+                "Meta Margem (R$)": resumo_atual["Meta Margem (R$)"],
+                "Gap (R$)": resumo_atual["Gap (R$)"],
+                "Tx. Sucesso": resumo_atual["Tx. Sucesso"],
+                "Variação Faturamento": var_faturamento,
+                "Variação Margem": var_margem,
+                # Compatibilidade
+                "Realizado": resumo_atual["Faturamento"],
+                "Meta": resumo_atual["Meta %"],
+                "Atingimento": resumo_atual["Tx. Sucesso"],
+                "Variação Realizado": var_faturamento,
+                "Variação Meta": None,
+            }
+        ])
+
+    atual_periodo = base_atual[base_atual["MÊS"] <= mes_limite]
+    anterior_periodo = base_ant[base_ant["MÊS"] <= mes_limite]
 
     real_atual = atual_periodo["REALIZADO_CALC"].sum()
     meta_atual = atual_periodo["META_CALC"].sum()
@@ -587,7 +777,6 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
 
     var_real = ((real_atual / real_ant) - 1) if real_ant > 0 else None
     var_meta = ((meta_atual / meta_ant) - 1) if meta_ant > 0 else None
-    periodo_txt = f"Jan a {MESES_MAPA[mes_limite]}"
 
     return pd.DataFrame([
         {
@@ -622,10 +811,61 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
     if base_ano.empty:
         return {}
 
-    despesa = eh_despesa(indicador)
     mes_atual_calendario = hoje.month
     max_mes_disponivel = int(base_ano["MÊS"].max()) if not base_ano.empty else mes_atual_calendario
     mes_referencia = min(mes_atual_calendario, max_mes_disponivel)
+
+    if eh_moto_margem(indicador):
+        base_mes = base_ano[base_ano["MÊS"] == mes_referencia].copy()
+        resumo_mes = resumo_moto_por_grupo(base_mes) if not base_mes.empty else resumo_moto_por_grupo(base_ano.iloc[0:0])
+        resumo_ano = resumo_moto_por_grupo(base_ano)
+
+        dias_restantes = 0
+        necessario_dia = None
+        if ano_selecionado == hoje.year and mes_referencia == hoje.month:
+            total_dias_mes = calendar.monthrange(ano_selecionado, mes_referencia)[1]
+            dias_restantes = max(total_dias_mes - hoje.day, 0)
+
+        df_periodo = comparar_mesmo_periodo(df, indicador, ano_selecionado)
+        realizado_ant = None
+        var_real = None
+        periodo_txt = None
+        if not df_periodo.empty and len(df_periodo) >= 2:
+            realizado_ant = df_periodo.iloc[0]["Faturamento"]
+            var_real = df_periodo.iloc[1]["Variação Faturamento"]
+            periodo_txt = df_periodo.iloc[1]["Período"]
+
+        return {
+            "hoje": hoje,
+            "ano": ano_selecionado,
+            "mes_referencia": mes_referencia,
+            "nome_mes": MESES_MAPA.get(mes_referencia, str(mes_referencia)),
+            "realizado_mes": resumo_mes["Faturamento"],
+            "meta_mes": resumo_mes["Meta %"],
+            "gap_mes": resumo_mes["Gap (R$)"],
+            "ating_mes": resumo_mes["Tx. Sucesso"],
+            "compra_mes": resumo_mes["Compra"],
+            "margem_mes": resumo_mes["Margem Bruta"],
+            "meta_margem_mes": resumo_mes["Meta Margem (R$)"],
+            "realizado_ano": resumo_ano["Faturamento"],
+            "meta_ano": resumo_ano["Meta %"],
+            "gap_ano": resumo_ano["Gap (R$)"],
+            "ating_ano": resumo_ano["Tx. Sucesso"],
+            "compra_ano": resumo_ano["Compra"],
+            "margem_ano": resumo_ano["Margem Bruta"],
+            "meta_margem_ano": resumo_ano["Meta Margem (R$)"],
+            "dias_restantes": dias_restantes,
+            "necessario_dia": necessario_dia,
+            "realizado_ant": realizado_ant,
+            "meta_ant": None,
+            "var_real": var_real,
+            "var_meta": None,
+            "periodo_txt": periodo_txt,
+            "despesa": False,
+            "moto_margem": True,
+        }
+
+    despesa = eh_despesa(indicador)
 
     base_mes = base_ano[base_ano["MÊS"] == mes_referencia].copy()
     realizado_mes = base_mes["REALIZADO_CALC"].sum()
@@ -695,6 +935,7 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
         "var_meta": var_meta,
         "periodo_txt": periodo_txt,
         "despesa": despesa,
+        "moto_margem": False,
     }
 
 
@@ -705,6 +946,37 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     hoje_txt = resumo["hoje"].strftime("%d/%m/%Y")
     nome_mes = resumo["nome_mes"]
     ano = resumo["ano"]
+
+    if resumo.get("moto_margem"):
+        texto = (
+            f"Hoje é dia {hoje_txt}. No mês de {nome_mes}/{ano}, o faturamento de Pneus Velhos Moto foi de "
+            f"{fmt_brl(resumo['realizado_mes'])}, com compra de {fmt_brl(resumo['compra_mes'])} e margem bruta de "
+            f"{fmt_brl(resumo['margem_mes'])}. A meta mínima de margem do mês é de {fmt_pct(resumo['meta_mes'])}, "
+            f"equivalente a {fmt_brl(resumo['meta_margem_mes'])}, e a taxa de sucesso realizada foi de "
+            f"{fmt_pct(resumo['ating_mes'])}. "
+        )
+
+        if resumo["gap_mes"] is not None:
+            if resumo["gap_mes"] >= 0:
+                texto += f"A margem ficou acima da meta em {fmt_brl(resumo['gap_mes'])}. "
+            else:
+                texto += f"A margem ficou abaixo da meta em {fmt_brl(abs(resumo['gap_mes']))}. "
+
+        texto += (
+            f"No acumulado do ano, o faturamento soma {fmt_brl(resumo['realizado_ano'])}, a compra soma "
+            f"{fmt_brl(resumo['compra_ano'])} e a margem bruta acumulada é de {fmt_brl(resumo['margem_ano'])}. "
+            f"A meta ponderada do ano é de {fmt_pct(resumo['meta_ano'])}, calculada por "
+            f"SOMARPRODUTO(faturamento; meta %) dividido pelo faturamento total. "
+            f"A taxa de sucesso acumulada está em {fmt_pct(resumo['ating_ano'])}."
+        )
+
+        if resumo["periodo_txt"] and resumo["realizado_ant"] is not None and resumo["var_real"] is not None:
+            if resumo["var_real"] >= 0:
+                texto += f" No acumulado de {resumo['periodo_txt']}, o faturamento cresceu {fmt_pct(resumo['var_real'])} frente ao ano anterior."
+            else:
+                texto += f" No acumulado de {resumo['periodo_txt']}, o faturamento recuou {fmt_pct(abs(resumo['var_real']))} frente ao ano anterior."
+
+        return texto
 
     if resumo["despesa"]:
         texto = (
@@ -763,7 +1035,6 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     )
 
     return texto
-
 
 def grafico_realizado_meta(df_completa, ano, titulo=None):
     dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
@@ -944,9 +1215,39 @@ class PDFRelatorio(FPDF):
         self.fonte("", 10)
         self.multi_cell(0, 6, self.safe(texto))
 
+
     def tabela_por_ano(self, df_completa):
-        self.fonte("B", 9)
+        self.fonte("B", 8)
         self.set_fill_color(240, 240, 240)
+
+        if "Faturamento" in df_completa.columns and "Margem Bruta" in df_completa.columns:
+            headers = ["Mês", "Meta %", "Compra", "Fatur.", "Margem", "Tx.", "Acumul."]
+            widths = [22, 24, 27, 30, 30, 22, 30]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            for _, row in df_completa.iterrows():
+                is_total = row["Mês"] == "TOTAL"
+                fill = is_total
+                if is_total:
+                    self.set_fill_color(255, 243, 232)
+                    self.fonte("B", 7)
+                else:
+                    self.set_fill_color(255, 255, 255)
+                    self.fonte("", 7)
+
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1, align="C", fill=fill)
+                self.cell(widths[1], 6, fmt_pct(row["Meta"]), border=1, align="R", fill=fill)
+                self.cell(widths[2], 6, fmt_brl(row["Compra"]), border=1, align="R", fill=fill)
+                self.cell(widths[3], 6, fmt_brl(row["Faturamento"]), border=1, align="R", fill=fill)
+                self.cell(widths[4], 6, fmt_brl(row["Margem Bruta"]), border=1, align="R", fill=fill)
+                self.cell(widths[5], 6, fmt_pct(row["Tx. Sucesso"]), border=1, align="R", fill=fill)
+                self.cell(widths[6], 6, fmt_brl(row["Acumulado"]), border=1, align="R", fill=fill)
+                self.ln()
+            return
+
         headers = ["Mês", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
         widths = [30, 40, 40, 40, 35]
 
@@ -973,8 +1274,29 @@ class PDFRelatorio(FPDF):
             self.ln()
 
     def tabela_mom(self, df_mom):
-        self.fonte("B", 9)
+        self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
+
+        if "Margem Bruta" in df_mom.columns:
+            headers = ["Mês", "Meta %", "Compra", "Fatur.", "Margem", "Tx.", "Acumul."]
+            widths = [28, 22, 27, 30, 30, 22, 30]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_mom.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
+                self.cell(widths[1], 6, fmt_pct(row["META"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Compra"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Realizado"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Margem Bruta"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Ating."]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_brl(row["Acumulado"]), border=1, align="R")
+                self.ln()
+            return
+
         headers = ["Mês", "Realizado", "Meta", "Gap", "Ating.", "MoM %"]
         widths = [36, 32, 32, 32, 24, 24]
 
@@ -994,8 +1316,29 @@ class PDFRelatorio(FPDF):
             self.ln()
 
     def tabela_yoy(self, df_yoy):
-        self.fonte("B", 9)
+        self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
+
+        if "Margem Bruta" in df_yoy.columns:
+            headers = ["Ano", "Fatur.", "Compra", "Margem", "Meta %", "Meta R$", "Tx."]
+            widths = [18, 30, 30, 30, 22, 30, 22]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_yoy.iterrows():
+                self.cell(widths[0], 6, str(int(row["ANO"])), border=1, align="C")
+                self.cell(widths[1], 6, fmt_brl(row["Faturamento"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Compra"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Margem Bruta"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_pct(row["Meta %"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_brl(row["Meta Margem (R$)"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_pct(row["Tx. Sucesso"]), border=1, align="R")
+                self.ln()
+            return
+
         headers = ["Ano", "Realizado", "Meta", "Atingimento", "Meses", "YoY %"]
         widths = [20, 40, 40, 35, 20, 30]
 
@@ -1015,8 +1358,30 @@ class PDFRelatorio(FPDF):
             self.ln()
 
     def tabela_periodo(self, df_periodo):
-        self.fonte("B", 9)
+        self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
+
+        if "Margem Bruta" in df_periodo.columns:
+            headers = ["Ano", "Período", "Fatur.", "Compra", "Margem", "Meta %", "Tx.", "Var. Fat."]
+            widths = [14, 22, 28, 28, 28, 20, 20, 25]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_periodo.iterrows():
+                self.cell(widths[0], 6, str(int(row["Ano"])), border=1, align="C")
+                self.cell(widths[1], 6, self.safe(str(row["Período"])), border=1, align="C")
+                self.cell(widths[2], 6, fmt_brl(row["Faturamento"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Compra"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Margem Bruta"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Meta %"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_pct(row["Tx. Sucesso"]), border=1, align="R")
+                self.cell(widths[7], 6, fmt_pct(row["Variação Faturamento"]) if pd.notna(row["Variação Faturamento"]) else "-", border=1, align="R")
+                self.ln()
+            return
+
         headers = ["Ano", "Período", "Realizado", "Meta", "Gap", "Ating.", "Var. Real."]
         widths = [16, 24, 32, 28, 26, 28, 26]
 
@@ -1036,8 +1401,28 @@ class PDFRelatorio(FPDF):
             self.ln()
 
     def tabela_filiais(self, df_filiais):
-        self.fonte("B", 9)
+        self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
+
+        if "Margem Bruta" in df_filiais.columns:
+            headers = ["Filial", "Fatur.", "Compra", "Margem", "Meta %", "Tx."]
+            widths = [45, 30, 30, 30, 22, 22]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_filiais.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["FILIAL"])), border=1)
+                self.cell(widths[1], 6, fmt_brl(row["Faturamento"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Compra"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Margem Bruta"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_pct(row["Meta %"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Tx. Sucesso"]), border=1, align="R")
+                self.ln()
+            return
+
         headers = ["Filial", "Realizado", "Meta", "Gap", "Atingimento"]
         widths = [55, 35, 35, 30, 30]
 
@@ -1054,7 +1439,6 @@ class PDFRelatorio(FPDF):
             self.cell(widths[4], 6, fmt_pct(row["Atingimento"]), border=1, align="R")
             self.ln()
 
-
 def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     pdf = PDFRelatorio(indicador, filial)
     resumo = montar_resumo_pdf(df, indicador, ano_selecionado)
@@ -1070,12 +1454,16 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
 
     pdf.add_page()
     pdf.secao(f"3. Análise por Mês - Ano {ano_selecionado}")
-    pdf.tabela_por_ano(tabela_completa_ano(df, ano_selecionado, indicador))
+    pdf.tabela_por_ano(tabela_pneus_moto_ano(df, ano_selecionado) if eh_moto_margem(indicador) else tabela_completa_ano(df, ano_selecionado, indicador))
 
     pdf.add_page()
     pdf.secao("4. Variação Mês a Mês - Últimos 12 meses")
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").tail(12).copy()
-    pdf.tabela_mom(df_mom[["Mês", "Realizado", "META", "Gap", "Ating.", "MoM_%"]])
+    pdf.tabela_mom(
+        df_mom[["Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]]
+        if eh_moto_margem(indicador)
+        else df_mom[["Mês", "Realizado", "META", "Gap", "Ating.", "MoM_%"]]
+    )
 
     pdf.add_page()
     pdf.secao("5. Comparativo Ano a Ano (YoY)")
@@ -1370,37 +1758,86 @@ with tab0:
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
-
     base_kpi = df[df["ANO"] == ano_kpi].copy()
 
     if eh_moto_margem(indicador):
-        compra_total = base_kpi["COMPRA_CALC"].sum()
-        faturamento_total = base_kpi["FATURAMENTO_MOTO_CALC"].sum()
-        margem_total = base_kpi["MARGEM_BRUTA_CALC"].sum()
-        tx_sucesso = margem_total / faturamento_total if faturamento_total > 0 else None
-        meta_pct = base_kpi["META_PERCENTUAL_CALC"].mean() if not base_kpi.empty else None
+        resumo_ano_moto = resumo_moto_por_grupo(base_kpi)
+        periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
+
+        if not periodo_cmp.empty and len(periodo_cmp) == 2:
+            ytd_valor = periodo_cmp.iloc[1]["Faturamento"]
+            delta_ytd = periodo_cmp.iloc[1]["Variação Faturamento"]
+            periodo_label = periodo_cmp.iloc[1]["Período"]
+        else:
+            ytd_valor = None
+            delta_ytd = None
+            periodo_label = "-"
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown(card_html("Compra Ano", fmt_brl(compra_total)), unsafe_allow_html=True)
+            st.markdown(card_html("Faturamento Ano", fmt_brl(resumo_ano_moto["Faturamento"])), unsafe_allow_html=True)
         with c2:
-            st.markdown(card_html("Faturamento Ano", fmt_brl(faturamento_total)), unsafe_allow_html=True)
+            st.markdown(card_html("Compra Ano", fmt_brl(resumo_ano_moto["Compra"])), unsafe_allow_html=True)
         with c3:
-            st.markdown(card_html("Margem Bruta", fmt_brl(margem_total)), unsafe_allow_html=True)
+            st.markdown(card_html("Margem Bruta Ano", fmt_brl(resumo_ano_moto["Margem Bruta"])), unsafe_allow_html=True)
         with c4:
-            st.markdown(card_html("Tx. Sucesso", fmt_pct(tx_sucesso)), unsafe_allow_html=True)
+            st.markdown(card_html("Tx. Sucesso", fmt_pct(resumo_ano_moto["Tx. Sucesso"])), unsafe_allow_html=True)
         with c5:
-            st.markdown(card_html("Meta", fmt_pct(meta_pct)), unsafe_allow_html=True)
+            st.markdown(card_html(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd), unsafe_allow_html=True)
 
         st.divider()
+
         df_dashboard_ano = tabela_pneus_moto_ano(df, ano_kpi)
         dados_chart = df_dashboard_ano[(df_dashboard_ano["Mês"] != "TOTAL") & (df_dashboard_ano["Faturamento"].notna())]
+
         if not dados_chart.empty:
             fig_dash = go.Figure()
-            fig_dash.add_bar(x=dados_chart["Mês"], y=dados_chart["Faturamento"], name="Faturamento", marker_color=COR_VERDE)
-            fig_dash.add_bar(x=dados_chart["Mês"], y=dados_chart["Compra"], name="Compra", marker_color=COR_LARANJA)
-            fig_dash.update_layout(title=f"Pneus Moto - Compra x Faturamento — {ano_kpi}", height=420, barmode="group", legend=dict(orientation="h", y=-0.18))
+            fig_dash.add_bar(
+                x=dados_chart["Mês"],
+                y=dados_chart["Margem Bruta"],
+                name="Margem Bruta",
+                marker_color=COR_VERDE,
+                text=[fmt_brl(v) for v in dados_chart["Margem Bruta"]],
+                textposition="outside",
+            )
+            fig_dash.add_scatter(
+                x=dados_chart["Mês"],
+                y=dados_chart["Faturamento"] * dados_chart["Meta"],
+                name="Meta Margem R$",
+                mode="lines+markers",
+                line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            )
+            fig_dash.update_layout(
+                title=f"Pneus Moto — Margem Bruta x Meta de Margem — {ano_kpi}",
+                height=420,
+                legend=dict(orientation="h", y=-0.18),
+                yaxis_title="R$",
+                margin=dict(t=60, b=20, l=20, r=20),
+            )
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_moto")
+
+        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        df_yoy_dashboard = calcular_yoy(df, indicador)
+
+        st.dataframe(
+            df_yoy_dashboard[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Gap (R$)", "Tx. Sucesso", "Meses c/ dado", "YoY_%"]].style
+            .format({
+                "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                "Meses c/ dado": "{:.0f}",
+            })
+            .map(cor_variacao, subset=["YoY_%"])
+            .map(cor_atingimento, subset=["Tx. Sucesso"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
     else:
         periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
         realizado_total = base_kpi["REALIZADO_CALC"].sum()
@@ -1443,22 +1880,22 @@ with tab0:
             fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, titulo=f"Realizado x Meta — até {ultimo_mes}/{ano_kpi}")
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard")
 
-    st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
-    df_yoy_dashboard = calcular_yoy(df, indicador)
-    st.dataframe(
-        df_yoy_dashboard.style
-        .format({
-            "Realizado": "R$ {:,.0f}",
-            "Meta": "R$ {:,.0f}",
-            "Atingimento": "{:.1%}",
-            "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-            "Meses c/ dado": "{:.0f}",
-        })
-        .map(cor_variacao, subset=["YoY_%"])
-        .map(cor_atingimento, subset=["Atingimento"]),
-        use_container_width=True,
-        hide_index=True,
-    )
+        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        df_yoy_dashboard = calcular_yoy(df, indicador)
+        st.dataframe(
+            df_yoy_dashboard.style
+            .format({
+                "Realizado": "R$ {:,.0f}",
+                "Meta": "R$ {:,.0f}",
+                "Atingimento": "{:.1%}",
+                "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                "Meses c/ dado": "{:.0f}",
+            })
+            .map(cor_variacao, subset=["YoY_%"])
+            .map(cor_atingimento, subset=["Atingimento"]),
+            use_container_width=True,
+            hide_index=True,
+        )
 
 
 # =========================
@@ -1545,56 +1982,112 @@ with tab2:
     st.subheader(f"{indicador} — {filial} · Variação Mês a Mês")
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").copy()
 
-    linhas_finais = []
-    for ano in sorted(df_mom["ANO"].dropna().unique()):
-        base_ano = df_mom[df_mom["ANO"] == ano].copy()
-        linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating.", "MoM_%"]])
+    if eh_moto_margem(indicador):
+        linhas_finais = []
+        for ano in sorted(df_mom["ANO"].dropna().unique()):
+            base_ano = df_mom[df_mom["ANO"] == ano].copy()
+            linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]])
 
-        total_meta = base_ano["META"].sum()
-        total_realizado = base_ano["Realizado"].sum()
-        if eh_despesa(indicador):
-            total_gap = total_meta - total_realizado
-            total_ating = total_meta / total_realizado if total_realizado > 0 else None
-        else:
-            total_gap = total_realizado - total_meta
-            total_ating = total_realizado / total_meta if total_meta > 0 else None
+            resumo_total = resumo_moto_por_grupo(df[df["ANO"] == ano])
+            linhas_finais.append(pd.DataFrame([{
+                "ANO": ano,
+                "MÊS": None,
+                "Mês": f"TOTAL {ano}",
+                "META": resumo_total["Meta %"],
+                "Compra": resumo_total["Compra"],
+                "Realizado": resumo_total["Faturamento"],
+                "Margem Bruta": resumo_total["Margem Bruta"],
+                "Gap": resumo_total["Gap (R$)"],
+                "Ating.": resumo_total["Tx. Sucesso"],
+                "Acumulado": resumo_total["Margem Bruta"],
+                "MoM_%": None,
+            }]))
 
-        linhas_finais.append(pd.DataFrame([{
-            "ANO": ano,
-            "MÊS": None,
-            "Mês": f"TOTAL {ano}",
-            "META": total_meta,
-            "Realizado": total_realizado,
-            "Gap": total_gap,
-            "Ating.": total_ating,
-            "MoM_%": None,
-        }]))
+        df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
 
-    df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
+        def destacar_total(row):
+            if str(row["Mês"]).startswith("TOTAL"):
+                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
+            return ["" for _ in row]
 
-    def destacar_total(row):
-        if str(row["Mês"]).startswith("TOTAL"):
-            return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
-        return ["" for _ in row]
+        st.dataframe(
+            df_mom_tela.rename(columns={
+                "META": "Meta %",
+                "Realizado": "Faturamento",
+                "Ating.": "Tx. Sucesso",
+                "MoM_%": "MoM %"
+            }).style
+            .apply(destacar_total, axis=1)
+            .format({
+                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Gap": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "MoM %": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+            })
+            .map(lambda v: cor_gap_valor(v, False), subset=["Gap"])
+            .map(cor_atingimento, subset=["Tx. Sucesso"])
+            .map(cor_variacao, subset=["MoM %"]),
+            use_container_width=True,
+            hide_index=True,
+        )
 
-    st.dataframe(
-        df_mom_tela.style
-        .apply(destacar_total, axis=1)
-        .format({
-            "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-            "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-            "META": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-            "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-            "Gap": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
-            "Ating.": lambda v: f"{v:.0%}" if pd.notna(v) else "—",
-            "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-        })
-        .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
-        .map(cor_atingimento, subset=["Ating."])
-        .map(cor_variacao, subset=["MoM_%"]),
-        use_container_width=True,
-        hide_index=True,
-    )
+    else:
+        linhas_finais = []
+        for ano in sorted(df_mom["ANO"].dropna().unique()):
+            base_ano = df_mom[df_mom["ANO"] == ano].copy()
+            linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating.", "MoM_%"]])
+
+            total_meta = base_ano["META"].sum()
+            total_realizado = base_ano["Realizado"].sum()
+            if eh_despesa(indicador):
+                total_gap = total_meta - total_realizado
+                total_ating = total_meta / total_realizado if total_realizado > 0 else None
+            else:
+                total_gap = total_realizado - total_meta
+                total_ating = total_realizado / total_meta if total_meta > 0 else None
+
+            linhas_finais.append(pd.DataFrame([{
+                "ANO": ano,
+                "MÊS": None,
+                "Mês": f"TOTAL {ano}",
+                "META": total_meta,
+                "Realizado": total_realizado,
+                "Gap": total_gap,
+                "Ating.": total_ating,
+                "MoM_%": None,
+            }]))
+
+        df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
+
+        def destacar_total(row):
+            if str(row["Mês"]).startswith("TOTAL"):
+                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
+            return ["" for _ in row]
+
+        st.dataframe(
+            df_mom_tela.style
+            .apply(destacar_total, axis=1)
+            .format({
+                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                "META": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Gap": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                "Ating.": lambda v: f"{v:.0%}" if pd.notna(v) else "—",
+                "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+            })
+            .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
+            .map(cor_atingimento, subset=["Ating."])
+            .map(cor_variacao, subset=["MoM_%"]),
+            use_container_width=True,
+            hide_index=True,
+        )
 
 
 # =========================
@@ -1604,84 +2097,176 @@ with tab3:
     st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
     df_yoy = calcular_yoy(df, indicador)
 
-    st.dataframe(
-        df_yoy.style
-        .format({
-            "Realizado": "R$ {:,.0f}",
-            "Meta": "R$ {:,.0f}",
-            "Atingimento": "{:.1%}",
-            "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-            "Meses c/ dado": "{:.0f}",
-        })
-        .map(cor_variacao, subset=["YoY_%"])
-        .map(cor_atingimento, subset=["Atingimento"]),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.divider()
-    st.subheader("Mesmo período x ano anterior")
-    df_periodo_tela = comparar_mesmo_periodo(df, indicador)
-
-    if not df_periodo_tela.empty:
+    if eh_moto_margem(indicador):
         st.dataframe(
-            df_periodo_tela.style
+            df_yoy[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Gap (R$)", "Tx. Sucesso", "Meses c/ dado", "YoY_%"]].style
             .format({
-                "Realizado": "R$ {:,.0f}",
-                "Meta": "R$ {:,.0f}",
-                "Gap (R$)": "R$ {:,.0f}",
-                "Atingimento": "{:.1%}",
-                "Variação Realizado": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
-                "Variação Meta": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                "Meses c/ dado": "{:.0f}",
             })
-            .map(cor_variacao, subset=["Variação Realizado", "Variação Meta"])
-            .map(cor_atingimento, subset=["Atingimento"]),
+            .map(cor_variacao, subset=["YoY_%"])
+            .map(cor_atingimento, subset=["Tx. Sucesso"])
+            .map(lambda v: cor_gap_valor(v, False), subset=["Gap (R$)"]),
             use_container_width=True,
             hide_index=True,
         )
-    else:
-        st.info("Sem dados suficientes para comparar o mesmo período.")
 
-    if filial == "Geral":
         st.divider()
-        anos_filial = sorted(df_todas_unidades["ANO"].dropna().unique())
-        ano_base_filial = st.selectbox("Ano do comparativo entre filiais", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
-        st.subheader(f"Comparativo entre filiais — {ano_base_filial}")
+        st.subheader("Mesmo período x ano anterior")
+        df_periodo_tela = comparar_mesmo_periodo(df, indicador)
 
-        comp_filiais = comparativo_filiais(df_todas_unidades, ano_base_filial, indicador)
+        if not df_periodo_tela.empty:
+            st.dataframe(
+                df_periodo_tela[["Ano", "Período", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Gap (R$)", "Tx. Sucesso", "Variação Faturamento", "Variação Margem"]].style
+                .format({
+                    "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Variação Faturamento": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                    "Variação Margem": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                })
+                .map(cor_variacao, subset=["Variação Faturamento", "Variação Margem"])
+                .map(cor_atingimento, subset=["Tx. Sucesso"])
+                .map(lambda v: cor_gap_valor(v, False), subset=["Gap (R$)"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Sem dados suficientes para comparar o mesmo período.")
+
+        if filial == "Geral":
+            st.divider()
+            anos_filial = sorted(df_todas_unidades["ANO"].dropna().unique())
+            ano_base_filial = st.selectbox("Ano do comparativo entre filiais", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
+            st.subheader(f"Comparativo entre filiais — {ano_base_filial}")
+
+            comp_filiais = comparativo_filiais(df_todas_unidades, ano_base_filial, indicador)
+            st.dataframe(
+                comp_filiais[["FILIAL", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Gap (R$)", "Tx. Sucesso"]].style
+                .format({
+                    "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Gap (R$)"])
+                .map(cor_atingimento, subset=["Tx. Sucesso"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            fig_filiais = go.Figure()
+            fig_filiais.add_bar(
+                x=comp_filiais["FILIAL"],
+                y=comp_filiais["Margem Bruta"],
+                name="Margem Bruta",
+                marker_color=COR_VERDE,
+                text=[fmt_brl(v) for v in comp_filiais["Margem Bruta"]],
+                textposition="outside",
+            )
+            fig_filiais.add_scatter(
+                x=comp_filiais["FILIAL"],
+                y=comp_filiais["Meta Margem (R$)"],
+                name="Meta Margem R$",
+                mode="lines+markers",
+                line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            )
+            fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
+            st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_moto")
+
+    else:
         st.dataframe(
-            comp_filiais.style
+            df_yoy.style
             .format({
                 "Realizado": "R$ {:,.0f}",
                 "Meta": "R$ {:,.0f}",
-                "Gap": "R$ {:,.0f}",
                 "Atingimento": "{:.1%}",
+                "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                "Meses c/ dado": "{:.0f}",
             })
-            .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
+            .map(cor_variacao, subset=["YoY_%"])
             .map(cor_atingimento, subset=["Atingimento"]),
             use_container_width=True,
             hide_index=True,
         )
 
-        fig_filiais = go.Figure()
-        fig_filiais.add_bar(
-            x=comp_filiais["FILIAL"],
-            y=comp_filiais["Realizado"],
-            name="Realizado",
-            marker_color=COR_VERDE,
-            marker_cornerradius=4,
-            text=[fmt_brl(v) for v in comp_filiais["Realizado"]],
-            textposition="outside",
-        )
-        fig_filiais.add_scatter(
-            x=comp_filiais["FILIAL"],
-            y=comp_filiais["Meta"],
-            name="Meta",
-            mode="lines+markers",
-            line=dict(color=COR_LARANJA, width=3, dash="dot"),
-        )
-        fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
-        st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais")
+        st.divider()
+        st.subheader("Mesmo período x ano anterior")
+        df_periodo_tela = comparar_mesmo_periodo(df, indicador)
+
+        if not df_periodo_tela.empty:
+            st.dataframe(
+                df_periodo_tela.style
+                .format({
+                    "Realizado": "R$ {:,.0f}",
+                    "Meta": "R$ {:,.0f}",
+                    "Gap (R$)": "R$ {:,.0f}",
+                    "Atingimento": "{:.1%}",
+                    "Variação Realizado": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                    "Variação Meta": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                })
+                .map(cor_variacao, subset=["Variação Realizado", "Variação Meta"])
+                .map(cor_atingimento, subset=["Atingimento"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Sem dados suficientes para comparar o mesmo período.")
+
+        if filial == "Geral":
+            st.divider()
+            anos_filial = sorted(df_todas_unidades["ANO"].dropna().unique())
+            ano_base_filial = st.selectbox("Ano do comparativo entre filiais", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
+            st.subheader(f"Comparativo entre filiais — {ano_base_filial}")
+
+            comp_filiais = comparativo_filiais(df_todas_unidades, ano_base_filial, indicador)
+            st.dataframe(
+                comp_filiais.style
+                .format({
+                    "Realizado": "R$ {:,.0f}",
+                    "Meta": "R$ {:,.0f}",
+                    "Gap": "R$ {:,.0f}",
+                    "Atingimento": "{:.1%}",
+                })
+                .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
+                .map(cor_atingimento, subset=["Atingimento"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            fig_filiais = go.Figure()
+            fig_filiais.add_bar(
+                x=comp_filiais["FILIAL"],
+                y=comp_filiais["Realizado"],
+                name="Realizado",
+                marker_color=COR_VERDE,
+                marker_cornerradius=4,
+                text=[fmt_brl(v) for v in comp_filiais["Realizado"]],
+                textposition="outside",
+            )
+            fig_filiais.add_scatter(
+                x=comp_filiais["FILIAL"],
+                y=comp_filiais["Meta"],
+                name="Meta",
+                mode="lines+markers",
+                line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            )
+            fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
+            st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais")
 
 
 # =========================
