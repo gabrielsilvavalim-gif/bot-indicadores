@@ -3356,6 +3356,20 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
 # =========================
 with tab0:
     st.subheader(f"Dashboard — {indicador} | {filial}")
+    col_pdf_dashboard_espaco, col_pdf_dashboard = st.columns([4, 1])
+    with col_pdf_dashboard:
+        ano_pdf_dashboard = int(df["ANO"].max())
+        with st.spinner("Gerando PDF..."):
+            pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
+        st.download_button(
+            label="📄 Baixar PDF",
+            data=pdf_bytes_dashboard,
+            file_name=f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-"),
+            mime="application/pdf",
+            use_container_width=True,
+            key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
+        )
+
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
@@ -3689,18 +3703,6 @@ with tab1:
         df_completa = tabela_pneus_moto_ano(df, ano_selecionado)
     else:
         df_completa = tabela_completa_ano(df, ano_selecionado, indicador)
-
-    with col_btn:
-        st.write("")
-        with st.spinner("Gerando PDF..."):
-            pdf_bytes = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_selecionado)
-        st.download_button(
-            label="📄 Baixar PDF",
-            data=pdf_bytes,
-            file_name=f"relatorio_{indicador}_{filial}_{agora_br().strftime('%Y%m%d')}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-        )
 
     if eh_moto_margem(indicador):
         def destacar_total_moto(row):
