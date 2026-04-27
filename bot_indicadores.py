@@ -78,7 +78,7 @@ INDICADORES = {
         "GRUPO 01": "FATURAMENTO", "GRUPO 02": "ESPECIAL", "GRUPO 03": None, "TIPO DE META": "R$"
     },
     "Despesa Geral": {
-        "tipo": "simples", "categoria": "despesa", "TIPO": "ECONOMICO",
+        "tipo": "despesa_geral_receita", "categoria": "despesa_geral_receita", "TIPO": "ECONOMICO",
         "GRUPO 01": "DESPESAS", "GRUPO 02": None, "GRUPO 03": QUALQUER, "TIPO DE META": "%"
     },
     "Despesa Manutenção": {
@@ -392,11 +392,98 @@ def consolidar_campos(df, nome_indicador):
 
     return d.replace([float("inf"), float("-inf")], pd.NA)
 
+
+def eh_despesa_geral(indicador):
+    return normalizar_texto(indicador) == "DESPESA GERAL"
+
+
+def eh_despesa_geral_receita(indicador):
+    return INDICADORES.get(indicador, {}).get("tipo") == "despesa_geral_receita"
+
+
+def meta_ponderada_por_receita(grupo):
+    """
+    Limite total ponderado pela receita:
+    SOMARPRODUTO(Receita; Limite %) / SOMA(Receita)
+    """
+    receita = pd.to_numeric(grupo.get("RECEITA_CALC"), errors="coerce").fillna(0)
+    limite = pd.to_numeric(grupo.get("LIMITE_PERCENTUAL_CALC"), errors="coerce").fillna(0)
+    total_receita = receita.sum()
+
+    if total_receita > 0:
+        return (receita * limite).sum() / total_receita
+
+    return limite.mean() if len(limite) else None
+
+
+def resumo_despesa_geral_por_grupo(grupo):
+    despesa = pd.to_numeric(grupo.get("DESPESA_CALC"), errors="coerce").fillna(0).sum()
+    receita = pd.to_numeric(grupo.get("RECEITA_CALC"), errors="coerce").fillna(0).sum()
+    limite_pct = meta_ponderada_por_receita(grupo)
+    limite_rs = receita * limite_pct if limite_pct is not None and pd.notna(limite_pct) else None
+    resultado = limite_rs - despesa if limite_rs is not None and pd.notna(limite_rs) else None
+    tx_sucesso = despesa / receita if receita > 0 else None
+
+    return {
+        "Limite %": limite_pct,
+        "Limite R$": limite_rs,
+        "Despesa": despesa,
+        "Receita": receita,
+        "Resultado R$": resultado,
+        "Tx. Sucesso": tx_sucesso,
+    }
+
+
+def consolidar_despesa_geral(df):
+    """
+    Estrutura especial: Despesa Geral.
+
+    Filtro:
+    TIPO = ECONOMICO
+    GRUPO 01 = DESPESAS
+    TIPO DE META = %
+
+    Cálculos:
+    LIMITE % = META
+    DESPESA = coluna J:J / VALOR REF 01
+    RECEITA = coluna L:L / VALOR REF 02
+    RESULTADO R$ = (RECEITA * LIMITE %) - DESPESA
+    TX. SUCESSO = DESPESA / RECEITA
+    """
+    d = df.copy()
+
+    d["LIMITE_PERCENTUAL_CALC"] = ajustar_percentual_meta(d.get("META", 0))
+    d["DESPESA_CALC"] = serie_numerica_por_coluna(
+        d,
+        nomes_preferidos=["VALOR REF 01", "DESPESA", "DESPESA R$", "DESP."],
+        indice_1_base=10
+    )
+    d["RECEITA_CALC"] = serie_numerica_por_coluna(
+        d,
+        nomes_preferidos=["VALOR REF 02", "RECEITA", "RECEITA R$"],
+        indice_1_base=12
+    )
+
+    d["LIMITE_RS_CALC"] = d["RECEITA_CALC"] * d["LIMITE_PERCENTUAL_CALC"]
+    d["RESULTADO_RS"] = d["LIMITE_RS_CALC"] - d["DESPESA_CALC"]
+    d["TX_SUCESSO_CALC"] = d["DESPESA_CALC"] / d["RECEITA_CALC"].replace(0, pd.NA)
+
+    # Campos de compatibilidade
+    d["META_CALC"] = d["LIMITE_PERCENTUAL_CALC"]
+    d["REALIZADO_CALC"] = d["DESPESA_CALC"]
+    d["ATINGIMENTO_CALC"] = d["TX_SUCESSO_CALC"]
+
+    return d.replace([float("inf"), float("-inf")], pd.NA)
+
+
 def filtrar(df, indicador, filial):
     cfg = INDICADORES[indicador]
 
     if cfg["tipo"] == "moto_margem":
         return consolidar_pneus_moto(aplicar_filtro_base(df, cfg, filial))
+
+    if cfg["tipo"] == "despesa_geral_receita":
+        return consolidar_despesa_geral(aplicar_filtro_base(df, cfg, filial))
 
     if cfg["tipo"] == "simples":
         return consolidar_campos(aplicar_filtro_base(df, cfg, filial), indicador)
@@ -543,6 +630,30 @@ def remover_meta_moto_anos_sem_meta(df_tabela):
     return d
 
 
+
+def cor_tx_sucesso_despesa_geral_por_linha(row):
+    """
+    Para Despesa Geral:
+    - Verde quando Tx. Sucesso <= Limite %
+    - Laranja quando Tx. Sucesso > Limite %
+    """
+    estilos = ["" for _ in row.index]
+
+    if "Tx. Sucesso" not in row.index or "Limite %" not in row.index:
+        return estilos
+
+    tx = row["Tx. Sucesso"]
+    limite = row["Limite %"]
+
+    if pd.notna(tx) and pd.notna(limite):
+        idx = list(row.index).index("Tx. Sucesso")
+        if tx <= limite:
+            estilos[idx] = f"color: {COR_VERDE}; font-weight:bold"
+        else:
+            estilos[idx] = f"color: {COR_LARANJA}; font-weight:bold"
+
+    return estilos
+
 def cor_tx_sucesso_moto_por_linha(row):
     """
     Para Pneus Velhos Moto:
@@ -624,6 +735,54 @@ def tabela_completa_ano(d, ano, indicador):
             "Margem Bruta": resumo_total["Margem Bruta"],
             "Tx. Sucesso": resumo_total["Tx. Sucesso"],
             "Acumulado": resumo_total["Margem Bruta"],
+        })
+
+        return pd.DataFrame(rows)
+
+    if eh_despesa_geral(indicador):
+        rows = []
+        base_ano = d[d["ANO"] == ano].copy()
+        acumulado = 0
+
+        for i in range(1, 13):
+            mes_nome = MESES_MAPA[i]
+            sub = base_ano[base_ano["MÊS"] == i]
+
+            if not sub.empty:
+                resumo = resumo_despesa_geral_por_grupo(sub)
+                acumulado += resumo["Resultado R$"] if pd.notna(resumo["Resultado R$"]) else 0
+                rows.append({
+                    "Mês": mes_nome,
+                    "Limite %": resumo["Limite %"],
+                    "Despesa": resumo["Despesa"],
+                    "Receita": resumo["Receita"],
+                    "Resultado R$": resumo["Resultado R$"],
+                    "Tx. Sucesso": resumo["Tx. Sucesso"],
+                    "Acumulado": acumulado,
+                })
+            else:
+                rows.append({
+                    "Mês": mes_nome,
+                    "Limite %": None,
+                    "Despesa": None,
+                    "Receita": None,
+                    "Resultado R$": None,
+                    "Tx. Sucesso": None,
+                    "Acumulado": acumulado if acumulado != 0 else None,
+                })
+
+        resumo_total = resumo_despesa_geral_por_grupo(base_ano) if not base_ano.empty else {
+            "Limite %": None, "Despesa": 0, "Receita": 0, "Resultado R$": 0, "Tx. Sucesso": None
+        }
+
+        rows.append({
+            "Mês": "TOTAL",
+            "Limite %": resumo_total["Limite %"],
+            "Despesa": resumo_total["Despesa"],
+            "Receita": resumo_total["Receita"],
+            "Resultado R$": resumo_total["Resultado R$"],
+            "Tx. Sucesso": resumo_total["Tx. Sucesso"],
+            "Acumulado": resumo_total["Resultado R$"],
         })
 
         return pd.DataFrame(rows)
@@ -785,6 +944,32 @@ def calcular_mom(d, indicador):
         base["MoM_%"] = base["Realizado"].pct_change() * 100
         return base.replace([float("inf"), float("-inf")], pd.NA)
 
+    if eh_despesa_geral(indicador):
+        linhas = []
+        acumulado_por_ano = {}
+
+        for (ano, mes, mes_nome, mes_ordem), sub in d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"]):
+            resumo = resumo_despesa_geral_por_grupo(sub)
+            acumulado_por_ano.setdefault(ano, 0)
+            acumulado_por_ano[ano] += resumo["Resultado R$"] if pd.notna(resumo["Resultado R$"]) else 0
+
+            linhas.append({
+                "ANO": ano,
+                "MÊS": mes,
+                "Mês": mes_nome,
+                "Limite %": resumo["Limite %"],
+                "Despesa": resumo["Despesa"],
+                "Receita": resumo["Receita"],
+                "Resultado R$": resumo["Resultado R$"],
+                "Tx. Sucesso": resumo["Tx. Sucesso"],
+                "Acumulado": acumulado_por_ano[ano],
+                "MÊS_ORDEM": mes_ordem,
+            })
+
+        base = pd.DataFrame(linhas).sort_values("MÊS_ORDEM").reset_index(drop=True)
+        base["MoM_%"] = base["Despesa"].pct_change() * 100
+        return base.replace([float("inf"), float("-inf")], pd.NA)
+
     if eh_despesa_hora_extra(indicador):
         base = (
             d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"], as_index=False)
@@ -860,6 +1045,30 @@ def calcular_yoy(d, indicador):
 
         return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
 
+    if eh_despesa_geral(indicador):
+        linhas = []
+        for ano, sub in d.groupby("ANO"):
+            resumo = resumo_despesa_geral_por_grupo(sub)
+            linhas.append({
+                "ANO": ano,
+                "Limite %": resumo["Limite %"],
+                "Despesa": resumo["Despesa"],
+                "Receita": resumo["Receita"],
+                "Resultado R$": resumo["Resultado R$"],
+                "Tx. Sucesso": resumo["Tx. Sucesso"],
+                "Meses c/ dado": sub["MÊS"].nunique(),
+            })
+
+        df_yoy = pd.DataFrame(linhas).sort_values("ANO")
+        df_yoy["YoY_%"] = df_yoy["Despesa"].pct_change() * 100
+
+        # Compatibilidade
+        df_yoy["Realizado"] = df_yoy["Despesa"]
+        df_yoy["Meta"] = df_yoy["Limite %"]
+        df_yoy["Atingimento"] = df_yoy["Tx. Sucesso"]
+
+        return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
+
     if eh_despesa_hora_extra(indicador):
         df_yoy = (
             d.groupby("ANO", as_index=False)
@@ -914,7 +1123,6 @@ def calcular_yoy(d, indicador):
     df_yoy["YoY_%"] = df_yoy["Realizado"].pct_change() * 100
     return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
 
-
 def comparativo_filiais(d, ano, indicador):
     if eh_moto_margem(indicador):
         linhas = []
@@ -939,6 +1147,28 @@ def comparativo_filiais(d, ano, indicador):
             })
 
         return pd.DataFrame(linhas).sort_values("Margem Bruta", ascending=False)
+
+    if eh_despesa_geral(indicador):
+        linhas = []
+        base = d[d["ANO"] == ano].copy()
+
+        for filial_nome, sub in base.groupby("FILIAL"):
+            resumo = resumo_despesa_geral_por_grupo(sub)
+            linhas.append({
+                "FILIAL": filial_nome,
+                "Limite %": resumo["Limite %"],
+                "Despesa": resumo["Despesa"],
+                "Receita": resumo["Receita"],
+                "Resultado R$": resumo["Resultado R$"],
+                "Tx. Sucesso": resumo["Tx. Sucesso"],
+                # Compatibilidade
+                "Realizado": resumo["Despesa"],
+                "Meta": resumo["Limite %"],
+                "Gap": resumo["Resultado R$"],
+                "Atingimento": resumo["Tx. Sucesso"],
+            })
+
+        return pd.DataFrame(linhas).sort_values("Despesa", ascending=False)
 
     if eh_despesa_hora_extra(indicador):
         comp = (
@@ -983,7 +1213,6 @@ def comparativo_filiais(d, ano, indicador):
         comp["Atingimento"] = comp["Realizado"] / comp["Meta"].replace(0, pd.NA)
 
     return comp
-
 
 def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
     if d.empty:
@@ -1063,6 +1292,56 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
 
         return remover_meta_moto_anos_sem_meta(tabela_periodo_moto)
 
+    if eh_despesa_geral(indicador):
+        resumo_ant = resumo_despesa_geral_por_grupo(anterior_periodo) if not anterior_periodo.empty else {
+            "Limite %": None, "Despesa": 0, "Receita": 0, "Resultado R$": None, "Tx. Sucesso": None
+        }
+        resumo_atual = resumo_despesa_geral_por_grupo(atual_periodo) if not atual_periodo.empty else {
+            "Limite %": None, "Despesa": 0, "Receita": 0, "Resultado R$": None, "Tx. Sucesso": None
+        }
+
+        var_despesa = ((resumo_atual["Despesa"] / resumo_ant["Despesa"]) - 1) if resumo_ant["Despesa"] > 0 else None
+        var_receita = ((resumo_atual["Receita"] / resumo_ant["Receita"]) - 1) if resumo_ant["Receita"] > 0 else None
+
+        return pd.DataFrame([
+            {
+                "Ano": ano_anterior,
+                "Período": periodo_txt,
+                "Limite %": resumo_ant["Limite %"],
+                "Despesa": resumo_ant["Despesa"],
+                "Receita": resumo_ant["Receita"],
+                "Resultado R$": resumo_ant["Resultado R$"],
+                "Tx. Sucesso": resumo_ant["Tx. Sucesso"],
+                "Variação Despesa": None,
+                "Variação Receita": None,
+                # Compatibilidade
+                "Realizado": resumo_ant["Despesa"],
+                "Meta": resumo_ant["Limite %"],
+                "Gap (R$)": resumo_ant["Resultado R$"],
+                "Atingimento": resumo_ant["Tx. Sucesso"],
+                "Variação Realizado": None,
+                "Variação Meta": None,
+            },
+            {
+                "Ano": ano_referencia,
+                "Período": periodo_txt,
+                "Limite %": resumo_atual["Limite %"],
+                "Despesa": resumo_atual["Despesa"],
+                "Receita": resumo_atual["Receita"],
+                "Resultado R$": resumo_atual["Resultado R$"],
+                "Tx. Sucesso": resumo_atual["Tx. Sucesso"],
+                "Variação Despesa": var_despesa,
+                "Variação Receita": var_receita,
+                # Compatibilidade
+                "Realizado": resumo_atual["Despesa"],
+                "Meta": resumo_atual["Limite %"],
+                "Gap (R$)": resumo_atual["Resultado R$"],
+                "Atingimento": resumo_atual["Tx. Sucesso"],
+                "Variação Realizado": var_despesa,
+                "Variação Meta": None,
+            }
+        ])
+
     atual_periodo = base_atual[base_atual["MÊS"] <= mes_limite]
     anterior_periodo = base_ant[base_ant["MÊS"] <= mes_limite]
 
@@ -1112,7 +1391,6 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
             "Variação Meta": var_meta,
         }
     ])
-
 
 def montar_resumo_pdf(df, indicador, ano_selecionado):
     if df.empty:
@@ -1175,6 +1453,49 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
             "periodo_txt": periodo_txt,
             "despesa": False,
             "moto_margem": True,
+        }
+
+    if eh_despesa_geral(indicador):
+        base_mes = base_ano[base_ano["MÊS"] == mes_referencia].copy()
+        resumo_mes = resumo_despesa_geral_por_grupo(base_mes) if not base_mes.empty else resumo_despesa_geral_por_grupo(base_ano.iloc[0:0])
+        resumo_ano = resumo_despesa_geral_por_grupo(base_ano)
+
+        df_periodo = comparar_mesmo_periodo(df, indicador, ano_selecionado)
+        realizado_ant = None
+        var_real = None
+        periodo_txt = None
+        if not df_periodo.empty and len(df_periodo) >= 2:
+            realizado_ant = df_periodo.iloc[0]["Despesa"]
+            var_real = df_periodo.iloc[1]["Variação Despesa"]
+            periodo_txt = df_periodo.iloc[1]["Período"]
+
+        return {
+            "hoje": hoje,
+            "ano": ano_selecionado,
+            "mes_referencia": mes_referencia,
+            "nome_mes": MESES_MAPA.get(mes_referencia, str(mes_referencia)),
+            "realizado_mes": resumo_mes["Despesa"],
+            "meta_mes": resumo_mes["Limite %"],
+            "gap_mes": resumo_mes["Resultado R$"],
+            "ating_mes": resumo_mes["Tx. Sucesso"],
+            "receita_mes": resumo_mes["Receita"],
+            "limite_rs_mes": resumo_mes["Limite R$"],
+            "realizado_ano": resumo_ano["Despesa"],
+            "meta_ano": resumo_ano["Limite %"],
+            "gap_ano": resumo_ano["Resultado R$"],
+            "ating_ano": resumo_ano["Tx. Sucesso"],
+            "receita_ano": resumo_ano["Receita"],
+            "limite_rs_ano": resumo_ano["Limite R$"],
+            "dias_restantes": 0,
+            "necessario_dia": None,
+            "realizado_ant": realizado_ant,
+            "meta_ant": None,
+            "var_real": var_real,
+            "var_meta": None,
+            "periodo_txt": periodo_txt,
+            "despesa": True,
+            "despesa_geral": True,
+            "moto_margem": False,
         }
 
     despesa = eh_despesa(indicador)
@@ -1265,6 +1586,36 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     nome_mes = resumo["nome_mes"]
     ano = resumo["ano"]
 
+
+    if resumo.get("despesa_geral"):
+        texto = (
+            f"Hoje é dia {hoje_txt}. No mês de {nome_mes}/{ano}, a despesa geral foi de "
+            f"{fmt_brl(resumo['realizado_mes'])}, contra uma receita de {fmt_brl(resumo['receita_mes'])}. "
+            f"O limite do mês é de {fmt_pct(resumo['meta_mes'])}, equivalente a {fmt_brl(resumo['limite_rs_mes'])}. "
+            f"A taxa de sucesso realizada foi de {fmt_pct(resumo['ating_mes'])}. "
+        )
+
+        if resumo["gap_mes"] is not None:
+            if resumo["gap_mes"] >= 0:
+                texto += f"A despesa ficou dentro do limite, com resultado positivo de {fmt_brl(resumo['gap_mes'])}. "
+            else:
+                texto += f"A despesa ultrapassou o limite, gerando resultado negativo de {fmt_brl(resumo['gap_mes'])}. "
+
+        texto += (
+            f"No acumulado do ano, a despesa soma {fmt_brl(resumo['realizado_ano'])}, "
+            f"a receita soma {fmt_brl(resumo['receita_ano'])}, e o limite ponderado anual é de "
+            f"{fmt_pct(resumo['meta_ano'])}, equivalente a {fmt_brl(resumo['limite_rs_ano'])}. "
+            f"O resultado acumulado é de {fmt_brl(resumo['gap_ano'])} e a taxa de sucesso acumulada é "
+            f"{fmt_pct(resumo['ating_ano'])}."
+        )
+
+        if resumo["periodo_txt"] and resumo["realizado_ant"] is not None and resumo["var_real"] is not None:
+            if resumo["var_real"] >= 0:
+                texto += f" No acumulado de {resumo['periodo_txt']}, a despesa cresceu {fmt_pct(resumo['var_real'])} frente ao ano anterior."
+            else:
+                texto += f" No acumulado de {resumo['periodo_txt']}, a despesa recuou {fmt_pct(abs(resumo['var_real']))} frente ao ano anterior."
+
+        return texto
 
     if eh_despesa_manutencao(indicador):
         texto = (
@@ -1381,6 +1732,54 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     return texto
 
 def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
+    if indicador and eh_despesa_geral(indicador):
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Despesa"].notna())].copy()
+        if dados.empty:
+            return None
+
+        ultimo_mes = dados["Mês"].iloc[-1]
+        titulo_final = titulo or f"Despesa Geral x Limite sobre Receita — até {ultimo_mes}/{ano}"
+
+        limite_rs = dados["Receita"] * dados["Limite %"]
+        cor_barras = [
+            COR_VERDE if pd.notna(tx) and pd.notna(limite) and tx <= limite else COR_LARANJA
+            for tx, limite in zip(dados["Tx. Sucesso"], dados["Limite %"])
+        ]
+
+        fig = go.Figure()
+        fig.add_bar(
+            x=dados["Mês"],
+            y=dados["Despesa"],
+            name="Despesa",
+            marker_color=cor_barras,
+            marker_cornerradius=4,
+            text=[fmt_brl(v) for v in dados["Despesa"]],
+            textposition="outside",
+            textfont=dict(size=11),
+            hovertemplate="<b>%{x}</b><br>Despesa: R$ %{y:,.0f}<extra></extra>",
+        )
+        fig.add_scatter(
+            x=dados["Mês"],
+            y=limite_rs,
+            name="Limite R$",
+            mode="lines+markers",
+            line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            marker=dict(size=7),
+            hovertemplate="<b>%{x}</b><br>Limite R$: R$ %{y:,.0f}<extra></extra>",
+        )
+        fig.update_layout(
+            title=titulo_final,
+            height=420,
+            margin=dict(t=60, b=20, l=20, r=20),
+            legend=dict(orientation="h", y=-0.18),
+            yaxis_title="R$",
+            bargap=0.22,
+            uniformtext_minsize=8,
+            uniformtext_mode="hide",
+        )
+        fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
+        return fig
+
     if indicador and eh_despesa_hora_extra(indicador):
         dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Pago em Hora Extra"].notna())].copy()
         if dados.empty:
@@ -1593,35 +1992,124 @@ class PDFRelatorio(FPDF):
         self.fonte("", 10)
         self.set_text_color(0, 0, 0)
 
-        intro = (
-            f"Este relatório apresenta a análise do indicador {self.indicador}, considerando a base {self.filial}. "
-            f"Os dados abaixo resumem o desempenho do período selecionado, comparando realizado, meta, gap, "
-            f"atingimento e evolução em relação ao ano anterior."
-        )
-        self.multi_cell(0, 6, self.safe(intro))
-        self.ln(3)
+        if resumo.get("despesa_geral"):
+            intro = (
+                f"Este relatório apresenta a análise do indicador {self.indicador}, considerando a base {self.filial}. "
+                f"Os dados abaixo resumem o desempenho de despesa operacional sobre receita, comparando limite percentual, "
+                f"despesa, receita, resultado e taxa de sucesso."
+            )
+            self.multi_cell(0, 6, self.safe(intro))
+            self.ln(3)
 
-        y_inicial = self.get_y()
-        self.kpi_box(12, y_inicial, 45, 20, "Realizado Ano", fmt_brl(resumo["realizado_ano"]))
-        self.kpi_box(60, y_inicial, 45, 20, "Meta Ano", fmt_brl(resumo["meta_ano"]))
-        self.kpi_box(108, y_inicial, 45, 20, "Gap Ano", fmt_brl(resumo["gap_ano"]))
-        self.kpi_box(156, y_inicial, 42, 20, "Atingimento", fmt_pct(resumo["ating_ano"]))
+            y_inicial = self.get_y()
+            self.kpi_box(12, y_inicial, 45, 20, "Despesa Ano", fmt_brl(resumo["realizado_ano"]))
+            self.kpi_box(60, y_inicial, 45, 20, "Receita Ano", fmt_brl(resumo["receita_ano"]))
+            self.kpi_box(108, y_inicial, 45, 20, "Resultado Ano", fmt_brl(resumo["gap_ano"]))
+            self.kpi_box(156, y_inicial, 42, 20, "Tx. Sucesso", fmt_pct(resumo["ating_ano"]))
 
-        y2 = y_inicial + 25
-        self.kpi_box(12, y2, 45, 20, f"Realizado {resumo['nome_mes']}", fmt_brl(resumo["realizado_mes"]))
-        self.kpi_box(60, y2, 45, 20, f"Meta {resumo['nome_mes']}", fmt_brl(resumo["meta_mes"]))
-        self.kpi_box(108, y2, 45, 20, "Dias Restantes", str(resumo["dias_restantes"]))
-        self.kpi_box(156, y2, 42, 20, "Necessário/dia", fmt_brl(resumo["necessario_dia"]) if resumo["necessario_dia"] is not None else "-")
+            y2 = y_inicial + 25
+            self.kpi_box(12, y2, 45, 20, f"Despesa {resumo['nome_mes']}", fmt_brl(resumo["realizado_mes"]))
+            self.kpi_box(60, y2, 45, 20, f"Receita {resumo['nome_mes']}", fmt_brl(resumo["receita_mes"]))
+            self.kpi_box(108, y2, 45, 20, f"Limite {resumo['nome_mes']}", fmt_pct(resumo["meta_mes"]))
+            self.kpi_box(156, y2, 42, 20, "Limite R$", fmt_brl(resumo["limite_rs_mes"]))
+
+        elif resumo.get("moto_margem"):
+            intro = (
+                f"Este relatório apresenta a análise do indicador {self.indicador}, considerando a base {self.filial}. "
+                f"Os dados abaixo resumem faturamento, compra, margem bruta, meta de margem e taxa de sucesso."
+            )
+            self.multi_cell(0, 6, self.safe(intro))
+            self.ln(3)
+
+            y_inicial = self.get_y()
+            self.kpi_box(12, y_inicial, 45, 20, "Faturamento Ano", fmt_brl(resumo["realizado_ano"]))
+            self.kpi_box(60, y_inicial, 45, 20, "Compra Ano", fmt_brl(resumo["compra_ano"]))
+            self.kpi_box(108, y_inicial, 45, 20, "Margem Ano", fmt_brl(resumo["margem_ano"]))
+            self.kpi_box(156, y_inicial, 42, 20, "Tx. Sucesso", fmt_pct(resumo["ating_ano"]))
+
+            y2 = y_inicial + 25
+            self.kpi_box(12, y2, 45, 20, f"Fatur. {resumo['nome_mes']}", fmt_brl(resumo["realizado_mes"]))
+            self.kpi_box(60, y2, 45, 20, f"Compra {resumo['nome_mes']}", fmt_brl(resumo["compra_mes"]))
+            self.kpi_box(108, y2, 45, 20, f"Margem {resumo['nome_mes']}", fmt_brl(resumo["margem_mes"]))
+            self.kpi_box(156, y2, 42, 20, "Meta %", fmt_pct(resumo["meta_mes"]))
+
+        elif eh_despesa_manutencao(self.indicador):
+            intro = (
+                f"Este relatório apresenta a análise do indicador {self.indicador}, considerando a base {self.filial}. "
+                f"Os dados abaixo resumem despesa, limite, saldo do limite e uso do limite."
+            )
+            self.multi_cell(0, 6, self.safe(intro))
+            self.ln(3)
+
+            y_inicial = self.get_y()
+            self.kpi_box(12, y_inicial, 45, 20, "Despesa Ano", fmt_brl(resumo["realizado_ano"]))
+            self.kpi_box(60, y_inicial, 45, 20, "Limite Ano", fmt_brl(resumo["meta_ano"]))
+            self.kpi_box(108, y_inicial, 45, 20, "Saldo Ano", fmt_brl(resumo["gap_ano"]))
+            self.kpi_box(156, y_inicial, 42, 20, "Uso do Limite", fmt_pct(resumo["ating_ano"]))
+
+            y2 = y_inicial + 25
+            self.kpi_box(12, y2, 45, 20, f"Despesa {resumo['nome_mes']}", fmt_brl(resumo["realizado_mes"]))
+            self.kpi_box(60, y2, 45, 20, f"Limite {resumo['nome_mes']}", fmt_brl(resumo["meta_mes"]))
+            self.kpi_box(108, y2, 45, 20, "Dias Restantes", str(resumo["dias_restantes"]))
+            self.kpi_box(156, y2, 42, 20, "Necessário/dia", fmt_brl(resumo["necessario_dia"]) if resumo["necessario_dia"] is not None else "-")
+
+        else:
+            intro = (
+                f"Este relatório apresenta a análise do indicador {self.indicador}, considerando a base {self.filial}. "
+                f"Os dados abaixo resumem o desempenho do período selecionado, comparando realizado, meta, gap, "
+                f"atingimento e evolução em relação ao ano anterior."
+            )
+            self.multi_cell(0, 6, self.safe(intro))
+            self.ln(3)
+
+            y_inicial = self.get_y()
+            self.kpi_box(12, y_inicial, 45, 20, "Realizado Ano", fmt_brl(resumo["realizado_ano"]))
+            self.kpi_box(60, y_inicial, 45, 20, "Meta Ano", fmt_brl(resumo["meta_ano"]))
+            self.kpi_box(108, y_inicial, 45, 20, "Gap Ano", fmt_brl(resumo["gap_ano"]))
+            self.kpi_box(156, y_inicial, 42, 20, "Atingimento", fmt_pct(resumo["ating_ano"]))
+
+            y2 = y_inicial + 25
+            self.kpi_box(12, y2, 45, 20, f"Realizado {resumo['nome_mes']}", fmt_brl(resumo["realizado_mes"]))
+            self.kpi_box(60, y2, 45, 20, f"Meta {resumo['nome_mes']}", fmt_brl(resumo["meta_mes"]))
+            self.kpi_box(108, y2, 45, 20, "Dias Restantes", str(resumo["dias_restantes"]))
+            self.kpi_box(156, y2, 42, 20, "Necessário/dia", fmt_brl(resumo["necessario_dia"]) if resumo["necessario_dia"] is not None else "-")
 
         self.set_y(y2 + 27)
         self.secao("2. Análise Explicativa")
         self.fonte("", 10)
         self.multi_cell(0, 6, self.safe(texto))
 
-
     def tabela_por_ano(self, df_completa):
         self.fonte("B", 8)
         self.set_fill_color(240, 240, 240)
+
+        if "Despesa" in df_completa.columns and "Receita" in df_completa.columns and "Resultado R$" in df_completa.columns:
+            headers = ["Mês", "Limite %", "Desp.", "Receita", "Result.", "Tx.", "Acumul."]
+            widths = [22, 24, 30, 30, 30, 22, 30]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            for _, row in df_completa.iterrows():
+                is_total = row["Mês"] == "TOTAL"
+                fill = is_total
+                if is_total:
+                    self.set_fill_color(255, 243, 232)
+                    self.fonte("B", 7)
+                else:
+                    self.set_fill_color(255, 255, 255)
+                    self.fonte("", 7)
+
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1, align="C", fill=fill)
+                self.cell(widths[1], 6, fmt_pct(row["Limite %"]), border=1, align="R", fill=fill)
+                self.cell(widths[2], 6, fmt_brl(row["Despesa"]), border=1, align="R", fill=fill)
+                self.cell(widths[3], 6, fmt_brl(row["Receita"]), border=1, align="R", fill=fill)
+                self.cell(widths[4], 6, fmt_brl(row["Resultado R$"]), border=1, align="R", fill=fill)
+                self.cell(widths[5], 6, fmt_pct(row["Tx. Sucesso"]), border=1, align="R", fill=fill)
+                self.cell(widths[6], 6, fmt_brl(row["Acumulado"]), border=1, align="R", fill=fill)
+                self.ln()
+            return
 
         if "Pago em Hora Extra" in df_completa.columns:
             headers = ["Mês", "Limite", "Pago HE", "Salário", "HE Folha", "Saldo", "Resultado %"]
@@ -1711,6 +2199,26 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
 
+        if "Despesa" in df_mom.columns and "Receita" in df_mom.columns and "Resultado R$" in df_mom.columns:
+            headers = ["Mês", "Limite %", "Desp.", "Receita", "Result.", "Tx.", "Acum."]
+            widths = [28, 22, 28, 30, 30, 22, 30]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_mom.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
+                self.cell(widths[1], 6, fmt_pct(row["Limite %"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Despesa"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Receita"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Resultado R$"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Tx. Sucesso"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_brl(row["Acumulado"]), border=1, align="R")
+                self.ln()
+            return
+
         if "Pago em Hora Extra" in df_mom.columns:
             headers = ["Mês", "Limite", "Pago HE", "Salário", "HE Folha", "Saldo", "Res. %"]
             widths = [28, 26, 30, 30, 24, 28, 24]
@@ -1773,6 +2281,26 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
 
+        if "Despesa" in df_yoy.columns and "Receita" in df_yoy.columns and "Resultado R$" in df_yoy.columns:
+            headers = ["Ano", "Limite %", "Desp.", "Receita", "Result.", "Tx.", "Meses"]
+            widths = [18, 24, 30, 30, 30, 22, 20]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_yoy.iterrows():
+                self.cell(widths[0], 6, str(int(row["ANO"])), border=1, align="C")
+                self.cell(widths[1], 6, fmt_pct(row["Limite %"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Despesa"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Receita"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Resultado R$"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Tx. Sucesso"]), border=1, align="R")
+                self.cell(widths[6], 6, str(int(row["Meses c/ dado"])), border=1, align="C")
+                self.ln()
+            return
+
         if "Margem Bruta" in df_yoy.columns:
             headers = ["Ano", "Fatur.", "Compra", "Margem", "Meta %", "Meta R$", "Tx."]
             widths = [18, 30, 30, 30, 22, 30, 22]
@@ -1814,6 +2342,26 @@ class PDFRelatorio(FPDF):
     def tabela_periodo(self, df_periodo):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
+
+        if "Despesa" in df_periodo.columns and "Receita" in df_periodo.columns and "Resultado R$" in df_periodo.columns:
+            headers = ["Ano", "Período", "Limite %", "Desp.", "Receita", "Result.", "Tx."]
+            widths = [14, 22, 22, 30, 30, 30, 22]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_periodo.iterrows():
+                self.cell(widths[0], 6, str(int(row["Ano"])), border=1, align="C")
+                self.cell(widths[1], 6, self.safe(str(row["Período"])), border=1, align="C")
+                self.cell(widths[2], 6, fmt_pct(row["Limite %"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Despesa"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Receita"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_brl(row["Resultado R$"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_pct(row["Tx. Sucesso"]), border=1, align="R")
+                self.ln()
+            return
 
         if "Margem Bruta" in df_periodo.columns:
             headers = ["Ano", "Período", "Fatur.", "Compra", "Margem", "Meta %", "Tx.", "Var. Fat."]
@@ -1857,6 +2405,25 @@ class PDFRelatorio(FPDF):
     def tabela_filiais(self, df_filiais):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
+
+        if "Despesa" in df_filiais.columns and "Receita" in df_filiais.columns and "Resultado R$" in df_filiais.columns:
+            headers = ["Filial", "Limite %", "Desp.", "Receita", "Result.", "Tx."]
+            widths = [45, 22, 30, 30, 30, 22]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_filiais.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["FILIAL"])), border=1)
+                self.cell(widths[1], 6, fmt_pct(row["Limite %"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Despesa"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Receita"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Resultado R$"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Tx. Sucesso"]), border=1, align="R")
+                self.ln()
+            return
 
         if "Margem Bruta" in df_filiais.columns:
             headers = ["Filial", "Fatur.", "Compra", "Margem", "Meta %", "Tx."]
@@ -1915,6 +2482,8 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").tail(12).copy()
     if eh_moto_margem(indicador):
         pdf.tabela_mom(df_mom[["Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]])
+    elif eh_despesa_geral(indicador):
+        pdf.tabela_mom(df_mom[["Mês", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso", "Acumulado", "MoM_%"]])
     elif eh_despesa_hora_extra(indicador):
         pdf.tabela_mom(df_mom[["Mês", "Limite", "Pago em Hora Extra", "Salário", "HE da Folha", "Saldo do Limite", "Resultado %", "MoM_%"]])
     else:
@@ -2302,6 +2871,59 @@ with tab0:
             hide_index=True,
         )
 
+    elif eh_despesa_geral(indicador):
+        resumo_ano_geral = resumo_despesa_geral_por_grupo(base_kpi)
+        periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
+
+        if not periodo_cmp.empty and len(periodo_cmp) == 2:
+            ytd_valor = periodo_cmp.iloc[1]["Despesa"]
+            delta_ytd = periodo_cmp.iloc[1]["Variação Despesa"]
+            periodo_label = periodo_cmp.iloc[1]["Período"]
+        else:
+            ytd_valor = None
+            delta_ytd = None
+            periodo_label = "-"
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1:
+            st.markdown(card_html("Despesa Ano", fmt_brl(resumo_ano_geral["Despesa"])), unsafe_allow_html=True)
+        with c2:
+            st.markdown(card_html("Receita Ano", fmt_brl(resumo_ano_geral["Receita"])), unsafe_allow_html=True)
+        with c3:
+            st.markdown(card_html("Resultado Ano", fmt_brl(resumo_ano_geral["Resultado R$"])), unsafe_allow_html=True)
+        with c4:
+            st.markdown(card_html("Tx. Sucesso", fmt_pct(resumo_ano_geral["Tx. Sucesso"])), unsafe_allow_html=True)
+        with c5:
+            st.markdown(card_html(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd), unsafe_allow_html=True)
+
+        st.divider()
+
+        df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
+        dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Despesa"])
+
+        if not dados_chart.empty:
+            fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
+            st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_despesa_geral")
+
+        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        df_yoy_dashboard = calcular_yoy(df, indicador)
+
+        st.dataframe(
+            df_yoy_dashboard[["ANO", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso", "Meses c/ dado"]].style
+            .format({
+                "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Resultado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Meses c/ dado": "{:.0f}",
+            })
+            .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
+            .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
     else:
         periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
         realizado_total = base_kpi["REALIZADO_CALC"].sum()
@@ -2473,7 +3095,23 @@ with tab1:
         )
     else:
         df_completa_tela = df_completa.copy()
-        if eh_despesa_hora_extra(indicador):
+        if eh_despesa_geral(indicador):
+            st.dataframe(
+                df_completa_tela.style
+                .format({
+                    "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "",
+                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+                    "Tx. Sucesso": lambda v: f"{v:.1%}" if pd.notna(v) else "",
+                    "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
+                .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1),
+                use_container_width=True,
+                hide_index=True,
+            )
+        elif eh_despesa_hora_extra(indicador):
             st.dataframe(
                 df_completa_tela.style
                 .format({
@@ -2635,7 +3273,7 @@ with tab2:
         )
 
     else:
-        if eh_despesa_hora_extra(indicador):
+        if eh_despesa_hora_extra(indicador) or eh_despesa_geral(indicador):
             df_mom_tela = pd.DataFrame()
         else:
             linhas_finais = []
@@ -2679,7 +3317,50 @@ with tab2:
                 return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
             return ["" for _ in row]
 
-        if eh_despesa_hora_extra(indicador):
+        if eh_despesa_geral(indicador):
+            linhas_finais_geral = []
+            for ano_geral in sorted(df_mom["ANO"].dropna().unique()):
+                base_ano_geral = df_mom[df_mom["ANO"] == ano_geral].copy()
+                linhas_finais_geral.append(base_ano_geral[["ANO", "MÊS", "Mês", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso", "Acumulado", "MoM_%"]])
+
+                resumo_total = resumo_despesa_geral_por_grupo(df[df["ANO"] == ano_geral])
+                linhas_finais_geral.append(pd.DataFrame([{
+                    "ANO": ano_geral,
+                    "MÊS": None,
+                    "Mês": f"TOTAL {ano_geral}",
+                    "Limite %": resumo_total["Limite %"],
+                    "Despesa": resumo_total["Despesa"],
+                    "Receita": resumo_total["Receita"],
+                    "Resultado R$": resumo_total["Resultado R$"],
+                    "Tx. Sucesso": resumo_total["Tx. Sucesso"],
+                    "Acumulado": resumo_total["Resultado R$"],
+                    "MoM_%": None,
+                }]))
+
+            df_mom_geral_tela = pd.concat(linhas_finais_geral, ignore_index=True)
+
+            st.dataframe(
+                df_mom_geral_tela.style
+                .apply(destacar_total, axis=1)
+                .format({
+                    "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                    "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                    "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Tx. Sucesso": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                    "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
+                .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1)
+                .map(cor_variacao, subset=["MoM_%"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        elif eh_despesa_hora_extra(indicador):
             # A tabela de Hora Extra já vem com os nomes finais.
             linhas_finais_he = []
             for ano_he in sorted(df_mom["ANO"].dropna().unique()):
@@ -2879,7 +3560,24 @@ with tab3:
             st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_moto")
 
     else:
-        if eh_despesa_hora_extra(indicador):
+        if eh_despesa_geral(indicador):
+            st.dataframe(
+                df_yoy[["ANO", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso", "Meses c/ dado"]].style
+                .format({
+                    "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Tx. Sucesso": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                    "Meses c/ dado": "{:.0f}",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
+                .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        elif eh_despesa_hora_extra(indicador):
             df_yoy_exibir = df_yoy[[
                 "ANO",
                 "Pago em Hora Extra",
@@ -2952,8 +3650,27 @@ with tab3:
         df_periodo_tela = comparar_mesmo_periodo(df, indicador)
 
         if not df_periodo_tela.empty:
-            st.dataframe(
-                df_periodo_tela.style
+            if eh_despesa_geral(indicador):
+                st.dataframe(
+                    df_periodo_tela[["Ano", "Período", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso", "Variação Despesa", "Variação Receita"]].style
+                    .format({
+                        "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                        "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                        "Tx. Sucesso": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                        "Variação Despesa": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                        "Variação Receita": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                    })
+                    .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
+                    .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1)
+                    .map(cor_variacao, subset=["Variação Despesa", "Variação Receita"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.dataframe(
+                    df_periodo_tela.style
                 .format({
                     "Realizado": "R$ {:,.0f}",
                     "Meta": "R$ {:,.0f}",
@@ -2977,39 +3694,82 @@ with tab3:
             st.subheader(f"Comparativo entre filiais — {ano_base_filial}")
 
             comp_filiais = comparativo_filiais(df_todas_unidades, ano_base_filial, indicador)
-            st.dataframe(
-                comp_filiais.style
-                .format({
-                    "Realizado": "R$ {:,.0f}",
-                    "Meta": "R$ {:,.0f}",
-                    "Gap": "R$ {:,.0f}",
-                    "Atingimento": "{:.1%}",
-                })
-                .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
-                .map(cor_atingimento, subset=["Atingimento"]),
-                use_container_width=True,
-                hide_index=True,
-            )
 
-            fig_filiais = go.Figure()
-            fig_filiais.add_bar(
-                x=comp_filiais["FILIAL"],
-                y=comp_filiais["Realizado"],
-                name="Realizado",
-                marker_color=COR_VERDE,
-                marker_cornerradius=4,
-                text=[fmt_brl(v) for v in comp_filiais["Realizado"]],
-                textposition="outside",
-            )
-            fig_filiais.add_scatter(
-                x=comp_filiais["FILIAL"],
-                y=comp_filiais["Meta"],
-                name="Meta",
-                mode="lines+markers",
-                line=dict(color=COR_LARANJA, width=3, dash="dot"),
-            )
-            fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
-            st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais")
+            if eh_despesa_geral(indicador):
+                st.dataframe(
+                    comp_filiais[["FILIAL", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso"]].style
+                    .format({
+                        "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                        "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                        "Tx. Sucesso": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                    })
+                    .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
+                    .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                fig_filiais = go.Figure()
+                limite_rs_filiais = comp_filiais["Receita"] * comp_filiais["Limite %"]
+                cores = [
+                    COR_VERDE if pd.notna(tx) and pd.notna(limite) and tx <= limite else COR_LARANJA
+                    for tx, limite in zip(comp_filiais["Tx. Sucesso"], comp_filiais["Limite %"])
+                ]
+                fig_filiais.add_bar(
+                    x=comp_filiais["FILIAL"],
+                    y=comp_filiais["Despesa"],
+                    name="Despesa",
+                    marker_color=cores,
+                    marker_cornerradius=4,
+                    text=[fmt_brl(v) for v in comp_filiais["Despesa"]],
+                    textposition="outside",
+                )
+                fig_filiais.add_scatter(
+                    x=comp_filiais["FILIAL"],
+                    y=limite_rs_filiais,
+                    name="Limite R$",
+                    mode="lines+markers",
+                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                )
+                fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
+                st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_despesa_geral")
+
+            else:
+                st.dataframe(
+                    comp_filiais.style
+                    .format({
+                        "Realizado": "R$ {:,.0f}",
+                        "Meta": "R$ {:,.0f}",
+                        "Gap": "R$ {:,.0f}",
+                        "Atingimento": "{:.1%}",
+                    })
+                    .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
+                    .map(cor_atingimento, subset=["Atingimento"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                fig_filiais = go.Figure()
+                fig_filiais.add_bar(
+                    x=comp_filiais["FILIAL"],
+                    y=comp_filiais["Realizado"],
+                    name="Realizado",
+                    marker_color=COR_VERDE,
+                    marker_cornerradius=4,
+                    text=[fmt_brl(v) for v in comp_filiais["Realizado"]],
+                    textposition="outside",
+                )
+                fig_filiais.add_scatter(
+                    x=comp_filiais["FILIAL"],
+                    y=comp_filiais["Meta"],
+                    name="Meta",
+                    mode="lines+markers",
+                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                )
+                fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
+                st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais")
 
 
 # =========================
