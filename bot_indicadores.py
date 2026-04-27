@@ -19,6 +19,7 @@ COR_VERDE = "#00A350"
 QUALQUER = "__ANY__"
 LOGO_ARQUIVO = "MazolaCertificado.ico"
 TZ_BR = ZoneInfo("America/Sao_Paulo")
+LIMITE_DESPESA_GERAL_PADRAO = 0.71  # 71% - limite válido a partir de 2026 para Despesa Geral
 
 try:
     client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
@@ -403,25 +404,34 @@ def eh_despesa_geral_receita(indicador):
 
 def meta_ponderada_por_receita(grupo):
     """
-    Limite total ponderado pela receita:
-    SOMARPRODUTO(Receita; Limite %) / SOMA(Receita)
+    Regra específica da Despesa Geral:
+    - 2023, 2024 e 2025 não possuem limite/meta.
+    - A partir de 2026, o limite de referência é 71%.
+    - Resultado R$ = (Receita x Limite %) - Despesa.
     """
-    receita = pd.to_numeric(grupo.get("RECEITA_CALC"), errors="coerce").fillna(0)
-    limite = pd.to_numeric(grupo.get("LIMITE_PERCENTUAL_CALC"), errors="coerce").fillna(0)
-    total_receita = receita.sum()
+    if grupo is None or grupo.empty:
+        return None
 
-    if total_receita > 0:
-        return (receita * limite).sum() / total_receita
+    if "ANO" in grupo.columns and grupo["ANO"].notna().any():
+        ano = int(pd.to_numeric(grupo["ANO"], errors="coerce").dropna().max())
+        if ano < 2026:
+            return None
 
-    return limite.mean() if len(limite) else None
-
+    return LIMITE_DESPESA_GERAL_PADRAO
 
 def resumo_despesa_geral_por_grupo(grupo):
     despesa = pd.to_numeric(grupo.get("DESPESA_CALC"), errors="coerce").fillna(0).sum()
     receita = pd.to_numeric(grupo.get("RECEITA_CALC"), errors="coerce").fillna(0).sum()
+
     limite_pct = meta_ponderada_por_receita(grupo)
-    limite_rs = receita * limite_pct if limite_pct is not None and pd.notna(limite_pct) else None
-    resultado = limite_rs - despesa if limite_rs is not None and pd.notna(limite_rs) else None
+
+    if limite_pct is None or pd.isna(limite_pct):
+        limite_rs = None
+        resultado = None
+    else:
+        limite_rs = receita * limite_pct
+        resultado = limite_rs - despesa
+
     tx_sucesso = despesa / receita if receita > 0 else None
 
     return {
@@ -433,7 +443,6 @@ def resumo_despesa_geral_por_grupo(grupo):
         "Tx. Sucesso": tx_sucesso,
     }
 
-
 def consolidar_despesa_geral(df):
     """
     Estrutura especial: Despesa Geral.
@@ -444,15 +453,24 @@ def consolidar_despesa_geral(df):
     TIPO DE META = %
 
     Cálculos:
-    LIMITE % = META
+    LIMITE % = 71% somente a partir de 2026
     DESPESA = coluna J:J / VALOR REF 01
     RECEITA = coluna L:L / VALOR REF 02
-    RESULTADO R$ = (RECEITA * LIMITE %) - DESPESA
+    RESULTADO R$ = (RECEITA x LIMITE %) - DESPESA
     TX. SUCESSO = DESPESA / RECEITA
+
+    2023, 2024 e 2025 não têm limite/meta.
     """
     d = df.copy()
 
     d["LIMITE_PERCENTUAL_CALC"] = ajustar_percentual_meta(d.get("META", 0))
+
+    # Anos anteriores a 2026 não possuem limite.
+    d.loc[d["ANO"] < 2026, "LIMITE_PERCENTUAL_CALC"] = pd.NA
+
+    # A partir de 2026, usar o limite correto de 71%.
+    d.loc[d["ANO"] >= 2026, "LIMITE_PERCENTUAL_CALC"] = LIMITE_DESPESA_GERAL_PADRAO
+
     d["DESPESA_CALC"] = serie_numerica_por_coluna(
         d,
         nomes_preferidos=["VALOR REF 01", "DESPESA", "DESPESA R$", "DESP."],
@@ -474,7 +492,6 @@ def consolidar_despesa_geral(df):
     d["ATINGIMENTO_CALC"] = d["TX_SUCESSO_CALC"]
 
     return d.replace([float("inf"), float("-inf")], pd.NA)
-
 
 def filtrar(df, indicador, filial):
     cfg = INDICADORES[indicador]
@@ -634,23 +651,31 @@ def remover_meta_moto_anos_sem_meta(df_tabela):
 def cor_tx_sucesso_despesa_geral_por_linha(row):
     """
     Para Despesa Geral:
-    - Verde quando Tx. Sucesso <= Limite %
-    - Laranja quando Tx. Sucesso > Limite %
+    - Verde quando Tx. Sucesso <= 71%.
+    - Laranja quando Tx. Sucesso > 71%.
+    - Se o ano não possui limite, mantém sem destaque.
     """
     estilos = ["" for _ in row.index]
 
-    if "Tx. Sucesso" not in row.index or "Limite %" not in row.index:
+    if "Tx. Sucesso" not in row.index:
+        return estilos
+
+    ano_val = None
+    for col_ano in ["ANO", "Ano"]:
+        if col_ano in row.index and pd.notna(row[col_ano]):
+            try:
+                ano_val = int(row[col_ano])
+            except Exception:
+                ano_val = None
+
+    if ano_val is not None and ano_val < 2026:
         return estilos
 
     tx = row["Tx. Sucesso"]
-    limite = row["Limite %"]
 
-    if pd.notna(tx) and pd.notna(limite):
+    if pd.notna(tx):
         idx = list(row.index).index("Tx. Sucesso")
-        if tx <= limite:
-            estilos[idx] = f"color: {COR_VERDE}; font-weight:bold"
-        else:
-            estilos[idx] = f"color: {COR_LARANJA}; font-weight:bold"
+        estilos[idx] = f"color: {COR_VERDE}; font-weight:bold" if tx <= LIMITE_DESPESA_GERAL_PADRAO else f"color: {COR_LARANJA}; font-weight:bold"
 
     return estilos
 
@@ -750,7 +775,12 @@ def tabela_completa_ano(d, ano, indicador):
 
             if not sub.empty:
                 resumo = resumo_despesa_geral_por_grupo(sub)
-                acumulado += resumo["Resultado R$"] if pd.notna(resumo["Resultado R$"]) else 0
+                if pd.notna(resumo["Resultado R$"]):
+                    acumulado += resumo["Resultado R$"]
+                    acumulado_exibir = acumulado
+                else:
+                    acumulado_exibir = None
+
                 rows.append({
                     "Mês": mes_nome,
                     "Limite %": resumo["Limite %"],
@@ -758,7 +788,7 @@ def tabela_completa_ano(d, ano, indicador):
                     "Receita": resumo["Receita"],
                     "Resultado R$": resumo["Resultado R$"],
                     "Tx. Sucesso": resumo["Tx. Sucesso"],
-                    "Acumulado": acumulado,
+                    "Acumulado": acumulado_exibir,
                 })
             else:
                 rows.append({
@@ -951,7 +981,11 @@ def calcular_mom(d, indicador):
         for (ano, mes, mes_nome, mes_ordem), sub in d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"]):
             resumo = resumo_despesa_geral_por_grupo(sub)
             acumulado_por_ano.setdefault(ano, 0)
-            acumulado_por_ano[ano] += resumo["Resultado R$"] if pd.notna(resumo["Resultado R$"]) else 0
+            if pd.notna(resumo["Resultado R$"]):
+                acumulado_por_ano[ano] += resumo["Resultado R$"]
+                acumulado_exibir = acumulado_por_ano[ano]
+            else:
+                acumulado_exibir = None
 
             linhas.append({
                 "ANO": ano,
@@ -962,7 +996,7 @@ def calcular_mom(d, indicador):
                 "Receita": resumo["Receita"],
                 "Resultado R$": resumo["Resultado R$"],
                 "Tx. Sucesso": resumo["Tx. Sucesso"],
-                "Acumulado": acumulado_por_ano[ano],
+                "Acumulado": acumulado_exibir,
                 "MÊS_ORDEM": mes_ordem,
             })
 
