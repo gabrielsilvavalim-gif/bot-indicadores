@@ -2873,6 +2873,28 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
 
+        # Resultado Financeiro precisa vir antes de Despesa Geral,
+        # porque os dois possuem Despesa, Receita e Resultado R$.
+        if "Resultado %" in df_periodo.columns and "Meta %" in df_periodo.columns and "Resultado R$" in df_periodo.columns:
+            headers = ["Ano", "Período", "Meta %", "Desp.", "Receita", "Result.", "Result. %"]
+            widths = [14, 22, 22, 30, 30, 30, 22]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_periodo.iterrows():
+                self.cell(widths[0], 6, str(int(row["Ano"])), border=1, align="C")
+                self.cell(widths[1], 6, self.safe(str(row["Período"])), border=1, align="C")
+                self.cell(widths[2], 6, fmt_pct(row["Meta %"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Despesa"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Receita"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_brl(row["Resultado R$"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.ln()
+            return
+
         if "Despesa" in df_periodo.columns and "Receita" in df_periodo.columns and "Resultado R$" in df_periodo.columns:
             headers = ["Ano", "Período", "Limite %", "Desp.", "Receita", "Result.", "Tx."]
             widths = [14, 22, 22, 30, 30, 30, 22]
@@ -2936,6 +2958,26 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
 
+        # Resultado Financeiro antes de Despesa Geral.
+        if "Resultado %" in df_filiais.columns and "Meta %" in df_filiais.columns and "Resultado R$" in df_filiais.columns:
+            headers = ["Filial", "Meta %", "Desp.", "Receita", "Result.", "Result. %"]
+            widths = [45, 22, 30, 30, 30, 22]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_filiais.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["FILIAL"])), border=1)
+                self.cell(widths[1], 6, fmt_pct(row["Meta %"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_brl(row["Despesa"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_brl(row["Receita"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Resultado R$"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
+                self.ln()
+            return
+
         if "Despesa" in df_filiais.columns and "Receita" in df_filiais.columns and "Resultado R$" in df_filiais.columns:
             headers = ["Filial", "Limite %", "Desp.", "Receita", "Result.", "Tx."]
             widths = [45, 22, 30, 30, 30, 22]
@@ -2989,6 +3031,7 @@ class PDFRelatorio(FPDF):
             self.cell(widths[3], 6, fmt_brl(row["Gap"]), border=1, align="R")
             self.cell(widths[4], 6, fmt_pct(row["Atingimento"]), border=1, align="R")
             self.ln()
+
 
 def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     pdf = PDFRelatorio(indicador, filial)
