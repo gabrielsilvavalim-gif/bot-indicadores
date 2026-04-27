@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 import calendar
 import os
 import unicodedata
+import smtplib
+from email.message import EmailMessage
 
 st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_icon="📊", layout="wide")
 
@@ -26,6 +28,57 @@ try:
     client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 except Exception:
     client = None
+
+
+def enviar_email_relatorio(destinatario, assunto, corpo, nome_arquivo, pdf_bytes):
+    """
+    Envia o relatório em PDF por e-mail usando SMTP.
+
+    Configure no Streamlit Secrets:
+    EMAIL_HOST
+    EMAIL_PORT
+    EMAIL_USER
+    EMAIL_PASSWORD
+    EMAIL_FROM opcional
+    EMAIL_USE_TLS opcional: true/false
+    """
+    try:
+        email_host = st.secrets["EMAIL_HOST"]
+        email_port = int(st.secrets.get("EMAIL_PORT", 587))
+        email_user = st.secrets["EMAIL_USER"]
+        email_password = st.secrets["EMAIL_PASSWORD"]
+        email_from = st.secrets.get("EMAIL_FROM", email_user)
+        email_use_tls = str(st.secrets.get("EMAIL_USE_TLS", "true")).lower() in ["true", "1", "yes", "sim"]
+
+        msg = EmailMessage()
+        msg["From"] = email_from
+        msg["To"] = destinatario
+        msg["Subject"] = assunto
+        msg.set_content(corpo)
+
+        msg.add_attachment(
+            pdf_bytes,
+            maintype="application",
+            subtype="pdf",
+            filename=nome_arquivo,
+        )
+
+        if email_port == 465:
+            with smtplib.SMTP_SSL(email_host, email_port) as smtp:
+                smtp.login(email_user, email_password)
+                smtp.send_message(msg)
+        else:
+            with smtplib.SMTP(email_host, email_port) as smtp:
+                if email_use_tls:
+                    smtp.starttls()
+                smtp.login(email_user, email_password)
+                smtp.send_message(msg)
+
+        return True, "Relatório enviado por e-mail com sucesso."
+
+    except Exception as e:
+        return False, f"Erro ao enviar e-mail: {e}"
+
 
 INDICADORES = {
     "Faturamento": {
@@ -86,6 +139,9 @@ INDICADORES = {
     "Resultado Financeiro": {
         "tipo": "resultado_financeiro", "categoria": "resultado_financeiro", "TIPO": "ECONOMICO",
         "GRUPO 01": "RESULTADO FINANCEIRO", "GRUPO 02": None, "GRUPO 03": None, "TIPO DE META": "%"
+    },
+    "Tecfil Geral": {
+        "tipo": "tecfil", "categoria": "tecfil"
     },
     "Despesa Manutenção": {
         "tipo": "simples", "categoria": "despesa", "TIPO": "ECONOMICO",
@@ -169,6 +225,16 @@ def cor_despesa_manutencao(v):
 
 def agora_br():
     return datetime.now(TZ_BR)
+
+
+
+def fmt_num(v):
+    if v is None or pd.isna(v):
+        return "-"
+    try:
+        return f"{float(v):,.0f}".replace(",", ".")
+    except Exception:
+        return "-"
 
 
 def fmt_brl(v):
@@ -612,6 +678,164 @@ def consolidar_resultado_financeiro(df):
 
     return d.replace([float("inf"), float("-inf")], pd.NA)
 
+
+def eh_tecfil(indicador):
+    return normalizar_texto(indicador) in ["TECFIL GERAL", "TECFIL"]
+
+
+def cor_tecfil_resultado(v):
+    if pd.isna(v):
+        return ""
+    return f"color: {COR_VERDE}; font-weight:bold" if v >= 0 else f"color: {COR_LARANJA}; font-weight:bold"
+
+
+def consolidar_tecfil(df_raw, filial):
+    """
+    Estrutura especial TECFIL.
+
+    Colunas da base:
+    B = TECFIL KG / TECFIL VALOR
+    C = filial/base, exemplo XX GERAL XX
+    F = data/referência
+    H = meta em KG ou R$
+    J = realizado em KG ou R$
+
+    O indicador consolida KG e R$ no mesmo quadro:
+    - Meta KG
+    - Meta R$
+    - Realizado KG
+    - Realizado R$
+    - % Diferença KG/R$
+    - Diferença KG/R$
+    - Acumulado KG/R$
+    """
+    d = df_raw.copy()
+
+    col_tipo = coluna_por_indice(d, 2)   # B
+    col_filial = coluna_por_indice(d, 3) # C
+    col_ref = coluna_por_indice(d, 6)    # F
+    col_meta = coluna_por_indice(d, 8)   # H
+    col_real = coluna_por_indice(d, 10)  # J
+
+    if any(c is None for c in [col_tipo, col_filial, col_ref, col_meta, col_real]):
+        return pd.DataFrame()
+
+    base = pd.DataFrame({
+        "TIPO_TECFIL": d[col_tipo],
+        "FILIAL_ORIGEM": d[col_filial],
+        "REFERÊNCIA": d[col_ref],
+        "META_RAW": pd.to_numeric(d[col_meta], errors="coerce").fillna(0),
+        "REAL_RAW": pd.to_numeric(d[col_real], errors="coerce").fillna(0),
+    })
+
+    base["TIPO_NORM"] = base["TIPO_TECFIL"].apply(normalizar_texto)
+    base["FILIAL_NORM"] = base["FILIAL_ORIGEM"].apply(normalizar_texto)
+
+    # Mantém apenas linhas Tecfil KG e Tecfil Valor
+    base = base[
+        base["TIPO_NORM"].str.contains("TECFIL", na=False)
+        & (
+            base["TIPO_NORM"].str.contains("KG", na=False)
+            | base["TIPO_NORM"].str.contains("VALOR", na=False)
+            | base["TIPO_NORM"].str.contains("R$", na=False)
+        )
+    ].copy()
+
+    if base.empty:
+        return pd.DataFrame()
+
+    if filial == "Geral":
+        # Para o geral da Tecfil, a planilha usa XX GERAL XX.
+        geral_norm = normalizar_texto("XX GERAL XX")
+        base_geral = base[base["FILIAL_NORM"] == geral_norm].copy()
+
+        # Se por algum motivo não existir XX GERAL XX, usa todas as linhas como fallback.
+        base = base_geral if not base_geral.empty else base.copy()
+        base["FILIAL"] = "Geral"
+    else:
+        base = base[base["FILIAL_NORM"] == normalizar_texto(filial)].copy()
+        base["FILIAL"] = filial
+
+    if base.empty:
+        return pd.DataFrame()
+
+    base["REFERÊNCIA"] = pd.to_datetime(base["REFERÊNCIA"], errors="coerce")
+    base = base[base["REFERÊNCIA"].notna()].copy()
+
+    if base.empty:
+        return pd.DataFrame()
+
+    base["ANO"] = base["REFERÊNCIA"].dt.year
+    base["MÊS"] = base["REFERÊNCIA"].dt.month
+    base["DIA"] = base["REFERÊNCIA"].dt.day
+    base["MÊS_ORDEM"] = base["ANO"] * 100 + base["MÊS"]
+    base["MÊS_NOME"] = base["MÊS"].map(MESES_MAPA) + "/" + base["ANO"].astype(str)
+
+    kg = base[base["TIPO_NORM"].str.contains("KG", na=False)].copy()
+    valor = base[
+        base["TIPO_NORM"].str.contains("VALOR", na=False)
+        | base["TIPO_NORM"].str.contains("R$", na=False)
+    ].copy()
+
+    chaves = ["FILIAL", "REFERÊNCIA", "ANO", "MÊS", "DIA", "MÊS_ORDEM", "MÊS_NOME"]
+
+    kg_agg = (
+        kg.groupby(chaves, as_index=False)
+        .agg({"META_RAW": "sum", "REAL_RAW": "sum"})
+        .rename(columns={"META_RAW": "META_KG", "REAL_RAW": "REAL_KG"})
+    )
+
+    valor_agg = (
+        valor.groupby(chaves, as_index=False)
+        .agg({"META_RAW": "sum", "REAL_RAW": "sum"})
+        .rename(columns={"META_RAW": "META_RS", "REAL_RAW": "REAL_RS"})
+    )
+
+    out = pd.merge(kg_agg, valor_agg, on=chaves, how="outer").fillna(0)
+
+    out["DIF_KG"] = out["REAL_KG"] - out["META_KG"]
+    out["DIF_RS"] = out["REAL_RS"] - out["META_RS"]
+    out["PCT_KG"] = out["REAL_KG"] / out["META_KG"].replace(0, pd.NA) - 1
+    out["PCT_RS"] = out["REAL_RS"] / out["META_RS"].replace(0, pd.NA) - 1
+
+    # Compatibilidade com partes padrão do app
+    out["META_CALC"] = out["META_RS"]
+    out["REALIZADO_CALC"] = out["REAL_RS"]
+    out["RESULTADO_RS"] = out["DIF_RS"]
+    out["ATINGIMENTO_CALC"] = out["REAL_RS"] / out["META_RS"].replace(0, pd.NA)
+
+    return out.sort_values(["ANO", "MÊS", "FILIAL"]).replace([float("inf"), float("-inf")], pd.NA).reset_index(drop=True)
+
+
+def resumo_tecfil_por_grupo(grupo):
+    if grupo is None or grupo.empty:
+        return {
+            "Meta KG": 0, "Meta R$": 0, "Realizado KG": 0, "Realizado R$": 0,
+            "% Dif. KG": None, "% Dif. R$": None, "Dif. KG": 0, "Dif. R$": 0
+        }
+
+    meta_kg = pd.to_numeric(grupo.get("META_KG"), errors="coerce").fillna(0).sum()
+    meta_rs = pd.to_numeric(grupo.get("META_RS"), errors="coerce").fillna(0).sum()
+    real_kg = pd.to_numeric(grupo.get("REAL_KG"), errors="coerce").fillna(0).sum()
+    real_rs = pd.to_numeric(grupo.get("REAL_RS"), errors="coerce").fillna(0).sum()
+
+    dif_kg = real_kg - meta_kg
+    dif_rs = real_rs - meta_rs
+    pct_kg = real_kg / meta_kg - 1 if meta_kg > 0 else None
+    pct_rs = real_rs / meta_rs - 1 if meta_rs > 0 else None
+
+    return {
+        "Meta KG": meta_kg,
+        "Meta R$": meta_rs,
+        "Realizado KG": real_kg,
+        "Realizado R$": real_rs,
+        "% Dif. KG": pct_kg,
+        "% Dif. R$": pct_rs,
+        "Dif. KG": dif_kg,
+        "Dif. R$": dif_rs,
+    }
+
+
 def filtrar(df, indicador, filial):
     cfg = INDICADORES[indicador]
 
@@ -623,6 +847,9 @@ def filtrar(df, indicador, filial):
 
     if cfg["tipo"] == "resultado_financeiro":
         return consolidar_resultado_financeiro(aplicar_filtro_base(df, cfg, filial))
+
+    if cfg["tipo"] == "tecfil":
+        return consolidar_tecfil(df, filial)
 
     if cfg["tipo"] == "simples":
         return consolidar_campos(aplicar_filtro_base(df, cfg, filial), indicador)
@@ -1010,6 +1237,67 @@ def tabela_completa_ano(d, ano, indicador):
 
         return pd.DataFrame(rows)
 
+    if eh_tecfil(indicador):
+        rows = []
+        base_ano = d[d["ANO"] == ano].copy()
+        acum_kg = 0
+        acum_rs = 0
+
+        for i in range(1, 13):
+            mes_nome = MESES_MAPA[i]
+            sub = base_ano[base_ano["MÊS"] == i]
+
+            if not sub.empty:
+                resumo = resumo_tecfil_por_grupo(sub)
+                acum_kg += resumo["Dif. KG"]
+                acum_rs += resumo["Dif. R$"]
+
+                rows.append({
+                    "Mês": mes_nome,
+                    "Meta KG": resumo["Meta KG"],
+                    "Meta R$": resumo["Meta R$"],
+                    "Realizado KG": resumo["Realizado KG"],
+                    "Realizado R$": resumo["Realizado R$"],
+                    "% Dif. KG": resumo["% Dif. KG"],
+                    "% Dif. R$": resumo["% Dif. R$"],
+                    "Dif. KG": resumo["Dif. KG"],
+                    "Dif. R$": resumo["Dif. R$"],
+                    "Acum. KG": acum_kg,
+                    "Acum. R$": acum_rs,
+                })
+            else:
+                rows.append({
+                    "Mês": mes_nome,
+                    "Meta KG": None,
+                    "Meta R$": None,
+                    "Realizado KG": None,
+                    "Realizado R$": None,
+                    "% Dif. KG": None,
+                    "% Dif. R$": None,
+                    "Dif. KG": None,
+                    "Dif. R$": None,
+                    "Acum. KG": acum_kg if acum_kg != 0 else None,
+                    "Acum. R$": acum_rs if acum_rs != 0 else None,
+                })
+
+        resumo_total = resumo_tecfil_por_grupo(base_ano)
+
+        rows.append({
+            "Mês": "TOTAL",
+            "Meta KG": resumo_total["Meta KG"],
+            "Meta R$": resumo_total["Meta R$"],
+            "Realizado KG": resumo_total["Realizado KG"],
+            "Realizado R$": resumo_total["Realizado R$"],
+            "% Dif. KG": resumo_total["% Dif. KG"],
+            "% Dif. R$": resumo_total["% Dif. R$"],
+            "Dif. KG": resumo_total["Dif. KG"],
+            "Dif. R$": resumo_total["Dif. R$"],
+            "Acum. KG": resumo_total["Dif. KG"],
+            "Acum. R$": resumo_total["Dif. R$"],
+        })
+
+        return pd.DataFrame(rows)
+
     if eh_despesa_hora_extra(indicador):
         rows = []
         base_ano = d[d["ANO"] == ano].copy()
@@ -1228,6 +1516,37 @@ def calcular_mom(d, indicador):
         base["MoM_%"] = base["Resultado R$"].pct_change() * 100
         return base.replace([float("inf"), float("-inf")], pd.NA)
 
+    if eh_tecfil(indicador):
+        linhas = []
+        acumulado_por_ano = {}
+
+        for (ano, mes, mes_nome, mes_ordem), sub in d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"]):
+            resumo = resumo_tecfil_por_grupo(sub)
+            acumulado_por_ano.setdefault(ano, {"KG": 0, "RS": 0})
+            acumulado_por_ano[ano]["KG"] += resumo["Dif. KG"]
+            acumulado_por_ano[ano]["RS"] += resumo["Dif. R$"]
+
+            linhas.append({
+                "ANO": ano,
+                "MÊS": mes,
+                "Mês": mes_nome,
+                "Meta KG": resumo["Meta KG"],
+                "Meta R$": resumo["Meta R$"],
+                "Realizado KG": resumo["Realizado KG"],
+                "Realizado R$": resumo["Realizado R$"],
+                "% Dif. KG": resumo["% Dif. KG"],
+                "% Dif. R$": resumo["% Dif. R$"],
+                "Dif. KG": resumo["Dif. KG"],
+                "Dif. R$": resumo["Dif. R$"],
+                "Acum. KG": acumulado_por_ano[ano]["KG"],
+                "Acum. R$": acumulado_por_ano[ano]["RS"],
+                "MÊS_ORDEM": mes_ordem,
+            })
+
+        base = pd.DataFrame(linhas).sort_values("MÊS_ORDEM").reset_index(drop=True)
+        base["MoM_%"] = base["Realizado R$"].pct_change() * 100
+        return base.replace([float("inf"), float("-inf")], pd.NA)
+
     if eh_despesa_hora_extra(indicador):
         base = (
             d.groupby(["ANO", "MÊS", "MÊS_NOME", "MÊS_ORDEM"], as_index=False)
@@ -1349,6 +1668,31 @@ def calcular_yoy(d, indicador):
         df_yoy["Meta"] = df_yoy["Meta %"]
         df_yoy["Atingimento"] = df_yoy["Resultado %"]
 
+        return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
+
+    if eh_tecfil(indicador):
+        linhas = []
+        for ano, sub in d.groupby("ANO"):
+            resumo = resumo_tecfil_por_grupo(sub)
+            linhas.append({
+                "ANO": ano,
+                "Meta KG": resumo["Meta KG"],
+                "Meta R$": resumo["Meta R$"],
+                "Realizado KG": resumo["Realizado KG"],
+                "Realizado R$": resumo["Realizado R$"],
+                "% Dif. KG": resumo["% Dif. KG"],
+                "% Dif. R$": resumo["% Dif. R$"],
+                "Dif. KG": resumo["Dif. KG"],
+                "Dif. R$": resumo["Dif. R$"],
+                "Meses c/ dado": sub["MÊS"].nunique(),
+                # compatibilidade
+                "Realizado": resumo["Realizado R$"],
+                "Meta": resumo["Meta R$"],
+                "Atingimento": (resumo["Realizado R$"] / resumo["Meta R$"]) if resumo["Meta R$"] else None,
+            })
+
+        df_yoy = pd.DataFrame(linhas).sort_values("ANO")
+        df_yoy["YoY_%"] = df_yoy["Realizado R$"].pct_change() * 100
         return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
 
     if eh_despesa_hora_extra(indicador):
@@ -1474,6 +1818,31 @@ def comparativo_filiais(d, ano, indicador):
 
         return pd.DataFrame(linhas).sort_values("Resultado R$", ascending=False)
 
+    if eh_tecfil(indicador):
+        linhas = []
+        base = d[d["ANO"] == ano].copy()
+
+        for filial_nome, sub in base.groupby("FILIAL"):
+            resumo = resumo_tecfil_por_grupo(sub)
+            linhas.append({
+                "FILIAL": filial_nome,
+                "Meta KG": resumo["Meta KG"],
+                "Meta R$": resumo["Meta R$"],
+                "Realizado KG": resumo["Realizado KG"],
+                "Realizado R$": resumo["Realizado R$"],
+                "% Dif. KG": resumo["% Dif. KG"],
+                "% Dif. R$": resumo["% Dif. R$"],
+                "Dif. KG": resumo["Dif. KG"],
+                "Dif. R$": resumo["Dif. R$"],
+                # compatibilidade
+                "Realizado": resumo["Realizado R$"],
+                "Meta": resumo["Meta R$"],
+                "Gap": resumo["Dif. R$"],
+                "Atingimento": (resumo["Realizado R$"] / resumo["Meta R$"]) if resumo["Meta R$"] else None,
+            })
+
+        return pd.DataFrame(linhas).sort_values("Realizado R$", ascending=False)
+
     if eh_despesa_hora_extra(indicador):
         comp = (
             d[d["ANO"] == ano]
@@ -1595,6 +1964,58 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
         ])
 
         return remover_meta_moto_anos_sem_meta(tabela_periodo_moto)
+
+    if eh_tecfil(indicador):
+        resumo_ant = resumo_tecfil_por_grupo(anterior_periodo)
+        resumo_atual = resumo_tecfil_por_grupo(atual_periodo)
+
+        var_real_rs = ((resumo_atual["Realizado R$"] / resumo_ant["Realizado R$"]) - 1) if resumo_ant["Realizado R$"] > 0 else None
+        var_real_kg = ((resumo_atual["Realizado KG"] / resumo_ant["Realizado KG"]) - 1) if resumo_ant["Realizado KG"] > 0 else None
+
+        return pd.DataFrame([
+            {
+                "Ano": ano_anterior,
+                "Período": periodo_txt,
+                "Meta KG": resumo_ant["Meta KG"],
+                "Meta R$": resumo_ant["Meta R$"],
+                "Realizado KG": resumo_ant["Realizado KG"],
+                "Realizado R$": resumo_ant["Realizado R$"],
+                "% Dif. KG": resumo_ant["% Dif. KG"],
+                "% Dif. R$": resumo_ant["% Dif. R$"],
+                "Dif. KG": resumo_ant["Dif. KG"],
+                "Dif. R$": resumo_ant["Dif. R$"],
+                "Variação KG": None,
+                "Variação R$": None,
+                # compatibilidade
+                "Realizado": resumo_ant["Realizado R$"],
+                "Meta": resumo_ant["Meta R$"],
+                "Gap (R$)": resumo_ant["Dif. R$"],
+                "Atingimento": (resumo_ant["Realizado R$"] / resumo_ant["Meta R$"]) if resumo_ant["Meta R$"] else None,
+                "Variação Realizado": None,
+                "Variação Meta": None,
+            },
+            {
+                "Ano": ano_referencia,
+                "Período": periodo_txt,
+                "Meta KG": resumo_atual["Meta KG"],
+                "Meta R$": resumo_atual["Meta R$"],
+                "Realizado KG": resumo_atual["Realizado KG"],
+                "Realizado R$": resumo_atual["Realizado R$"],
+                "% Dif. KG": resumo_atual["% Dif. KG"],
+                "% Dif. R$": resumo_atual["% Dif. R$"],
+                "Dif. KG": resumo_atual["Dif. KG"],
+                "Dif. R$": resumo_atual["Dif. R$"],
+                "Variação KG": var_real_kg,
+                "Variação R$": var_real_rs,
+                # compatibilidade
+                "Realizado": resumo_atual["Realizado R$"],
+                "Meta": resumo_atual["Meta R$"],
+                "Gap (R$)": resumo_atual["Dif. R$"],
+                "Atingimento": (resumo_atual["Realizado R$"] / resumo_atual["Meta R$"]) if resumo_atual["Meta R$"] else None,
+                "Variação Realizado": var_real_rs,
+                "Variação Meta": None,
+            }
+        ])
 
     if eh_resultado_financeiro(indicador):
         resumo_ant = resumo_resultado_financeiro_por_grupo(anterior_periodo) if not anterior_periodo.empty else {
@@ -1809,6 +2230,51 @@ def montar_resumo_pdf(df, indicador, ano_selecionado):
             "moto_margem": True,
         }
 
+    if eh_tecfil(indicador):
+        base_mes = base_ano[base_ano["MÊS"] == mes_referencia].copy()
+        resumo_mes = resumo_tecfil_por_grupo(base_mes)
+        resumo_ano = resumo_tecfil_por_grupo(base_ano)
+
+        df_periodo = comparar_mesmo_periodo(df, indicador, ano_selecionado)
+        realizado_ant = None
+        var_real = None
+        periodo_txt = None
+        if not df_periodo.empty and len(df_periodo) >= 2:
+            realizado_ant = df_periodo.iloc[0]["Realizado R$"]
+            var_real = df_periodo.iloc[1]["Variação R$"]
+            periodo_txt = df_periodo.iloc[1]["Período"]
+
+        return {
+            "hoje": hoje,
+            "ano": ano_selecionado,
+            "mes_referencia": mes_referencia,
+            "nome_mes": MESES_MAPA.get(mes_referencia, str(mes_referencia)),
+            "realizado_mes": resumo_mes["Realizado R$"],
+            "meta_mes": resumo_mes["Meta R$"],
+            "gap_mes": resumo_mes["Dif. R$"],
+            "ating_mes": (resumo_mes["Realizado R$"] / resumo_mes["Meta R$"]) if resumo_mes["Meta R$"] else None,
+            "realizado_ano": resumo_ano["Realizado R$"],
+            "meta_ano": resumo_ano["Meta R$"],
+            "gap_ano": resumo_ano["Dif. R$"],
+            "ating_ano": (resumo_ano["Realizado R$"] / resumo_ano["Meta R$"]) if resumo_ano["Meta R$"] else None,
+            "meta_kg_ano": resumo_ano["Meta KG"],
+            "real_kg_ano": resumo_ano["Realizado KG"],
+            "dif_kg_ano": resumo_ano["Dif. KG"],
+            "meta_kg_mes": resumo_mes["Meta KG"],
+            "real_kg_mes": resumo_mes["Realizado KG"],
+            "dif_kg_mes": resumo_mes["Dif. KG"],
+            "dias_restantes": 0,
+            "necessario_dia": None,
+            "realizado_ant": realizado_ant,
+            "meta_ant": None,
+            "var_real": var_real,
+            "var_meta": None,
+            "periodo_txt": periodo_txt,
+            "tecfil": True,
+            "despesa": False,
+            "moto_margem": False,
+        }
+
     if eh_resultado_financeiro(indicador):
         base_mes = base_ano[base_ano["MÊS"] == mes_referencia].copy()
         resumo_mes = resumo_resultado_financeiro_por_grupo(base_mes) if not base_mes.empty else resumo_resultado_financeiro_por_grupo(base_ano.iloc[0:0])
@@ -1984,6 +2450,24 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     ano = resumo["ano"]
 
 
+    if resumo.get("tecfil"):
+        texto = (
+            f"Hoje é dia {hoje_txt}. No mês de {nome_mes}/{ano}, o realizado Tecfil foi de "
+            f"{fmt_brl(resumo['realizado_mes'])}, contra meta de {fmt_brl(resumo['meta_mes'])}. "
+            f"A diferença do mês foi de {fmt_brl(resumo['gap_mes'])}. "
+            f"Em KG, o realizado foi {fmt_num(resumo['real_kg_mes'])}, contra meta de {fmt_num(resumo['meta_kg_mes'])}, "
+            f"com diferença de {fmt_num(resumo['dif_kg_mes'])}. "
+        )
+
+        texto += (
+            f"No acumulado do ano, o realizado em valor é {fmt_brl(resumo['realizado_ano'])}, "
+            f"contra meta de {fmt_brl(resumo['meta_ano'])}, gerando diferença de {fmt_brl(resumo['gap_ano'])}. "
+            f"No acumulado em KG, o realizado é {fmt_num(resumo['real_kg_ano'])}, "
+            f"contra meta de {fmt_num(resumo['meta_kg_ano'])}, com diferença de {fmt_num(resumo['dif_kg_ano'])}."
+        )
+
+        return texto
+
     if resumo.get("resultado_financeiro"):
         texto = (
             f"Hoje é dia {hoje_txt}. No mês de {nome_mes}/{ano}, o resultado financeiro foi de "
@@ -2151,6 +2635,51 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
     return texto
 
 def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
+    if indicador and eh_tecfil(indicador):
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado R$"].notna())].copy()
+        if dados.empty:
+            return None
+
+        ultimo_mes = dados["Mês"].iloc[-1]
+        titulo_final = titulo or f"Tecfil — Realizado R$ x Meta R$ — até {ultimo_mes}/{ano}"
+
+        cores = [
+            COR_VERDE if pd.notna(r) and pd.notna(m) and r >= m else COR_LARANJA
+            for r, m in zip(dados["Realizado R$"], dados["Meta R$"])
+        ]
+
+        fig = go.Figure()
+        fig.add_bar(
+            x=dados["Mês"],
+            y=dados["Realizado R$"],
+            name="Realizado R$",
+            marker_color=cores,
+            marker_cornerradius=4,
+            text=[fmt_brl(v) for v in dados["Realizado R$"]],
+            textposition="outside",
+            textfont=dict(size=11),
+        )
+        fig.add_scatter(
+            x=dados["Mês"],
+            y=dados["Meta R$"],
+            name="Meta R$",
+            mode="lines+markers",
+            line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            marker=dict(size=7),
+        )
+        fig.update_layout(
+            title=titulo_final,
+            height=420,
+            margin=dict(t=60, b=20, l=20, r=20),
+            legend=dict(orientation="h", y=-0.18),
+            yaxis_title="R$",
+            bargap=0.22,
+            uniformtext_minsize=8,
+            uniformtext_mode="hide",
+        )
+        fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
+        return fig
+
     if indicador and eh_resultado_financeiro(indicador):
         dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Receita"].notna())].copy()
         if dados.empty:
@@ -2456,7 +2985,27 @@ class PDFRelatorio(FPDF):
         self.fonte("", 10)
         self.set_text_color(0, 0, 0)
 
-        if resumo.get("despesa_geral"):
+        if resumo.get("tecfil"):
+            intro = (
+                f"Este relatório apresenta a análise do indicador {self.indicador}, considerando a base {self.filial}. "
+                f"Os dados abaixo resumem metas e realizados Tecfil em KG e R$."
+            )
+            self.multi_cell(0, 6, self.safe(intro))
+            self.ln(3)
+
+            y_inicial = self.get_y()
+            self.kpi_box(12, y_inicial, 45, 20, "Realizado R$ Ano", fmt_brl(resumo["realizado_ano"]))
+            self.kpi_box(60, y_inicial, 45, 20, "Meta R$ Ano", fmt_brl(resumo["meta_ano"]))
+            self.kpi_box(108, y_inicial, 45, 20, "Dif. R$ Ano", fmt_brl(resumo["gap_ano"]))
+            self.kpi_box(156, y_inicial, 42, 20, "Dif. KG Ano", fmt_num(resumo["dif_kg_ano"]))
+
+            y2 = y_inicial + 25
+            self.kpi_box(12, y2, 45, 20, f"Real KG {resumo['nome_mes']}", fmt_num(resumo["real_kg_mes"]))
+            self.kpi_box(60, y2, 45, 20, f"Meta KG {resumo['nome_mes']}", fmt_num(resumo["meta_kg_mes"]))
+            self.kpi_box(108, y2, 45, 20, f"Real R$ {resumo['nome_mes']}", fmt_brl(resumo["realizado_mes"]))
+            self.kpi_box(156, y2, 42, 20, f"Meta R$ {resumo['nome_mes']}", fmt_brl(resumo["meta_mes"]))
+
+        elif resumo.get("despesa_geral"):
             intro = (
                 f"Este relatório apresenta a análise do indicador {self.indicador}, considerando a base {self.filial}. "
                 f"Os dados abaixo resumem o desempenho de despesa operacional sobre receita, comparando limite percentual, "
@@ -2547,6 +3096,28 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 8)
         self.set_fill_color(240, 240, 240)
 
+
+        if "Meta KG" in df_completa.columns and "Realizado R$" in df_completa.columns:
+            headers = ["Mês", "Meta KG", "Real KG", "% KG", "Dif KG", "Meta R$", "Real R$", "% R$", "Dif R$"]
+            widths = [20, 22, 22, 18, 22, 28, 28, 18, 28]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 6)
+            for _, row in df_completa.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
+                self.cell(widths[1], 6, fmt_num(row["Meta KG"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_num(row["Realizado KG"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_pct(row["% Dif. KG"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Dif. KG"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_brl(row["Meta R$"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_brl(row["Realizado R$"]), border=1, align="R")
+                self.cell(widths[7], 6, fmt_pct(row["% Dif. R$"]), border=1, align="R")
+                self.cell(widths[8], 6, fmt_brl(row["Dif. R$"]), border=1, align="R")
+                self.ln()
+            return
         if "Resultado %" in df_completa.columns and "Meta %" in df_completa.columns and "Resultado R$" in df_completa.columns:
             headers = ["Mês", "Meta %", "Desp.", "Receita", "Result.", "Result. %", "Acumul."]
             widths = [22, 24, 30, 30, 30, 22, 30]
@@ -2691,6 +3262,28 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
 
+
+        if "Meta KG" in df_mom.columns and "Realizado R$" in df_mom.columns:
+            headers = ["Mês", "Meta KG", "Real KG", "% KG", "Dif KG", "Meta R$", "Real R$", "% R$", "Dif R$"]
+            widths = [20, 22, 22, 18, 22, 28, 28, 18, 28]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 6)
+            for _, row in df_mom.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
+                self.cell(widths[1], 6, fmt_num(row["Meta KG"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_num(row["Realizado KG"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_pct(row["% Dif. KG"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Dif. KG"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_brl(row["Meta R$"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_brl(row["Realizado R$"]), border=1, align="R")
+                self.cell(widths[7], 6, fmt_pct(row["% Dif. R$"]), border=1, align="R")
+                self.cell(widths[8], 6, fmt_brl(row["Dif. R$"]), border=1, align="R")
+                self.ln()
+            return
         if "Resultado %" in df_mom.columns and "Meta %" in df_mom.columns and "Resultado R$" in df_mom.columns:
             headers = ["Mês", "Meta %", "Desp.", "Receita", "Result.", "Result. %", "Acum."]
             widths = [28, 22, 28, 30, 30, 24, 28]
@@ -2793,6 +3386,29 @@ class PDFRelatorio(FPDF):
         self.fonte("B", 7)
         self.set_fill_color(240, 240, 240)
 
+
+        if "Meta KG" in df_yoy.columns and "Realizado R$" in df_yoy.columns:
+            headers = ["Ano", "Meta KG", "Real KG", "% KG", "Dif KG", "Meta R$", "Real R$", "% R$", "Dif R$"]
+            widths = [16, 22, 22, 18, 22, 28, 28, 18, 28]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 6)
+            for _, row in df_yoy.iterrows():
+                self.cell(widths[0], 6, str(int(row["ANO"])), border=1, align="C")
+                self.cell(widths[1], 6, fmt_num(row["Meta KG"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_num(row["Realizado KG"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_pct(row["% Dif. KG"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Dif. KG"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_brl(row["Meta R$"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_brl(row["Realizado R$"]), border=1, align="R")
+                self.cell(widths[7], 6, fmt_pct(row["% Dif. R$"]), border=1, align="R")
+                self.cell(widths[8], 6, fmt_brl(row["Dif. R$"]), border=1, align="R")
+                self.ln()
+            return
+
         if "Resultado %" in df_yoy.columns and "Meta %" in df_yoy.columns and "Resultado R$" in df_yoy.columns:
             headers = ["Ano", "Meta %", "Desp.", "Receita", "Result.", "Result. %", "Meses"]
             widths = [18, 24, 30, 30, 30, 24, 20]
@@ -2877,6 +3493,28 @@ class PDFRelatorio(FPDF):
 
         # Resultado Financeiro precisa vir antes de Despesa Geral,
         # porque os dois possuem Despesa, Receita e Resultado R$.
+
+        if "Meta KG" in df_periodo.columns and "Realizado R$" in df_periodo.columns:
+            headers = ["Ano", "Período", "Meta KG", "Real KG", "Dif KG", "Meta R$", "Real R$", "Dif R$"]
+            widths = [14, 22, 22, 22, 22, 30, 30, 30]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 6)
+            for _, row in df_periodo.iterrows():
+                self.cell(widths[0], 6, str(int(row["Ano"])), border=1, align="C")
+                self.cell(widths[1], 6, self.safe(str(row["Período"])), border=1, align="C")
+                self.cell(widths[2], 6, fmt_num(row["Meta KG"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_num(row["Realizado KG"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Dif. KG"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_brl(row["Meta R$"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_brl(row["Realizado R$"]), border=1, align="R")
+                self.cell(widths[7], 6, fmt_brl(row["Dif. R$"]), border=1, align="R")
+                self.ln()
+            return
+
         if "Resultado %" in df_periodo.columns and "Meta %" in df_periodo.columns and "Resultado R$" in df_periodo.columns:
             headers = ["Ano", "Período", "Meta %", "Desp.", "Receita", "Result.", "Result. %"]
             widths = [14, 22, 22, 30, 30, 30, 22]
@@ -2961,6 +3599,27 @@ class PDFRelatorio(FPDF):
         self.set_fill_color(240, 240, 240)
 
         # Resultado Financeiro antes de Despesa Geral.
+
+        if "Meta KG" in df_filiais.columns and "Realizado R$" in df_filiais.columns:
+            headers = ["Filial", "Meta KG", "Real KG", "Dif KG", "Meta R$", "Real R$", "Dif R$"]
+            widths = [38, 22, 22, 22, 30, 30, 30]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 6)
+            for _, row in df_filiais.iterrows():
+                self.cell(widths[0], 6, self.safe(str(row["FILIAL"])), border=1)
+                self.cell(widths[1], 6, fmt_num(row["Meta KG"]), border=1, align="R")
+                self.cell(widths[2], 6, fmt_num(row["Realizado KG"]), border=1, align="R")
+                self.cell(widths[3], 6, fmt_num(row["Dif. KG"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_brl(row["Meta R$"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_brl(row["Realizado R$"]), border=1, align="R")
+                self.cell(widths[6], 6, fmt_brl(row["Dif. R$"]), border=1, align="R")
+                self.ln()
+            return
+
         if "Resultado %" in df_filiais.columns and "Meta %" in df_filiais.columns and "Resultado R$" in df_filiais.columns:
             headers = ["Filial", "Meta %", "Desp.", "Receita", "Result.", "Result. %"]
             widths = [45, 22, 30, 30, 30, 22]
@@ -3057,6 +3716,8 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").tail(12).copy()
     if eh_moto_margem(indicador):
         pdf.tabela_mom(df_mom[["Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]])
+    elif eh_tecfil(indicador):
+        pdf.tabela_mom(df_mom[["Mês", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$", "MoM_%"]])
     elif eh_resultado_financeiro(indicador):
         pdf.tabela_mom(df_mom[["Mês", "Meta %", "Despesa", "Receita", "Resultado R$", "Resultado %", "Acumulado", "MoM_%"]])
     elif eh_despesa_geral(indicador):
@@ -3127,6 +3788,11 @@ def diagnosticar_sem_dados(df_raw, indicador, filial):
     Isso ajuda a descobrir se o problema está no nome da filial, grupo, tipo de meta ou campo vazio.
     """
     cfg = INDICADORES[indicador]
+
+    if eh_tecfil(indicador):
+        st.warning("Nenhum dado encontrado para os filtros selecionados.")
+        st.caption("Para Tecfil, confira se a planilha possui: coluna B = TECFIL KG/TECFIL VALOR, coluna C = base/filial, coluna F = data, coluna H = meta e coluna J = realizado.")
+        st.stop()
 
     st.warning("Nenhum dado encontrado para os filtros selecionados.")
     st.caption("Diagnóstico automático: confira abaixo o que existe na planilha para esse indicador/filtro.")
@@ -3356,19 +4022,60 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
 # =========================
 with tab0:
     st.subheader(f"Dashboard — {indicador} | {filial}")
-    col_pdf_dashboard_espaco, col_pdf_dashboard = st.columns([4, 1])
+    col_pdf_dashboard_espaco, col_pdf_dashboard = st.columns([3, 1])
     with col_pdf_dashboard:
         ano_pdf_dashboard = int(df["ANO"].max())
+        nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
+
         with st.spinner("Gerando PDF..."):
             pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
+
         st.download_button(
             label="📄 Baixar PDF",
             data=pdf_bytes_dashboard,
-            file_name=f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-"),
+            file_name=nome_pdf_dashboard,
             mime="application/pdf",
             use_container_width=True,
             key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
         )
+
+        with st.expander("✉️ Enviar por e-mail"):
+            with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
+                email_destino = st.text_input("E-mail do destinatário")
+                assunto_email = st.text_input(
+                    "Assunto",
+                    value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
+                )
+                corpo_email = st.text_area(
+                    "Mensagem",
+                    value=(
+                        f"Olá,\n\n"
+                        f"Segue em anexo o relatório de indicadores referente a {indicador}, "
+                        f"base {filial}, ano {ano_pdf_dashboard}.\n\n"
+                        f"Atenciosamente."
+                    ),
+                    height=140
+                )
+
+                enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
+
+                if enviar_email:
+                    if not email_destino or "@" not in email_destino:
+                        st.warning("Informe um e-mail válido.")
+                    else:
+                        with st.spinner("Enviando e-mail..."):
+                            ok, msg_envio = enviar_email_relatorio(
+                                destinatario=email_destino,
+                                assunto=assunto_email,
+                                corpo=corpo_email,
+                                nome_arquivo=nome_pdf_dashboard,
+                                pdf_bytes=pdf_bytes_dashboard,
+                            )
+
+                        if ok:
+                            st.success(msg_envio)
+                        else:
+                            st.error(msg_envio)
 
 
     anos = sorted(df["ANO"].dropna().unique())
@@ -3458,6 +4165,61 @@ with tab0:
                 "Meses c/ dado": "{:.0f}",
             })
             .apply(cor_tx_sucesso_moto_por_linha, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    elif eh_tecfil(indicador):
+        resumo_ano_tecfil = resumo_tecfil_por_grupo(base_kpi)
+        periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
+
+        if not periodo_cmp.empty and len(periodo_cmp) == 2:
+            ytd_valor = periodo_cmp.iloc[1]["Realizado R$"]
+            delta_ytd = periodo_cmp.iloc[1]["Variação R$"]
+            periodo_label = periodo_cmp.iloc[1]["Período"]
+        else:
+            ytd_valor = None
+            delta_ytd = None
+            periodo_label = "-"
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1:
+            st.markdown(card_html("Realizado KG Ano", fmt_num(resumo_ano_tecfil["Realizado KG"])), unsafe_allow_html=True)
+        with c2:
+            st.markdown(card_html("Meta KG Ano", fmt_num(resumo_ano_tecfil["Meta KG"])), unsafe_allow_html=True)
+        with c3:
+            st.markdown(card_html("Diferença KG", fmt_num(resumo_ano_tecfil["Dif. KG"])), unsafe_allow_html=True)
+        with c4:
+            st.markdown(card_html("Realizado R$ Ano", fmt_brl(resumo_ano_tecfil["Realizado R$"])), unsafe_allow_html=True)
+        with c5:
+            st.markdown(card_html(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd), unsafe_allow_html=True)
+
+        st.divider()
+
+        df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
+        dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Realizado R$"])
+
+        if not dados_chart.empty:
+            fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
+            st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_tecfil")
+
+        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        df_yoy_dashboard = calcular_yoy(df, indicador)
+
+        st.dataframe(
+            df_yoy_dashboard[["ANO", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Meses c/ dado"]].style
+            .format({
+                "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Realizado KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Realizado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "% Dif. KG": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Meses c/ dado": "{:.0f}",
+            })
+            .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"]),
             use_container_width=True,
             hide_index=True,
         )
@@ -3726,7 +4488,26 @@ with tab1:
         )
     else:
         df_completa_tela = df_completa.copy()
-        if eh_resultado_financeiro(indicador):
+        if eh_tecfil(indicador):
+            st.dataframe(
+                df_completa_tela.style
+                .format({
+                    "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "",
+                    "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Realizado KG": lambda v: fmt_num(v) if pd.notna(v) else "",
+                    "Realizado R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "% Dif. KG": lambda v: fmt_pct(v) if pd.notna(v) else "",
+                    "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "",
+                    "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "",
+                    "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Acum. KG": lambda v: fmt_num(v) if pd.notna(v) else "",
+                    "Acum. R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                })
+                .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        elif eh_resultado_financeiro(indicador):
             st.dataframe(
                 df_completa_tela.style
                 .format({
@@ -3915,6 +4696,69 @@ with tab2:
                 "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
             })
             .apply(cor_tx_sucesso_moto_por_linha, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    elif eh_tecfil(indicador):
+        linhas_finais_tecfil = []
+
+        for ano_tecfil in sorted(df_mom["ANO"].dropna().unique()):
+            base_ano_tecfil = df_mom[df_mom["ANO"] == ano_tecfil].copy()
+
+            linhas_finais_tecfil.append(
+                base_ano_tecfil[[
+                    "ANO", "MÊS", "Mês", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$",
+                    "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$", "MoM_%"
+                ]]
+            )
+
+            resumo_total = resumo_tecfil_por_grupo(df[df["ANO"] == ano_tecfil])
+
+            linhas_finais_tecfil.append(pd.DataFrame([{
+                "ANO": ano_tecfil,
+                "MÊS": None,
+                "Mês": f"TOTAL {ano_tecfil}",
+                "Meta KG": resumo_total["Meta KG"],
+                "Meta R$": resumo_total["Meta R$"],
+                "Realizado KG": resumo_total["Realizado KG"],
+                "Realizado R$": resumo_total["Realizado R$"],
+                "% Dif. KG": resumo_total["% Dif. KG"],
+                "% Dif. R$": resumo_total["% Dif. R$"],
+                "Dif. KG": resumo_total["Dif. KG"],
+                "Dif. R$": resumo_total["Dif. R$"],
+                "Acum. KG": resumo_total["Dif. KG"],
+                "Acum. R$": resumo_total["Dif. R$"],
+                "MoM_%": None,
+            }]))
+
+        df_mom_tecfil_tela = pd.concat(linhas_finais_tecfil, ignore_index=True)
+
+        def destacar_total(row):
+            if str(row["Mês"]).startswith("TOTAL"):
+                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
+            return ["" for _ in row]
+
+        st.dataframe(
+            df_mom_tecfil_tela.style
+            .apply(destacar_total, axis=1)
+            .format({
+                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Realizado KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Realizado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "% Dif. KG": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Acum. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Acum. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+            })
+            .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$"])
+            .map(cor_variacao, subset=["MoM_%"]),
             use_container_width=True,
             hide_index=True,
         )
@@ -4288,7 +5132,26 @@ with tab3:
             st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_moto")
 
     else:
-        if eh_resultado_financeiro(indicador):
+        if eh_tecfil(indicador):
+            st.dataframe(
+                df_yoy[["ANO", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Meses c/ dado"]].style
+                .format({
+                    "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                    "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Realizado KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                    "Realizado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "% Dif. KG": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                    "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Meses c/ dado": "{:.0f}",
+                })
+                .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        elif eh_resultado_financeiro(indicador):
             st.dataframe(
                 df_yoy[["ANO", "Meta %", "Despesa", "Receita", "Resultado R$", "Resultado %", "Meses c/ dado"]].style
                 .format({
@@ -4394,7 +5257,27 @@ with tab3:
         df_periodo_tela = comparar_mesmo_periodo(df, indicador)
 
         if not df_periodo_tela.empty:
-            if eh_resultado_financeiro(indicador):
+            if eh_tecfil(indicador):
+                st.dataframe(
+                    df_periodo_tela[["Ano", "Período", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Variação KG", "Variação R$"]].style
+                    .format({
+                        "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Realizado KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Realizado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "% Dif. KG": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                        "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                        "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Variação KG": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                        "Variação R$": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
+                    })
+                    .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"])
+                    .map(cor_variacao, subset=["Variação KG", "Variação R$"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            elif eh_resultado_financeiro(indicador):
                 st.dataframe(
                     df_periodo_tela[["Ano", "Período", "Meta %", "Despesa", "Receita", "Resultado R$", "Resultado %", "Variação Resultado", "Variação Receita"]].style
                     .format({
@@ -4456,7 +5339,49 @@ with tab3:
 
             comp_filiais = comparativo_filiais(df_todas_unidades, ano_base_filial, indicador)
 
-            if eh_resultado_financeiro(indicador):
+            if eh_tecfil(indicador):
+                st.dataframe(
+                    comp_filiais[["FILIAL", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"]].style
+                    .format({
+                        "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Realizado KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Realizado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "% Dif. KG": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                        "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                        "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                        "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    })
+                    .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                fig_filiais = go.Figure()
+                cores = [
+                    COR_VERDE if pd.notna(r) and pd.notna(m) and r >= m else COR_LARANJA
+                    for r, m in zip(comp_filiais["Realizado R$"], comp_filiais["Meta R$"])
+                ]
+                fig_filiais.add_bar(
+                    x=comp_filiais["FILIAL"],
+                    y=comp_filiais["Realizado R$"],
+                    name="Realizado R$",
+                    marker_color=cores,
+                    marker_cornerradius=4,
+                    text=[fmt_brl(v) for v in comp_filiais["Realizado R$"]],
+                    textposition="outside",
+                )
+                fig_filiais.add_scatter(
+                    x=comp_filiais["FILIAL"],
+                    y=comp_filiais["Meta R$"],
+                    name="Meta R$",
+                    mode="lines+markers",
+                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                )
+                fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
+                st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_tecfil")
+
+            elif eh_resultado_financeiro(indicador):
                 st.dataframe(
                     comp_filiais[["FILIAL", "Meta %", "Despesa", "Receita", "Resultado R$", "Resultado %"]].style
                     .format({
