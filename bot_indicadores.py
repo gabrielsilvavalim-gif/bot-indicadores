@@ -425,6 +425,63 @@ def resumo_moto_por_grupo(grupo):
     }
 
 
+
+def remover_meta_moto_anos_sem_meta(df_tabela):
+    """
+    Para Pneus Velhos Moto, os anos de 2023, 2024 e 2025 não possuem meta.
+    A meta passa a ser considerada a partir de 2026.
+    """
+    d = df_tabela.copy()
+    if "ANO" in d.columns:
+        mask = pd.to_numeric(d["ANO"], errors="coerce") < 2026
+    elif "Ano" in d.columns:
+        mask = pd.to_numeric(d["Ano"], errors="coerce") < 2026
+    else:
+        return d
+
+    for col in ["Meta %", "Meta", "META", "Meta Margem (R$)", "Gap (R$)", "Gap"]:
+        if col in d.columns:
+            d.loc[mask, col] = pd.NA
+
+    return d
+
+
+def cor_tx_sucesso_moto_por_linha(row):
+    """
+    Para Pneus Velhos Moto:
+    - Taxa de Sucesso verde quando estiver acima ou igual à Meta %.
+    - Taxa de Sucesso laranja quando estiver abaixo da Meta %.
+    - Se não existir meta, mantém sem destaque.
+    """
+    estilos = ["" for _ in row.index]
+
+    col_tx = None
+    for nome in ["Tx. Sucesso", "Ating.", "Atingimento"]:
+        if nome in row.index:
+            col_tx = nome
+            break
+
+    col_meta = None
+    for nome in ["Meta %", "Meta", "META"]:
+        if nome in row.index:
+            col_meta = nome
+            break
+
+    if col_tx is None or col_meta is None:
+        return estilos
+
+    tx = row[col_tx]
+    meta = row[col_meta]
+
+    if pd.notna(tx) and pd.notna(meta):
+        idx = list(row.index).index(col_tx)
+        if tx >= meta:
+            estilos[idx] = f"color: {COR_VERDE}; font-weight:bold"
+        else:
+            estilos[idx] = f"color: {COR_LARANJA}; font-weight:bold"
+
+    return estilos
+
 def tabela_completa_ano(d, ano, indicador):
     if eh_moto_margem(indicador):
         rows = []
@@ -605,6 +662,7 @@ def calcular_yoy(d, indicador):
 
         df_yoy = pd.DataFrame(linhas).sort_values("ANO")
         df_yoy["YoY_%"] = df_yoy["Faturamento"].pct_change() * 100
+        df_yoy = remover_meta_moto_anos_sem_meta(df_yoy)
 
         # Colunas de compatibilidade para PDF/IA, mas a tela usa as colunas especiais
         df_yoy["Realizado"] = df_yoy["Faturamento"]
@@ -715,7 +773,7 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
         var_faturamento = ((resumo_atual["Faturamento"] / resumo_ant["Faturamento"]) - 1) if resumo_ant["Faturamento"] > 0 else None
         var_margem = ((resumo_atual["Margem Bruta"] / resumo_ant["Margem Bruta"]) - 1) if resumo_ant["Margem Bruta"] > 0 else None
 
-        return pd.DataFrame([
+        tabela_periodo_moto = pd.DataFrame([
             {
                 "Ano": ano_anterior,
                 "Período": periodo_txt,
@@ -755,6 +813,8 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
                 "Variação Meta": None,
             }
         ])
+
+        return remover_meta_moto_anos_sem_meta(tabela_periodo_moto)
 
     atual_periodo = base_atual[base_atual["MÊS"] <= mes_limite]
     anterior_periodo = base_ant[base_ant["MÊS"] <= mes_limite]
@@ -1820,20 +1880,17 @@ with tab0:
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         st.dataframe(
-            df_yoy_dashboard[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Gap (R$)", "Tx. Sucesso", "Meses c/ dado", "YoY_%"]].style
+            df_yoy_dashboard[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso", "Meses c/ dado"]].style
             .format({
                 "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                 "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
                 "Meses c/ dado": "{:.0f}",
             })
-            .map(cor_variacao, subset=["YoY_%"])
-            .map(cor_atingimento, subset=["Tx. Sucesso"]),
+            .apply(cor_tx_sucesso_moto_por_linha, axis=1),
             use_container_width=True,
             hide_index=True,
         )
@@ -1986,7 +2043,7 @@ with tab2:
         linhas_finais = []
         for ano in sorted(df_mom["ANO"].dropna().unique()):
             base_ano = df_mom[df_mom["ANO"] == ano].copy()
-            linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]])
+            linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Compra", "Realizado", "Margem Bruta", "Ating.", "Acumulado"]])
 
             resumo_total = resumo_moto_por_grupo(df[df["ANO"] == ano])
             linhas_finais.append(pd.DataFrame([{
@@ -1997,10 +2054,8 @@ with tab2:
                 "Compra": resumo_total["Compra"],
                 "Realizado": resumo_total["Faturamento"],
                 "Margem Bruta": resumo_total["Margem Bruta"],
-                "Gap": resumo_total["Gap (R$)"],
                 "Ating.": resumo_total["Tx. Sucesso"],
                 "Acumulado": resumo_total["Margem Bruta"],
-                "MoM_%": None,
             }]))
 
         df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
@@ -2014,8 +2069,7 @@ with tab2:
             df_mom_tela.rename(columns={
                 "META": "Meta %",
                 "Realizado": "Faturamento",
-                "Ating.": "Tx. Sucesso",
-                "MoM_%": "MoM %"
+                "Ating.": "Tx. Sucesso"
             }).style
             .apply(destacar_total, axis=1)
             .format({
@@ -2025,14 +2079,10 @@ with tab2:
                 "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Gap": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                 "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "MoM %": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
             })
-            .map(lambda v: cor_gap_valor(v, False), subset=["Gap"])
-            .map(cor_atingimento, subset=["Tx. Sucesso"])
-            .map(cor_variacao, subset=["MoM %"]),
+            .apply(cor_tx_sucesso_moto_por_linha, axis=1),
             use_container_width=True,
             hide_index=True,
         )
@@ -2099,21 +2149,17 @@ with tab3:
 
     if eh_moto_margem(indicador):
         st.dataframe(
-            df_yoy[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Gap (R$)", "Tx. Sucesso", "Meses c/ dado", "YoY_%"]].style
+            df_yoy[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso", "Meses c/ dado"]].style
             .format({
                 "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                 "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
                 "Meses c/ dado": "{:.0f}",
             })
-            .map(cor_variacao, subset=["YoY_%"])
-            .map(cor_atingimento, subset=["Tx. Sucesso"])
-            .map(lambda v: cor_gap_valor(v, False), subset=["Gap (R$)"]),
+            .apply(cor_tx_sucesso_moto_por_linha, axis=1),
             use_container_width=True,
             hide_index=True,
         )
@@ -2124,21 +2170,16 @@ with tab3:
 
         if not df_periodo_tela.empty:
             st.dataframe(
-                df_periodo_tela[["Ano", "Período", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Gap (R$)", "Tx. Sucesso", "Variação Faturamento", "Variação Margem"]].style
+                df_periodo_tela[["Ano", "Período", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso"]].style
                 .format({
                     "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                     "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                    "Variação Faturamento": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
-                    "Variação Margem": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
                 })
-                .map(cor_variacao, subset=["Variação Faturamento", "Variação Margem"])
-                .map(cor_atingimento, subset=["Tx. Sucesso"])
-                .map(lambda v: cor_gap_valor(v, False), subset=["Gap (R$)"]),
+                .apply(cor_tx_sucesso_moto_por_linha, axis=1),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -2153,18 +2194,16 @@ with tab3:
 
             comp_filiais = comparativo_filiais(df_todas_unidades, ano_base_filial, indicador)
             st.dataframe(
-                comp_filiais[["FILIAL", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Gap (R$)", "Tx. Sucesso"]].style
+                comp_filiais[["FILIAL", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso"]].style
                 .format({
                     "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                     "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 })
-                .map(lambda v: cor_gap_valor(v, False), subset=["Gap (R$)"])
-                .map(cor_atingimento, subset=["Tx. Sucesso"]),
+                .apply(cor_tx_sucesso_moto_por_linha, axis=1),
                 use_container_width=True,
                 hide_index=True,
             )
