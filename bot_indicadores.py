@@ -978,6 +978,109 @@ Estruture sua resposta com:
 Use R$ e % nos números. Seja direto e prático."""
 
 
+def diagnosticar_sem_dados(df_raw, indicador, filial):
+    """
+    Mostra no app o que existe na planilha quando o filtro selecionado não encontra dados.
+    Isso ajuda a descobrir se o problema está no nome da filial, grupo, tipo de meta ou campo vazio.
+    """
+    cfg = INDICADORES[indicador]
+
+    st.warning("Nenhum dado encontrado para os filtros selecionados.")
+    st.caption("Diagnóstico automático: confira abaixo o que existe na planilha para esse indicador/filtro.")
+
+    try:
+        d0 = df_raw.copy()
+
+        # Garante colunas básicas
+        colunas_base = ["FILIAL", "TIPO", "GRUPO 01", "GRUPO 02", "GRUPO 03", "TIPO DE META"]
+        faltando = [c for c in colunas_base if c not in d0.columns]
+        if faltando:
+            st.error(f"Colunas não encontradas na planilha: {faltando}")
+            return
+
+        # Filtra por TIPO, GRUPO 01, GRUPO 02 e GRUPO 03, mas sem filtrar filial e sem TIPO DE META
+        d = d0.copy()
+        if cfg.get("TIPO") is not None:
+            d = aplicar_filtro_coluna(d, "TIPO", cfg.get("TIPO"))
+        d = aplicar_filtro_coluna(d, "GRUPO 01", cfg.get("GRUPO 01"))
+        d = aplicar_filtro_coluna(d, "GRUPO 02", cfg.get("GRUPO 02"))
+        d = aplicar_filtro_coluna(d, "GRUPO 03", cfg.get("GRUPO 03"))
+
+        if d.empty:
+            st.error("Não encontrei nenhuma linha com a combinação de TIPO, GRUPO 01, GRUPO 02 e GRUPO 03 deste indicador.")
+            st.write("Filtro esperado para o indicador selecionado:")
+            st.json({
+                "Indicador": indicador,
+                "TIPO": cfg.get("TIPO"),
+                "GRUPO 01": cfg.get("GRUPO 01"),
+                "GRUPO 02": cfg.get("GRUPO 02"),
+                "GRUPO 03": cfg.get("GRUPO 03"),
+                "TIPO DE META": cfg.get("TIPO DE META"),
+            })
+
+            st.write("Combinações existentes na planilha para FATURAMENTO:")
+            base_fat = d0[d0["GRUPO 01"].apply(normalizar_texto) == "FATURAMENTO"].copy()
+            if not base_fat.empty:
+                cols = ["TIPO", "GRUPO 01", "GRUPO 02", "GRUPO 03", "TIPO DE META"]
+                st.dataframe(
+                    base_fat[cols].drop_duplicates().sort_values(cols).head(100),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            return
+
+        st.write("Linhas encontradas para este indicador sem considerar a filial:")
+        cols_show = [c for c in ["FILIAL", "TIPO", "GRUPO 01", "GRUPO 02", "GRUPO 03", "TIPO DE META", "META", "VALOR REF 01"] if c in d.columns]
+        st.dataframe(d[cols_show].head(50), use_container_width=True, hide_index=True)
+
+        st.write("Filiais disponíveis para este indicador:")
+        filiais_disp = (
+            d["FILIAL"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .drop_duplicates()
+            .sort_values()
+            .reset_index(drop=True)
+        )
+        st.dataframe(pd.DataFrame({"FILIAL encontrada": filiais_disp}), use_container_width=True, hide_index=True)
+
+        # Verifica se a filial selecionada existe para esse indicador
+        d_filial = d[d["FILIAL"].apply(normalizar_texto) == normalizar_texto(filial)]
+        if d_filial.empty:
+            st.error(
+                f"O indicador existe na planilha, mas não encontrei linhas para a filial selecionada: {filial}. "
+                "Confira se o nome da filial na planilha está igual ao nome do filtro."
+            )
+            return
+
+        # Se achou por filial, então o problema pode ser TIPO DE META
+        d_meta = aplicar_filtro_coluna(d_filial, "TIPO DE META", cfg.get("TIPO DE META"))
+        if d_meta.empty:
+            st.error(
+                f"Encontrei linhas para a filial {filial}, mas nenhuma com TIPO DE META = {cfg.get('TIPO DE META')}."
+            )
+            st.write("TIPO DE META encontrado para essa filial/indicador:")
+            st.dataframe(
+                d_filial[["TIPO DE META"]].drop_duplicates(),
+                use_container_width=True,
+                hide_index=True,
+            )
+            return
+
+    except Exception as e:
+        st.error(f"Erro ao gerar diagnóstico: {e}")
+
+
+def filtrar_com_fallback_incremental(df_raw, indicador, filial):
+    """
+    Aplica o filtro normal.
+    Se não encontrar dados, retorna DataFrame vazio.
+    O diagnóstico será exibido depois.
+    """
+    return filtrar(df_raw, indicador, filial)
+
+
 # =========================
 # CSS E CABEÇALHO
 # =========================
@@ -1088,11 +1191,11 @@ if not arquivo:
 
 
 df_raw = carregar(arquivo)
-df = filtrar(df_raw, indicador, filial)
+df = filtrar_com_fallback_incremental(df_raw, indicador, filial)
 df_todas_unidades = filtrar(df_raw, indicador, "Geral")
 
 if df.empty:
-    st.warning("Nenhum dado encontrado para os filtros selecionados.")
+    diagnosticar_sem_dados(df_raw, indicador, filial)
     st.stop()
 
 
