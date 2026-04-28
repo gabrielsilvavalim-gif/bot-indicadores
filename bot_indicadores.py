@@ -1254,6 +1254,30 @@ def cor_diferenca_qualidade(v):
     return f"color: {COR_VERDE}; font-weight:bold" if v <= 0 else f"color: {COR_LARANJA}; font-weight:bold"
 
 
+
+def preparar_tabela_qualidade_exibicao(df_exibir, indicador):
+    """
+    Prepara a tabela de Qualidade apenas para exibição.
+
+    Para Parâmetro de Coleta Crítico:
+    - troca o nome visual da coluna "Diferença" para "Resultado".
+    - mantém o cálculo interno em "Diferença" para não quebrar funções antigas.
+
+    Para os demais indicadores, mantém o padrão.
+    """
+    d = df_exibir.copy()
+    rot = rotulos_qualidade(indicador)
+
+    rename_map = {
+        "Qtd. Sucesso": rot["qtd_sucesso"],
+    }
+
+    if modelo_qualidade(indicador) == "parametro_coleta_critico":
+        rename_map["Diferença"] = "Resultado"
+
+    return d.rename(columns=rename_map)
+
+
 def colunas_qualidade_exibicao(indicador, incluir_ano=False, incluir_mom=False, incluir_acumulado=False):
     """Define a ordem/visibilidade das colunas dos indicadores de qualidade."""
     base = []
@@ -1262,13 +1286,14 @@ def colunas_qualidade_exibicao(indicador, incluir_ano=False, incluir_mom=False, 
 
     rot = rotulos_qualidade(indicador)
     col_qtd_sucesso = rot["qtd_sucesso"]
+    col_diferenca = "Resultado" if modelo_qualidade(indicador) == "parametro_coleta_critico" else "Diferença"
 
     base += [
         "Mês",
         "Meta",
         "Qtd. Coletas",
         col_qtd_sucesso,
-        "Diferença",
+        col_diferenca,
         "Resultado %",
     ]
 
@@ -1283,20 +1308,18 @@ def colunas_qualidade_exibicao(indicador, incluir_ano=False, incluir_mom=False, 
 
 
 def aplicar_estilo_diferenca_qualidade(styler, indicador, subset=("Diferença",)):
-    """Aplica cor na diferença apenas quando fizer sentido.
-
-    Correção:
-    Antes, quando a coluna "Acumulado" era removida do Parâmetro de Coleta,
-    o Pandas quebrava ao tentar aplicar estilo em uma coluna inexistente.
-
-    Agora, a função só aplica estilo nas colunas que realmente existem.
-    """
+    """Aplica cor na diferença/resultado apenas quando fizer sentido."""
     if modelo_qualidade(indicador) == "parametro_coleta":
         return styler
 
     try:
         colunas_existentes = list(styler.data.columns)
-        subset_existente = [c for c in list(subset) if c in colunas_existentes]
+
+        subset_lista = list(subset)
+        if modelo_qualidade(indicador) == "parametro_coleta_critico":
+            subset_lista = ["Resultado" if c == "Diferença" else c for c in subset_lista]
+
+        subset_existente = [c for c in subset_lista if c in colunas_existentes]
 
         if not subset_existente:
             return styler
@@ -3930,7 +3953,7 @@ class PDFRelatorio(FPDF):
                 self.cell(widths[2], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
                 qtd_sucesso_pdf = row["Qtd. Sucesso"] if "Qtd. Sucesso" in row.index else row.get("QTD. COLETAS NORMAIS", row.get("QTD.COL. OTIMO+BOM", None))
                 self.cell(widths[3], 6, fmt_num(qtd_sucesso_pdf), border=1, align="R")
-                self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Diferença"] if "Diferença" in row.index else row.get("Resultado", None)), border=1, align="R")
                 self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
                 acumulado_pdf = row["Acumulado"] if "Acumulado" in row.index else None
                 self.cell(widths[6], 6, fmt_num(acumulado_pdf), border=1, align="R")
@@ -4118,7 +4141,7 @@ class PDFRelatorio(FPDF):
                 self.cell(widths[1], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
                 self.cell(widths[2], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
                 self.cell(widths[3], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
-                self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Diferença"] if "Diferença" in row.index else row.get("Resultado", None)), border=1, align="R")
                 self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
                 self.cell(widths[6], 6, fmt_num(row["Acumulado"]), border=1, align="R")
                 self.ln()
@@ -4263,7 +4286,7 @@ class PDFRelatorio(FPDF):
                 self.cell(widths[1], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
                 self.cell(widths[2], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
                 self.cell(widths[3], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
-                self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Diferença"] if "Diferença" in row.index else row.get("Resultado", None)), border=1, align="R")
                 self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
                 self.cell(widths[6], 6, str(int(row["Meses c/ dado"])), border=1, align="C")
                 self.ln()
@@ -4392,7 +4415,7 @@ class PDFRelatorio(FPDF):
                 self.cell(widths[2], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
                 self.cell(widths[3], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
                 self.cell(widths[4], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
-                self.cell(widths[5], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[5], 6, fmt_num(row["Diferença"] if "Diferença" in row.index else row.get("Resultado", None)), border=1, align="R")
                 self.cell(widths[6], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
                 self.ln()
             return
@@ -4518,7 +4541,7 @@ class PDFRelatorio(FPDF):
                 self.cell(widths[1], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
                 self.cell(widths[2], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
                 self.cell(widths[3], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
-                self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
+                self.cell(widths[4], 6, fmt_num(row["Diferença"] if "Diferença" in row.index else row.get("Resultado", None)), border=1, align="R")
                 self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
                 self.ln()
             return
@@ -5192,7 +5215,7 @@ with tab0:
 
         rot = rotulos_qualidade(indicador)
         col_qtd_sucesso = rot["qtd_sucesso"]
-        df_yoy_dashboard_tela = df_yoy_dashboard[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Meses c/ dado"]].rename(columns={"Qtd. Sucesso": col_qtd_sucesso})
+        df_yoy_dashboard_tela = preparar_tabela_qualidade_exibicao(df_yoy_dashboard[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Meses c/ dado"]], indicador)
         styler_yoy_q = (
             df_yoy_dashboard_tela.style
             .format({
@@ -5200,6 +5223,7 @@ with tab0:
                 "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 col_qtd_sucesso: lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Meses c/ dado": "{:.0f}",
             })
@@ -5534,7 +5558,7 @@ with tab1:
         if eh_qualidade(indicador):
             rot = rotulos_qualidade(indicador)
             col_qtd_sucesso = rot["qtd_sucesso"]
-            df_completa_tela = df_completa_tela.rename(columns={"Qtd. Sucesso": col_qtd_sucesso})
+            df_completa_tela = preparar_tabela_qualidade_exibicao(df_completa_tela, indicador)
             cols_exibir = [c for c in colunas_qualidade_exibicao(indicador) if c in df_completa_tela.columns]
             styler_q = (
                 df_completa_tela[cols_exibir].style
@@ -5543,6 +5567,7 @@ with tab1:
                     "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "",
                     col_qtd_sucesso: lambda v: fmt_num(v) if pd.notna(v) else "",
                     "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "",
+                    "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "",
                     "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "",
                     "Acumulado": lambda v: fmt_num(v) if pd.notna(v) else "",
                 })
@@ -5803,7 +5828,7 @@ with tab2:
 
         rot = rotulos_qualidade(indicador)
         col_qtd_sucesso = rot["qtd_sucesso"]
-        df_mom_qualidade_tela = df_mom_qualidade_tela.rename(columns={"Qtd. Sucesso": col_qtd_sucesso})
+        df_mom_qualidade_tela = preparar_tabela_qualidade_exibicao(df_mom_qualidade_tela, indicador)
         cols_exibir = [c for c in colunas_qualidade_exibicao(indicador, incluir_ano=True, incluir_mom=True, incluir_acumulado=False) if c in df_mom_qualidade_tela.columns]
         styler_mom_q = (
             df_mom_qualidade_tela[cols_exibir].style
@@ -5815,6 +5840,7 @@ with tab2:
                 "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 col_qtd_sucesso: lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Acumulado": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
@@ -6277,6 +6303,7 @@ with tab3:
                     "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
                     "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
                     "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "—",
                     "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     "Meses c/ dado": "{:.0f}",
                 })
@@ -6419,6 +6446,7 @@ with tab3:
                         "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
                         "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
                         "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "—",
                         "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                         "Variação Resultado": lambda v: f"{v:+.1%}" if pd.notna(v) else "—",
                     })
@@ -6526,6 +6554,7 @@ with tab3:
                         "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
                         "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
                         "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "—",
                         "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     })
                     .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
