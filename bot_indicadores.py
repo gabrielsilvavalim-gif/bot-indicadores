@@ -3750,7 +3750,8 @@ class PDFRelatorio(FPDF):
                 self.cell(widths[3], 6, fmt_num(qtd_sucesso_pdf), border=1, align="R")
                 self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
                 self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
-                self.cell(widths[6], 6, fmt_num(row["Acumulado"]), border=1, align="R")
+                acumulado_pdf = row["Acumulado"] if "Acumulado" in row.index else None
+                self.cell(widths[6], 6, fmt_num(acumulado_pdf), border=1, align="R")
                 self.ln()
             return
 
@@ -4459,9 +4460,17 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     elif eh_qualidade(indicador):
         # No PDF, manter os nomes internos esperados pelo método tabela_mom.
         # Não renomear "Qtd. Sucesso", pois tabela_mom usa row["Qtd. Sucesso"].
-        cols_pdf_q = ["Mês", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]
-        cols_pdf_q = [c for c in cols_pdf_q if c in df_mom.columns]
-        pdf.tabela_mom(df_mom[cols_pdf_q])
+        df_mom_pdf_q = df_mom.copy()
+
+        # Para Parâmetro de Coleta, o Acumulado foi removido da tela,
+        # mas o método PDF ainda usa a estrutura de 7 colunas.
+        # Então criamos a coluna vazia apenas para o PDF não quebrar.
+        if "Acumulado" not in df_mom_pdf_q.columns:
+            df_mom_pdf_q["Acumulado"] = pd.NA
+
+        cols_pdf_q = ["Mês", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Acumulado"]
+        cols_pdf_q = [c for c in cols_pdf_q if c in df_mom_pdf_q.columns]
+        pdf.tabela_mom(df_mom_pdf_q[cols_pdf_q])
     elif eh_tecfil(indicador):
         pdf.tabela_mom(df_mom[["Mês", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$", "MoM_%"]])
     elif eh_resultado_financeiro(indicador):
