@@ -2119,6 +2119,16 @@ def calcular_yoy(d, indicador):
     return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
 
 def comparativo_filiais(d, ano, indicador):
+    d = d.copy()
+    if "FILIAL" in d.columns:
+        filiais_consolidadas = [
+            normalizar_texto("XX GERAL XX"),
+            normalizar_texto("GERAL"),
+            normalizar_texto("TOTAL"),
+            normalizar_texto("TECFIL GERAL"),
+        ]
+        d = d[~d["FILIAL"].apply(normalizar_texto).isin(filiais_consolidadas)].copy()
+
     if eh_moto_margem(indicador):
         linhas = []
         base = d[d["ANO"] == ano].copy()
@@ -4687,6 +4697,23 @@ df_raw = carregar(arquivo)
 df = filtrar_com_fallback_incremental(df_raw, indicador, filial)
 df_todas_unidades = filtrar(df_raw, indicador, "Geral")
 
+# Base correta para o Comparativo entre filiais:
+# monta os dados das filiais reais, evitando usar apenas a linha consolidada XX GERAL XX.
+_partes_comparativo_filiais = []
+for _filial_real in FILIAIS_REAIS:
+    try:
+        _df_filial_real = filtrar(df_raw, indicador, _filial_real)
+        if _df_filial_real is not None and not _df_filial_real.empty:
+            _partes_comparativo_filiais.append(_df_filial_real)
+    except Exception:
+        pass
+
+df_comparativo_filiais = (
+    pd.concat(_partes_comparativo_filiais, ignore_index=True)
+    if _partes_comparativo_filiais
+    else pd.DataFrame()
+)
+
 if df.empty:
     diagnosticar_sem_dados(df_raw, indicador, filial)
     st.stop()
@@ -5890,11 +5917,19 @@ with tab3:
 
         if filial == "Geral":
             st.divider()
-            anos_filial = sorted(df_todas_unidades["ANO"].dropna().unique())
+            anos_filial = (
+                sorted(df_comparativo_filiais["ANO"].dropna().unique())
+                if not df_comparativo_filiais.empty and "ANO" in df_comparativo_filiais.columns
+                else []
+            )
+            if not anos_filial:
+                st.info("Sem dados das filiais reais para montar o comparativo entre filiais.")
+                st.stop()
+
             ano_base_filial = st.selectbox("Ano do comparativo entre filiais", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
             st.subheader(f"Comparativo entre filiais — {ano_base_filial}")
 
-            comp_filiais = comparativo_filiais(df_todas_unidades, ano_base_filial, indicador)
+            comp_filiais = comparativo_filiais(df_comparativo_filiais, ano_base_filial, indicador)
             st.dataframe(
                 comp_filiais[["FILIAL", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso"]].style
                 .format({
@@ -6180,11 +6215,19 @@ with tab3:
 
         if filial == "Geral":
             st.divider()
-            anos_filial = sorted(df_todas_unidades["ANO"].dropna().unique())
+            anos_filial = (
+                sorted(df_comparativo_filiais["ANO"].dropna().unique())
+                if not df_comparativo_filiais.empty and "ANO" in df_comparativo_filiais.columns
+                else []
+            )
+            if not anos_filial:
+                st.info("Sem dados das filiais reais para montar o comparativo entre filiais.")
+                st.stop()
+
             ano_base_filial = st.selectbox("Ano do comparativo entre filiais", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
             st.subheader(f"Comparativo entre filiais — {ano_base_filial}")
 
-            comp_filiais = comparativo_filiais(df_todas_unidades, ano_base_filial, indicador)
+            comp_filiais = comparativo_filiais(df_comparativo_filiais, ano_base_filial, indicador)
 
             if eh_qualidade(indicador):
                 st.dataframe(
