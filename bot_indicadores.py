@@ -2355,13 +2355,30 @@ def comparativo_filiais(d, ano, indicador):
 
         return comp
 
+    base_comp = d[d["ANO"] == ano].copy()
+
+    if base_comp.empty or "FILIAL" not in base_comp.columns:
+        return pd.DataFrame(columns=["FILIAL", "Realizado", "Meta", "Gap", "Atingimento"])
+
+    colunas_necessarias = ["REALIZADO_CALC", "META_CALC"]
+    for col in colunas_necessarias:
+        if col not in base_comp.columns:
+            base_comp[col] = 0
+
     comp = (
-        d[d["ANO"] == ano]
+        base_comp
         .groupby("FILIAL", as_index=False)
         .agg({"REALIZADO_CALC": "sum", "META_CALC": "sum"})
         .rename(columns={"REALIZADO_CALC": "Realizado", "META_CALC": "Meta"})
-        .pipe(lambda _df: ordenar_df_seguro(_df, "Realizado", ascending=False))
     )
+
+    if comp.empty:
+        return pd.DataFrame(columns=["FILIAL", "Realizado", "Meta", "Gap", "Atingimento"])
+
+    if "Realizado" not in comp.columns:
+        comp["Realizado"] = 0
+    if "Meta" not in comp.columns:
+        comp["Meta"] = 0
 
     if eh_despesa_manutencao(indicador):
         comp["Gap"] = comp["Meta"] - comp["Realizado"]
@@ -2373,7 +2390,7 @@ def comparativo_filiais(d, ano, indicador):
         comp["Gap"] = comp["Realizado"] - comp["Meta"]
         comp["Atingimento"] = comp["Realizado"] / comp["Meta"].replace(0, pd.NA)
 
-    return comp
+    return ordenar_df_seguro(comp, "Realizado", ascending=False)
 
 def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
     if d.empty:
