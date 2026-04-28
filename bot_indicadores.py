@@ -2118,14 +2118,30 @@ def calcular_yoy(d, indicador):
     df_yoy["YoY_%"] = df_yoy["Realizado"].pct_change() * 100
     return df_yoy.replace([float("inf"), float("-inf")], pd.NA)
 
+
+def ordenar_df_seguro(df_saida, coluna, ascending=False):
+    """
+    Ordena um DataFrame sem quebrar quando ele está vazio
+    ou quando a coluna de ordenação não existe.
+    """
+    if df_saida is None or df_saida.empty:
+        return pd.DataFrame()
+
+    if coluna in df_saida.columns:
+        return df_saida.sort_values(coluna, ascending=ascending)
+
+    return df_saida
+
+
 def comparativo_filiais(d, ano, indicador):
     d = d.copy()
-    if "FILIAL" in d.columns:
+    if "FILIAL" in d.columns and not eh_tecfil(indicador):
+        # Para indicadores comuns, o comparativo entre filiais não deve mostrar linhas consolidadas.
+        # Para Tecfil, NÃO removemos "TECFIL GERAL", porque ele é um indicador/base válida.
         filiais_consolidadas = [
             normalizar_texto("XX GERAL XX"),
             normalizar_texto("GERAL"),
             normalizar_texto("TOTAL"),
-            normalizar_texto("TECFIL GERAL"),
         ]
         d = d[~d["FILIAL"].apply(normalizar_texto).isin(filiais_consolidadas)].copy()
 
@@ -2151,7 +2167,7 @@ def comparativo_filiais(d, ano, indicador):
                 "Atingimento": resumo["Tx. Sucesso"],
             })
 
-        return pd.DataFrame(linhas).sort_values("Margem Bruta", ascending=False)
+        return ordenar_df_seguro(pd.DataFrame(linhas), "Margem Bruta", ascending=False)
 
     if eh_despesa_geral(indicador):
         linhas = []
@@ -2173,7 +2189,7 @@ def comparativo_filiais(d, ano, indicador):
                 "Atingimento": resumo["Tx. Sucesso"],
             })
 
-        return pd.DataFrame(linhas).sort_values("Despesa", ascending=False)
+        return ordenar_df_seguro(pd.DataFrame(linhas), "Despesa", ascending=False)
 
     if eh_resultado_financeiro(indicador):
         linhas = []
@@ -2195,7 +2211,7 @@ def comparativo_filiais(d, ano, indicador):
                 "Atingimento": resumo["Resultado %"],
             })
 
-        return pd.DataFrame(linhas).sort_values("Resultado R$", ascending=False)
+        return ordenar_df_seguro(pd.DataFrame(linhas), "Resultado R$", ascending=False)
 
     if eh_qualidade(indicador):
         linhas = []
@@ -2217,7 +2233,7 @@ def comparativo_filiais(d, ano, indicador):
                 "Atingimento": resumo["Resultado %"],
             })
 
-        return pd.DataFrame(linhas).sort_values("Resultado %", ascending=False)
+        return ordenar_df_seguro(pd.DataFrame(linhas), "Resultado %", ascending=False)
 
     if eh_tecfil(indicador):
         linhas = []
@@ -2242,7 +2258,7 @@ def comparativo_filiais(d, ano, indicador):
                 "Atingimento": (resumo["Realizado R$"] / resumo["Meta R$"]) if resumo["Meta R$"] else None,
             })
 
-        return pd.DataFrame(linhas).sort_values("Realizado R$", ascending=False)
+        return ordenar_df_seguro(pd.DataFrame(linhas), "Realizado R$", ascending=False)
 
     if eh_despesa_hora_extra(indicador):
         comp = (
@@ -2254,7 +2270,7 @@ def comparativo_filiais(d, ano, indicador):
                 "META_CALC": "Limite",
                 "SALARIO_CALC": "Salário",
             })
-            .sort_values("Pago em Hora Extra", ascending=False)
+            .pipe(lambda _df: ordenar_df_seguro(_df, "Pago em Hora Extra", ascending=False))
         )
         comp["HE da Folha"] = comp["Pago em Hora Extra"] / comp["Salário"].replace(0, pd.NA)
         comp["Saldo do Limite"] = comp["Limite"] - comp["Pago em Hora Extra"]
@@ -2273,7 +2289,7 @@ def comparativo_filiais(d, ano, indicador):
         .groupby("FILIAL", as_index=False)
         .agg({"REALIZADO_CALC": "sum", "META_CALC": "sum"})
         .rename(columns={"REALIZADO_CALC": "Realizado", "META_CALC": "Meta"})
-        .sort_values("Realizado", ascending=False)
+        .pipe(lambda _df: ordenar_df_seguro(_df, "Realizado", ascending=False))
     )
 
     if eh_despesa_manutencao(indicador):
