@@ -919,9 +919,9 @@ def rotulos_qualidade(indicador):
         return {
             "meta": "Limite crítico",
             "qtd_total": "Qtd. coletas",
-            "qtd_sucesso": "Qtd. col. crítico",
-            "diferenca": "Diferença",
-            "resultado": "Tx sucesso %",
+            "qtd_sucesso": "Qtd. crítico",
+            "diferenca": "Resultado",
+            "resultado": "Result %",
         }
 
     return {
@@ -966,8 +966,8 @@ def consolidar_qualidade(df, indicador):
     META = limite crítico
     VALOR REF 01 = quantidade coletada
     VALOR REF 02 = quantidade crítica
-    Resultado = VALOR REF 02 / VALOR REF 01
-    Diferença = VALOR REF 02 - META
+    Resultado = VALOR REF 02 - META
+    Resultado % = VALOR REF 02 / VALOR REF 01
     """
     d = df.copy()
     modelo = modelo_qualidade(indicador)
@@ -1017,7 +1017,11 @@ def resumo_qualidade_por_grupo(grupo, indicador):
     qtd_sucesso_base = pd.to_numeric(grupo.get("QTD_SUCESSO_CALC"), errors="coerce").fillna(0).sum()
 
     if modelo == "parametro_coleta_critico":
-        # Crítico: META é limite absoluto, então totaliza como soma.
+        # Parâmetro de Coleta Crítico:
+        # - Meta = limite crítico (soma do limite do período)
+        # - Qtd. crítico = quantidade crítica
+        # - Resultado = Qtd. crítico - Limite crítico
+        # - Result % = Qtd. crítico / Qtd. coletas
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
         qtd_sucesso = qtd_sucesso_base
         diferenca = qtd_sucesso - meta
@@ -1100,8 +1104,8 @@ def cor_resultado_qualidade_por_linha(row, indicador=None):
 
     idx_result = list(row.index).index("Resultado %")
 
-    # Crítico: quanto menor, melhor. Usa meta como limite absoluto,
-    # mas para a taxa usa destaque simples: até 10% verde, acima laranja.
+    # Crítico: quanto menor o percentual crítico, melhor.
+    # Para o Result %, até 10% fica verde; acima disso, laranja.
     if indicador and modelo_qualidade(indicador) == "parametro_coleta_critico":
         estilos[idx_result] = f"color: {COR_VERDE}; font-weight:bold" if resultado <= 0.10 else f"color: {COR_LARANJA}; font-weight:bold"
         return estilos
