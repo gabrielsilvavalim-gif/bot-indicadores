@@ -1006,11 +1006,13 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
     """
     Consolidação específica do indicador Parâmetro de Coleta Crítico.
 
-    Regra correta:
+    Lógica correta:
     - Limite crítico: vem das linhas QUALIDADE / PARAMETROS COLETAS / CRITICO.
     - Qtd. coletas: vem do indicador Parâmetro de Coleta.
-    - Qtd. coletas normais: vem do indicador Parâmetro de Coleta.
+    - Diferença do Parâmetro de Coleta: vem do VALOR REF 02 do Parâmetro de Coleta.
+    - Qtd. coletas normais = Qtd. coletas - Diferença.
     - Qtd. crítico = Qtd. coletas - Qtd. coletas normais.
+      Na prática, isso é igual à Diferença do Parâmetro de Coleta.
     - Resultado = Qtd. crítico - Limite crítico.
     - Result % = Qtd. crítico / Qtd. coletas.
     """
@@ -1034,24 +1036,41 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
             indice_1_base=10,
         )
 
-        # No Parâmetro de Coleta, a quantidade normal é o valor que aparece como
-        # "Qtd. coletas normais" no dashboard.
-        base_param["QTD_NORMAIS_CALC"] = serie_numerica_por_coluna(
+        # IMPORTANTE:
+        # Nesta base, o VALOR REF 02 do Parâmetro de Coleta representa a DIFERENÇA,
+        # que é exatamente:
+        # Qtd. coletas - Qtd. coletas normais.
+        #
+        # Essa diferença é o que o Crítico precisa usar como Qtd. crítico.
+        base_param["DIFERENCA_PARAMETRO_CALC"] = serie_numerica_por_coluna(
             d_param,
-            nomes_preferidos=["VALOR REF 02", "QTD. COLETAS NORMAIS", "QTD COLETAS NORMAIS", "QTD. COL. OTIMO+BOM"],
+            nomes_preferidos=["VALOR REF 02", "DIFERENCA", "DIFER.", "QTD. CRITICO", "QTD CRITICO"],
             indice_1_base=12,
         )
 
         param_agg = (
             base_param.groupby(chaves, as_index=False)
-            .agg({"QTD_TOTAL_CALC": "sum", "QTD_NORMAIS_CALC": "sum"})
+            .agg({
+                "QTD_TOTAL_CALC": "sum",
+                "DIFERENCA_PARAMETRO_CALC": "sum",
+            })
+        )
+
+        # Qtd. coletas normais é derivada apenas para manter rastreabilidade:
+        # Qtd. normais = Qtd. coletas - Diferença
+        param_agg["QTD_NORMAIS_CALC"] = (
+            param_agg["QTD_TOTAL_CALC"] - param_agg["DIFERENCA_PARAMETRO_CALC"]
         )
     else:
-        param_agg = pd.DataFrame(columns=chaves + ["QTD_TOTAL_CALC", "QTD_NORMAIS_CALC"])
+        param_agg = pd.DataFrame(
+            columns=chaves + ["QTD_TOTAL_CALC", "DIFERENCA_PARAMETRO_CALC", "QTD_NORMAIS_CALC"]
+        )
 
     if not d_limite.empty:
         base_limite = d_limite[chaves].copy()
-        base_limite["META_QUALIDADE_CALC"] = pd.to_numeric(d_limite.get("META", 0), errors="coerce").fillna(0)
+        base_limite["META_QUALIDADE_CALC"] = pd.to_numeric(
+            d_limite.get("META", 0), errors="coerce"
+        ).fillna(0)
 
         limite_agg = (
             base_limite.groupby(chaves, as_index=False)
@@ -1063,6 +1082,7 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
     if param_agg.empty:
         out = limite_agg.copy()
         out["QTD_TOTAL_CALC"] = 0
+        out["DIFERENCA_PARAMETRO_CALC"] = 0
         out["QTD_NORMAIS_CALC"] = 0
     elif limite_agg.empty:
         out = param_agg.copy()
@@ -1070,30 +1090,35 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
     else:
         out = pd.merge(param_agg, limite_agg, on=chaves, how="outer")
 
-    for col in ["QTD_TOTAL_CALC", "QTD_NORMAIS_CALC", "META_QUALIDADE_CALC"]:
+    for col in ["QTD_TOTAL_CALC", "DIFERENCA_PARAMETRO_CALC", "QTD_NORMAIS_CALC", "META_QUALIDADE_CALC"]:
         if col not in out.columns:
             out[col] = 0
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
 
-    # Fórmula correta:
-    # Qtd. crítico = Qtd. coletas - Qtd. coletas normais
-    out["QTD_CRITICO_CALC"] = out["QTD_TOTAL_CALC"] - out["QTD_NORMAIS_CALC"]
-
-    # Mantém compatibilidade com o restante do app
+    # Fórmula definitiva:
+    # Qtd. crítico = mesma Diferença do Parâmetro de Coleta
+    # Também equivale a: Qtd. coletas - Qtd. coletas normais
+    out["QTD_CRITICO_CALC"] = out["DIFERENCA_PARAMETRO_CALC"]
     out["QTD_SUCESSO_CALC"] = out["QTD_CRITICO_CALC"]
 
     # Resultado = Qtd. crítico - Limite crítico
     out["DIFERENCA_CALC"] = out["QTD_CRITICO_CALC"] - out["META_QUALIDADE_CALC"]
 
     # Result % = Qtd. crítico / Qtd. coletas
-    out["RESULTADO_QUALIDADE_CALC"] = out["QTD_CRITICO_CALC"] / out["QTD_TOTAL_CALC"].replace(0, pd.NA)
+    out["RESULTADO_QUALIDADE_CALC"] = (
+        out["QTD_CRITICO_CALC"] / out["QTD_TOTAL_CALC"].replace(0, pd.NA)
+    )
 
     # Compatibilidade com blocos antigos do app
     out["META_CALC"] = out["META_QUALIDADE_CALC"]
     out["REALIZADO_CALC"] = out["QTD_CRITICO_CALC"]
     out["ATINGIMENTO_CALC"] = out["RESULTADO_QUALIDADE_CALC"]
 
-    return out.sort_values(["ANO", "MÊS", "FILIAL"]).replace([float("inf"), float("-inf")], pd.NA).reset_index(drop=True)
+    return (
+        out.sort_values(["ANO", "MÊS", "FILIAL"])
+        .replace([float("inf"), float("-inf")], pd.NA)
+        .reset_index(drop=True)
+    )
 
 
 def resumo_qualidade_por_grupo(grupo, indicador):
@@ -1113,23 +1138,19 @@ def resumo_qualidade_por_grupo(grupo, indicador):
 
     if modelo == "parametro_coleta_critico":
         # Parâmetro de Coleta Crítico:
-        # Qtd. crítico = Qtd. coletas - Qtd. coletas normais.
+        # Qtd. crítico = mesma Diferença do Parâmetro de Coleta.
+        # Ou seja: Qtd. crítico = Qtd. coletas - Qtd. coletas normais.
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
 
         if "QTD_CRITICO_CALC" in grupo.columns:
             qtd_sucesso = pd.to_numeric(grupo.get("QTD_CRITICO_CALC"), errors="coerce").fillna(0).sum()
+        elif "DIFERENCA_PARAMETRO_CALC" in grupo.columns:
+            qtd_sucesso = pd.to_numeric(grupo.get("DIFERENCA_PARAMETRO_CALC"), errors="coerce").fillna(0).sum()
         elif "QTD_NORMAIS_CALC" in grupo.columns:
             qtd_normais = pd.to_numeric(grupo.get("QTD_NORMAIS_CALC"), errors="coerce").fillna(0).sum()
             qtd_sucesso = qtd_total - qtd_normais
         else:
-            # Fallback de segurança:
-            # se QTD_SUCESSO_CALC vier como "coletas normais",
-            # converte para o valor crítico usando a mesma fórmula da diferença:
-            # Qtd. crítico = Qtd. coletas - Qtd. coletas normais.
-            if qtd_total > 0 and qtd_sucesso_base > (qtd_total / 2):
-                qtd_sucesso = qtd_total - qtd_sucesso_base
-            else:
-                qtd_sucesso = qtd_sucesso_base
+            qtd_sucesso = qtd_sucesso_base
 
         diferenca = qtd_sucesso - meta
         resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
