@@ -11,9 +11,14 @@ import unicodedata
 import smtplib
 from email.message import EmailMessage
 import io
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+try:
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaIoBaseDownload
+except ModuleNotFoundError:
+    service_account = None
+    build = None
+    MediaIoBaseDownload = None
 
 st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_icon="📊", layout="wide")
 
@@ -51,6 +56,14 @@ def baixar_planilha_drive(nome_arquivo="BaseSistema.xlsx"):
     2. O arquivo precisa ter o nome configurado, por padrão: BaseSistema.xlsx.
     3. O Streamlit Secrets precisa conter o bloco [gcp_service_account].
     """
+    if service_account is None or build is None or MediaIoBaseDownload is None:
+        st.error("Bibliotecas do Google Drive não instaladas.")
+        st.info(
+            "Adicione no requirements.txt: google-api-python-client, google-auth, "
+            "google-auth-httplib2 e openpyxl. Depois faça Reboot app no Streamlit."
+        )
+        st.stop()
+
     try:
         credentials = service_account.Credentials.from_service_account_info(
             st.secrets["gcp_service_account"],
