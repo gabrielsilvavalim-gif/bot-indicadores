@@ -174,7 +174,7 @@ INDICADORES = {
     },
     "Faturamento Incremental": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
-        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMETAL", "TIPO DE META": "R$"
+        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMENTAL", "TIPO DE META": "R$"
     },
     "Faturamento LCSAO": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
@@ -437,6 +437,13 @@ def fmt_pct(v):
     if pd.isna(v) or v is None:
         return "-"
     return f"{v:.1%}"
+
+
+
+def eh_faturamento_simples(indicador):
+    """Indicadores de faturamento padrão: Faturamento, Serviços, Regular, Incremental etc."""
+    cfg = INDICADORES.get(indicador, {})
+    return cfg.get("categoria") == "faturamento" and cfg.get("tipo") in ["simples", "composto"]
 
 
 def eh_despesa(indicador):
@@ -5797,19 +5804,56 @@ with tab1:
                 hide_index=True,
             )
         else:
-            st.dataframe(
-                df_completa_tela.style
-                .format({
-                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
-                    "Atingimento": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+            if eh_faturamento_simples(indicador):
+                # Faturamento: ordem solicitada pelo usuário
+                # Mês | Meta | Faturamento | Atendimento da Meta
+                df_faturamento_tela = df_completa_tela.rename(columns={
+                    "Realizado": "Faturamento",
+                    "Atingimento": "Atendimento da Meta",
                 })
-                .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap (R$)"])
-                .map(cor_atingimento, subset=["Atingimento"]),
-                use_container_width=True,
-                hide_index=True,
-            )
+
+                cols_faturamento = [
+                    "Mês",
+                    "Meta",
+                    "Faturamento",
+                    "Atendimento da Meta",
+                ]
+                cols_faturamento = [c for c in cols_faturamento if c in df_faturamento_tela.columns]
+
+                def destacar_total_faturamento(row):
+                    if str(row.get("Mês", "")).upper().startswith("TOTAL"):
+                        return [
+                            "background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;"
+                            for _ in row
+                        ]
+                    return ["" for _ in row]
+
+                st.dataframe(
+                    df_faturamento_tela[cols_faturamento].style
+                    .apply(destacar_total_faturamento, axis=1)
+                    .format({
+                        "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                        "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                        "Atendimento da Meta": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+                    })
+                    .map(cor_atingimento, subset=["Atendimento da Meta"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.dataframe(
+                    df_completa_tela.style
+                    .format({
+                        "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                        "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                        "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+                        "Atingimento": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+                    })
+                    .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap (R$)"])
+                    .map(cor_atingimento, subset=["Atingimento"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     st.divider()
     if eh_moto_margem(indicador):
