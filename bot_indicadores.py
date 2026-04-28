@@ -793,18 +793,17 @@ def consolidar_tecfil(df_raw, filial, indicador):
         # Tecfil Geral deve continuar separado.
         # Na planilha pode aparecer como TECFIL GERAL ou, em bases antigas, como XX GERAL XX.
         opcoes_geral = [
-            normalizar_texto("TECFIL GERAL"),
             normalizar_texto("XX GERAL XX"),
             normalizar_texto("GERAL"),
         ]
 
         base = base[base["FILIAL_NORM"].isin(opcoes_geral)].copy()
-        base["FILIAL"] = "Geral"
+        base["FILIAL"] = "Tecfil Geral"
     else:
         # Indicadores separados por estado:
         # Tecfil SP, Tecfil MS, Tecfil ES e Tecfil PR.
         base = base[base["FILIAL_NORM"] == normalizar_texto(estado_indicador)].copy()
-        base["FILIAL"] = estado_indicador
+        base["FILIAL"] = f"Tecfil {estado_indicador}"
 
     if base.empty:
         return pd.DataFrame()
@@ -4713,16 +4712,37 @@ df_raw = carregar(arquivo)
 df = filtrar_com_fallback_incremental(df_raw, indicador, filial)
 df_todas_unidades = filtrar(df_raw, indicador, "Geral")
 
-# Base correta para o Comparativo entre filiais:
-# monta os dados das filiais reais, evitando usar apenas a linha consolidada XX GERAL XX.
+# Base correta para o Comparativo entre filiais/unidades.
+#
+# Regra geral:
+# - Para indicadores normais: compara as filiais reais.
+# - Para Tecfil: compara Tecfil Geral + Tecfil SP/MS/ES/PR.
 _partes_comparativo_filiais = []
-for _filial_real in FILIAIS_REAIS:
-    try:
-        _df_filial_real = filtrar(df_raw, indicador, _filial_real)
-        if _df_filial_real is not None and not _df_filial_real.empty:
-            _partes_comparativo_filiais.append(_df_filial_real)
-    except Exception:
-        pass
+
+if eh_tecfil(indicador):
+    indicadores_tecfil_comparativo = [
+        "Tecfil Geral",
+        "Tecfil SP",
+        "Tecfil MS",
+        "Tecfil ES",
+        "Tecfil PR",
+    ]
+
+    for _indicador_tecfil in indicadores_tecfil_comparativo:
+        try:
+            _df_tecfil = filtrar(df_raw, _indicador_tecfil, "Geral")
+            if _df_tecfil is not None and not _df_tecfil.empty:
+                _partes_comparativo_filiais.append(_df_tecfil)
+        except Exception:
+            pass
+else:
+    for _filial_real in FILIAIS_REAIS:
+        try:
+            _df_filial_real = filtrar(df_raw, indicador, _filial_real)
+            if _df_filial_real is not None and not _df_filial_real.empty:
+                _partes_comparativo_filiais.append(_df_filial_real)
+        except Exception:
+            pass
 
 df_comparativo_filiais = (
     pd.concat(_partes_comparativo_filiais, ignore_index=True)
@@ -5943,7 +5963,7 @@ with tab3:
                 st.stop()
 
             ano_base_filial = st.selectbox("Ano do comparativo entre filiais", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
-            st.subheader(f"Comparativo entre filiais — {ano_base_filial}")
+            st.subheader(f"Comparativo entre unidades — {ano_base_filial}" if eh_tecfil(indicador) else f"Comparativo entre filiais — {ano_base_filial}")
 
             comp_filiais = comparativo_filiais(df_comparativo_filiais, ano_base_filial, indicador)
             st.dataframe(
@@ -6241,7 +6261,7 @@ with tab3:
                 st.stop()
 
             ano_base_filial = st.selectbox("Ano do comparativo entre filiais", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
-            st.subheader(f"Comparativo entre filiais — {ano_base_filial}")
+            st.subheader(f"Comparativo entre unidades — {ano_base_filial}" if eh_tecfil(indicador) else f"Comparativo entre filiais — {ano_base_filial}")
 
             comp_filiais = comparativo_filiais(df_comparativo_filiais, ano_base_filial, indicador)
 
