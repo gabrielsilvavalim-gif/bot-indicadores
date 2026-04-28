@@ -1068,8 +1068,17 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
             out[col] = 0
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
 
+    # Qtd. crítico:
+    # usar a mesma fórmula da Diferença do Parâmetro de Coleta:
+    # Qtd. crítico = Qtd. coletada - Qtd. coletas normais
     out["QTD_SUCESSO_CALC"] = out["QTD_TOTAL_CALC"] - out["QTD_NORMAIS_CALC"]
+
+    # Resultado:
+    # Resultado = Qtd. crítico - Limite crítico
     out["DIFERENCA_CALC"] = out["QTD_SUCESSO_CALC"] - out["META_QUALIDADE_CALC"]
+
+    # Result %:
+    # Result % = Qtd. crítico / Qtd. coletada
     out["RESULTADO_QUALIDADE_CALC"] = out["QTD_SUCESSO_CALC"] / out["QTD_TOTAL_CALC"].replace(0, pd.NA)
 
     # Compatibilidade com blocos antigos do app
@@ -1098,7 +1107,7 @@ def resumo_qualidade_por_grupo(grupo, indicador):
     if modelo == "parametro_coleta_critico":
         # Parâmetro de Coleta Crítico:
         # - Meta = limite crítico (soma do limite do período)
-        # - Qtd. crítico = quantidade crítica
+        # - Qtd. crítico = Qtd. coletada - Qtd. coletas normais
         # - Resultado = Qtd. crítico - Limite crítico
         # - Result % = Qtd. crítico / Qtd. coletas
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
