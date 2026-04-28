@@ -343,6 +343,49 @@ def fmt_num(v):
 
 
 
+
+def formatar_df_periodo_tela_seguro(df_periodo_tela):
+    """
+    Formata a tabela de mesmo período sem usar Pandas Styler.
+    Isso evita erro TypeError em formatter.format(x).
+    """
+    if df_periodo_tela is None or df_periodo_tela.empty:
+        return pd.DataFrame()
+
+    d = df_periodo_tela.copy()
+    d = d.replace([float("inf"), float("-inf")], pd.NA)
+
+    for col in d.columns:
+        nome = normalizar_texto(col)
+
+        if nome in ["ANO", "MESES C DADO"]:
+            d[col] = d[col].apply(fmt_int_seguro)
+
+        elif nome in ["PERIODO", "FILIAL"]:
+            d[col] = d[col].apply(lambda v: "—" if pd.isna(v) else str(v))
+
+        elif nome.startswith("VARIACAO"):
+            d[col] = d[col].apply(fmt_var_pct_seguro)
+
+        elif "%" in str(col) or nome in ["ATINGIMENTO", "ATING", "TX SUCESSO", "TX. SUCESSO", "USO DO LIMITE"]:
+            d[col] = d[col].apply(fmt_pct)
+
+        elif any(p in nome for p in ["R$", "RECEITA", "DESPESA", "FATURAMENTO", "COMPRA", "MARGEM", "REALIZADO", "META", "GAP", "RESULTADO"]):
+            # Se for Resultado % já caiu no caso anterior; Resultado R$/Gap fica financeiro.
+            if "KG" in nome or "QTD" in nome or nome in ["RESULTADO"]:
+                d[col] = d[col].apply(fmt_num)
+            else:
+                d[col] = d[col].apply(fmt_brl)
+
+        elif any(p in nome for p in ["QTD", "KG", "DIFERENCA", "CRITICO"]):
+            d[col] = d[col].apply(fmt_num)
+
+        else:
+            d[col] = d[col].apply(lambda v: "—" if pd.isna(v) else v)
+
+    return d
+
+
 def preparar_df_para_styler(df_entrada):
     """
     Evita erros do pandas Styler convertendo valores problemáticos.
@@ -5628,9 +5671,9 @@ with tab0:
             st.dataframe(
                 df_yoy_dashboard.style
                 .format({
-                    "Realizado": "R$ {:,.0f}",
-                    "Meta": "R$ {:,.0f}",
-                    "Atingimento": "{:.1%}",
+                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
                     "Meses c/ dado": fmt_int_seguro,
                 })
@@ -6544,9 +6587,9 @@ with tab3:
             st.dataframe(
                 df_yoy.style
                 .format({
-                    "Realizado": "R$ {:,.0f}",
-                    "Meta": "R$ {:,.0f}",
-                    "Atingimento": "{:.1%}",
+                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
                     "Meses c/ dado": fmt_int_seguro,
                 })
@@ -6636,20 +6679,10 @@ with tab3:
                 )
             else:
                 st.dataframe(
-                    preparar_df_para_styler(df_periodo_tela).style
-                .format({
-                    "Realizado": "R$ {:,.0f}",
-                    "Meta": "R$ {:,.0f}",
-                    "Gap (R$)": "R$ {:,.0f}",
-                    "Atingimento": "{:.1%}",
-                    "Variação Realizado": fmt_var_pct_seguro,
-                    "Variação Meta": fmt_var_pct_seguro,
-                })
-                .map(cor_variacao, subset=["Variação Realizado", "Variação Meta"])
-                .map(cor_atingimento, subset=["Atingimento"]),
-                use_container_width=True,
-                hide_index=True,
-            )
+                    formatar_df_periodo_tela_seguro(df_periodo_tela),
+                    use_container_width=True,
+                    hide_index=True,
+                )
         else:
             st.info("Sem dados suficientes para comparar o mesmo período.")
 
@@ -6833,10 +6866,10 @@ with tab3:
                 st.dataframe(
                     comp_filiais.style
                     .format({
-                        "Realizado": "R$ {:,.0f}",
-                        "Meta": "R$ {:,.0f}",
+                        "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                         "Gap": "R$ {:,.0f}",
-                        "Atingimento": "{:.1%}",
+                        "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     })
                     .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
                     .map(cor_atingimento, subset=["Atingimento"]),
