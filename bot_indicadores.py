@@ -360,7 +360,7 @@ def aplicar_filtro_base(df, cfg, filial):
     if cfg.get("TIPO DE META") is not None:
         d = aplicar_filtro_coluna(d, "TIPO DE META", cfg.get("TIPO DE META"))
 
-   if filial == "Geral":
+    if filial == "Geral":
         # Tenta usar a linha "XX GERAL XX" da planilha primeiro
         # (já tem meta consolidada e totais corretos do sistema)
         opcoes_geral = [
