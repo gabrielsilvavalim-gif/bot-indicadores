@@ -900,28 +900,28 @@ def rotulos_qualidade(indicador):
     if modelo == "avaliacao_equipe":
         return {
             "meta": "Meta",
-            "qtd_total": "QTD. COLETAS",
-            "qtd_sucesso": "QTD.COL. OTIMO+BOM",
-            "diferenca": "DIFER.",
-            "resultado": "TX SUCESSO %",
+            "qtd_total": "Qtd. coletas",
+            "qtd_sucesso": "Qtd. col. ótimo+bom",
+            "diferenca": "Diferença",
+            "resultado": "Tx sucesso %",
         }
 
     if modelo == "parametro_coleta":
         return {
             "meta": "Meta",
-            "qtd_total": "QTD. COLETAS",
-            "qtd_sucesso": "QTD. COLETAS NORMAIS",
-            "diferenca": "DIFER.",
-            "resultado": "RESULT. %",
+            "qtd_total": "Qtd. coletas",
+            "qtd_sucesso": "Qtd. coletas normais",
+            "diferenca": "Diferença",
+            "resultado": "Resultado %",
         }
 
     if modelo == "parametro_coleta_critico":
         return {
-            "meta": "Limite Crítico",
-            "qtd_total": "QTD. COLETAS",
-            "qtd_sucesso": "QTD. COL. CRÍTICO",
-            "diferenca": "DIFER.",
-            "resultado": "TX SUCESSO %",
+            "meta": "Limite crítico",
+            "qtd_total": "Qtd. coletas",
+            "qtd_sucesso": "Qtd. col. crítico",
+            "diferenca": "Diferença",
+            "resultado": "Tx sucesso %",
         }
 
     return {
@@ -1014,28 +1014,27 @@ def resumo_qualidade_por_grupo(grupo, indicador):
         }
 
     qtd_total = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0).sum()
-    qtd_sucesso = pd.to_numeric(grupo.get("QTD_SUCESSO_CALC"), errors="coerce").fillna(0).sum()
+    qtd_sucesso_base = pd.to_numeric(grupo.get("QTD_SUCESSO_CALC"), errors="coerce").fillna(0).sum()
 
     if modelo == "parametro_coleta_critico":
         # Crítico: META é limite absoluto, então totaliza como soma.
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
+        qtd_sucesso = qtd_sucesso_base
         diferenca = qtd_sucesso - meta
-    else:
-        # Avaliação de Equipe e Parâmetro de Coleta:
-        # Fórmula da meta total conforme a planilha:
-        # SOMARPRODUTO(META; QTD. COLETAS) / SOMA(QTD. COLETAS)
+        resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
+    elif modelo == "parametro_coleta":
+        # No layout do Parâmetro de Coleta da planilha:
+        # - Qtd. coletas normais = quantidade de coletas dentro do padrão
+        # - Diferença = Qtd. coletas - Qtd. coletas normais
         #
-        # Importante:
-        # Usa somente linhas válidas, com meta > 0 e QTD. COLETAS > 0.
-        # Isso evita que linhas de média, linhas vazias ou registros antigos distorçam a meta.
+        # Nesta base, o campo carregado em QTD_SUCESSO_CALC vinha invertido em relação
+        # ao layout exibido. Então aqui fazemos a correção final para a tabela ficar igual
+        # à planilha do usuário.
         meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
         peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
-
         validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
 
         if validos.any() and peso[validos].sum() > 0:
-            # Se todas as metas válidas forem iguais, preserva exatamente a meta do modelo.
-            # Exemplo: 97%, 97%, 97%, 97% => 97%.
             metas_validas = meta_serie[validos].round(6).dropna().unique()
             if len(metas_validas) == 1:
                 meta = float(metas_validas[0])
@@ -1044,13 +1043,30 @@ def resumo_qualidade_por_grupo(grupo, indicador):
         else:
             meta = None
 
-        # Fórmula da planilha:
-        # DIFER. = QTD. COLETAS - QTD.COL. OTIMO+BOM / QTD. COLETAS NORMAIS
-        diferenca = qtd_total - qtd_sucesso
+        diferenca = qtd_sucesso_base
+        qtd_sucesso = qtd_total - diferenca
+        resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
+    else:
+        # Avaliação de Equipe:
+        # Fórmula da meta total conforme a planilha:
+        # SOMARPRODUTO(META; QTD. COLETAS) / SOMA(QTD. COLETAS)
+        meta_serie = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce")
+        peso = pd.to_numeric(grupo.get("QTD_TOTAL_CALC"), errors="coerce").fillna(0)
 
-    # Fórmula da taxa de sucesso:
-    # TX SUCESSO % = QTD. SUCESSO / QTD. COLETAS
-    resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
+        validos = meta_serie.notna() & (meta_serie > 0) & (peso > 0)
+
+        if validos.any() and peso[validos].sum() > 0:
+            metas_validas = meta_serie[validos].round(6).dropna().unique()
+            if len(metas_validas) == 1:
+                meta = float(metas_validas[0])
+            else:
+                meta = (meta_serie[validos] * peso[validos]).sum() / peso[validos].sum()
+        else:
+            meta = None
+
+        qtd_sucesso = qtd_sucesso_base
+        diferenca = qtd_total - qtd_sucesso
+        resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
 
     return {
         "Meta": meta,
