@@ -174,7 +174,7 @@ INDICADORES = {
     },
     "Faturamento Incremental": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
-        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMETAL", "TIPO DE META": "R$"
+        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMENTAL", "TIPO DE META": "R$"
     },
     "Faturamento LCSAO": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
@@ -6901,16 +6901,7 @@ with tab4:
             )
             corpo_email = st.text_area(
                 "Mensagem",
-                value=(
-                    f"Olá,
-
-"
-                    f"Segue em anexo o relatório de indicadores referente a {indicador}, "
-                    f"base {filial}, ano {ano_pdf_dashboard}.
-
-"
-                    f"Atenciosamente."
-                ),
+                value=f"Olá,\\n\\nSegue em anexo o relatório de indicadores referente a {indicador}, base {filial}, ano {ano_pdf_dashboard}.\\n\\nAtenciosamente.",
                 height=140
             )
 
