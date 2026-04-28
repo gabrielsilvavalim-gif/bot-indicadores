@@ -1001,6 +1001,85 @@ def consolidar_qualidade(df, indicador):
     return d.replace([float("inf"), float("-inf")], pd.NA)
 
 
+def consolidar_parametro_coleta_critico(df_raw, filial):
+    """
+    Consolidação especial do indicador Parâmetro de Coleta Crítico.
+
+    Regra pedida pelo usuário:
+    - Limite crítico: vem das linhas QUALIDADE / PARAMETROS COLETAS / CRITICO.
+    - Qtd. coletas: deve ser a mesma do indicador Parâmetro de Coleta.
+    - Qtd. crítico: deve ser a diferença do Parâmetro de Coleta,
+      ou seja, Qtd. coletas - Qtd. coletas normais.
+    - Resultado: Qtd. crítico - Limite crítico.
+    - Result %: Qtd. crítico / Qtd. coletas.
+    """
+    cfg_critico = INDICADORES["Parâmetro de Coleta Crítico"]
+    cfg_parametro = INDICADORES["Parâmetro de Coleta"]
+
+    d_limite = aplicar_filtro_base(df_raw, cfg_critico, filial).copy()
+    d_param = aplicar_filtro_base(df_raw, cfg_parametro, filial).copy()
+
+    if d_limite.empty and d_param.empty:
+        return pd.DataFrame()
+
+    chaves = ["FILIAL", "REFERÊNCIA", "ANO", "MÊS", "DIA", "MÊS_ORDEM", "MÊS_NOME"]
+
+    if not d_param.empty:
+        base_param = d_param[chaves].copy()
+        base_param["QTD_TOTAL_CALC"] = serie_numerica_por_coluna(
+            d_param,
+            nomes_preferidos=["VALOR REF 01", "QTD. COLETAS", "QTD COLETAS", "QUANTIDADE COLETADA"],
+            indice_1_base=10,
+        )
+        base_param["QTD_NORMAIS_CALC"] = serie_numerica_por_coluna(
+            d_param,
+            nomes_preferidos=["VALOR REF 02", "QTD. COLETAS NORMAIS", "QTD COLETAS NORMAIS", "QTD. COL. OTIMO+BOM"],
+            indice_1_base=12,
+        )
+        param_agg = (
+            base_param.groupby(chaves, as_index=False)
+            .agg({"QTD_TOTAL_CALC": "sum", "QTD_NORMAIS_CALC": "sum"})
+        )
+    else:
+        param_agg = pd.DataFrame(columns=chaves + ["QTD_TOTAL_CALC", "QTD_NORMAIS_CALC"])
+
+    if not d_limite.empty:
+        base_limite = d_limite[chaves].copy()
+        base_limite["META_QUALIDADE_CALC"] = pd.to_numeric(d_limite.get("META", 0), errors="coerce").fillna(0)
+        limite_agg = (
+            base_limite.groupby(chaves, as_index=False)
+            .agg({"META_QUALIDADE_CALC": "sum"})
+        )
+    else:
+        limite_agg = pd.DataFrame(columns=chaves + ["META_QUALIDADE_CALC"])
+
+    if param_agg.empty:
+        out = limite_agg.copy()
+        out["QTD_TOTAL_CALC"] = 0
+        out["QTD_NORMAIS_CALC"] = 0
+    elif limite_agg.empty:
+        out = param_agg.copy()
+        out["META_QUALIDADE_CALC"] = 0
+    else:
+        out = pd.merge(param_agg, limite_agg, on=chaves, how="outer")
+
+    for col in ["QTD_TOTAL_CALC", "QTD_NORMAIS_CALC", "META_QUALIDADE_CALC"]:
+        if col not in out.columns:
+            out[col] = 0
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
+
+    out["QTD_SUCESSO_CALC"] = out["QTD_TOTAL_CALC"] - out["QTD_NORMAIS_CALC"]
+    out["DIFERENCA_CALC"] = out["QTD_SUCESSO_CALC"] - out["META_QUALIDADE_CALC"]
+    out["RESULTADO_QUALIDADE_CALC"] = out["QTD_SUCESSO_CALC"] / out["QTD_TOTAL_CALC"].replace(0, pd.NA)
+
+    # Compatibilidade com blocos antigos do app
+    out["META_CALC"] = out["META_QUALIDADE_CALC"]
+    out["REALIZADO_CALC"] = out["QTD_SUCESSO_CALC"]
+    out["ATINGIMENTO_CALC"] = out["RESULTADO_QUALIDADE_CALC"]
+
+    return out.sort_values(["ANO", "MÊS", "FILIAL"]).replace([float("inf"), float("-inf")], pd.NA).reset_index(drop=True)
+
+
 def resumo_qualidade_por_grupo(grupo, indicador):
     modelo = modelo_qualidade(indicador)
 
@@ -1194,6 +1273,8 @@ def filtrar(df, indicador, filial):
         return consolidar_tecfil(df, filial, indicador)
 
     if cfg["tipo"] == "qualidade":
+        if indicador == "Parâmetro de Coleta Crítico":
+            return consolidar_parametro_coleta_critico(df, filial)
         return consolidar_qualidade(aplicar_filtro_base(df, cfg, filial), indicador)
 
     if cfg["tipo"] == "simples":
