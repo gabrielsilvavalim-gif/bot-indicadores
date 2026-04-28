@@ -1001,17 +1001,18 @@ def consolidar_qualidade(df, indicador):
     return d.replace([float("inf"), float("-inf")], pd.NA)
 
 
+
 def consolidar_parametro_coleta_critico(df_raw, filial):
     """
-    Consolidação especial do indicador Parâmetro de Coleta Crítico.
+    Consolidação específica do indicador Parâmetro de Coleta Crítico.
 
-    Regra pedida pelo usuário:
+    Regra correta:
     - Limite crítico: vem das linhas QUALIDADE / PARAMETROS COLETAS / CRITICO.
-    - Qtd. coletas: deve ser a mesma do indicador Parâmetro de Coleta.
-    - Qtd. crítico: deve ser a diferença do Parâmetro de Coleta,
-      ou seja, Qtd. coletas - Qtd. coletas normais.
-    - Resultado: Qtd. crítico - Limite crítico.
-    - Result %: Qtd. crítico / Qtd. coletas.
+    - Qtd. coletas: vem do indicador Parâmetro de Coleta.
+    - Qtd. coletas normais: vem do indicador Parâmetro de Coleta.
+    - Qtd. crítico = Qtd. coletas - Qtd. coletas normais.
+    - Resultado = Qtd. crítico - Limite crítico.
+    - Result % = Qtd. crítico / Qtd. coletas.
     """
     cfg_critico = INDICADORES["Parâmetro de Coleta Crítico"]
     cfg_parametro = INDICADORES["Parâmetro de Coleta"]
@@ -1026,16 +1027,21 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
 
     if not d_param.empty:
         base_param = d_param[chaves].copy()
+
         base_param["QTD_TOTAL_CALC"] = serie_numerica_por_coluna(
             d_param,
             nomes_preferidos=["VALOR REF 01", "QTD. COLETAS", "QTD COLETAS", "QUANTIDADE COLETADA"],
             indice_1_base=10,
         )
+
+        # No Parâmetro de Coleta, a quantidade normal é o valor que aparece como
+        # "Qtd. coletas normais" no dashboard.
         base_param["QTD_NORMAIS_CALC"] = serie_numerica_por_coluna(
             d_param,
             nomes_preferidos=["VALOR REF 02", "QTD. COLETAS NORMAIS", "QTD COLETAS NORMAIS", "QTD. COL. OTIMO+BOM"],
             indice_1_base=12,
         )
+
         param_agg = (
             base_param.groupby(chaves, as_index=False)
             .agg({"QTD_TOTAL_CALC": "sum", "QTD_NORMAIS_CALC": "sum"})
@@ -1046,6 +1052,7 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
     if not d_limite.empty:
         base_limite = d_limite[chaves].copy()
         base_limite["META_QUALIDADE_CALC"] = pd.to_numeric(d_limite.get("META", 0), errors="coerce").fillna(0)
+
         limite_agg = (
             base_limite.groupby(chaves, as_index=False)
             .agg({"META_QUALIDADE_CALC": "sum"})
@@ -1068,17 +1075,14 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
             out[col] = 0
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
 
-    # Qtd. crítico:
-    # usar a mesma fórmula da Diferença do Parâmetro de Coleta:
-    # Qtd. crítico = Qtd. coletada - Qtd. coletas normais
+    # Fórmula correta:
+    # Qtd. crítico = Qtd. coletas - Qtd. coletas normais
     out["QTD_SUCESSO_CALC"] = out["QTD_TOTAL_CALC"] - out["QTD_NORMAIS_CALC"]
 
-    # Resultado:
     # Resultado = Qtd. crítico - Limite crítico
     out["DIFERENCA_CALC"] = out["QTD_SUCESSO_CALC"] - out["META_QUALIDADE_CALC"]
 
-    # Result %:
-    # Result % = Qtd. crítico / Qtd. coletada
+    # Result % = Qtd. crítico / Qtd. coletas
     out["RESULTADO_QUALIDADE_CALC"] = out["QTD_SUCESSO_CALC"] / out["QTD_TOTAL_CALC"].replace(0, pd.NA)
 
     # Compatibilidade com blocos antigos do app
@@ -1106,12 +1110,15 @@ def resumo_qualidade_por_grupo(grupo, indicador):
 
     if modelo == "parametro_coleta_critico":
         # Parâmetro de Coleta Crítico:
-        # - Meta = limite crítico (soma do limite do período)
-        # - Qtd. crítico = Qtd. coletada - Qtd. coletas normais
-        # - Resultado = Qtd. crítico - Limite crítico
-        # - Result % = Qtd. crítico / Qtd. coletas
+        # Qtd. crítico = Qtd. coletas - Qtd. coletas normais.
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
-        qtd_sucesso = qtd_sucesso_base
+
+        if "QTD_NORMAIS_CALC" in grupo.columns:
+            qtd_normais = pd.to_numeric(grupo.get("QTD_NORMAIS_CALC"), errors="coerce").fillna(0).sum()
+            qtd_sucesso = qtd_total - qtd_normais
+        else:
+            qtd_sucesso = qtd_sucesso_base
+
         diferenca = qtd_sucesso - meta
         resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
     elif modelo == "parametro_coleta":
