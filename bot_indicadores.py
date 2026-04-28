@@ -1106,6 +1106,43 @@ def cor_diferenca_qualidade(v):
     return f"color: {COR_VERDE}; font-weight:bold" if v <= 0 else f"color: {COR_LARANJA}; font-weight:bold"
 
 
+def colunas_qualidade_exibicao(indicador, incluir_ano=False, incluir_mom=False, incluir_acumulado=False):
+    """Define a ordem/visibilidade das colunas dos indicadores de qualidade."""
+    base = []
+    if incluir_ano:
+        base += ["ANO", "MÊS"]
+
+    rot = rotulos_qualidade(indicador)
+    col_qtd_sucesso = rot["qtd_sucesso"]
+
+    base += [
+        "Mês",
+        "Meta",
+        "Qtd. Coletas",
+        col_qtd_sucesso,
+        "Diferença",
+        "Resultado %",
+    ]
+
+    # Para Parâmetro de Coleta, o usuário pediu para remover o Acumulado.
+    if incluir_acumulado and modelo_qualidade(indicador) != "parametro_coleta":
+        base.append("Acumulado")
+
+    if incluir_mom:
+        base.append("MoM_%")
+
+    return base
+
+
+def aplicar_estilo_diferenca_qualidade(styler, indicador, subset=("Diferença",)):
+    """Aplica cor na diferença apenas quando fizer sentido.
+    Para Parâmetro de Coleta, o usuário pediu para tirar a cor da coluna Diferença.
+    """
+    if modelo_qualidade(indicador) == "parametro_coleta":
+        return styler
+    return styler.map(cor_diferenca_qualidade, subset=list(subset))
+
+
 def filtrar(df, indicador, filial):
     cfg = INDICADORES[indicador]
 
@@ -4419,7 +4456,11 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     if eh_moto_margem(indicador):
         pdf.tabela_mom(df_mom[["Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]])
     elif eh_qualidade(indicador):
-        pdf.tabela_mom(df_mom[["Mês", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Acumulado", "MoM_%"]])
+        rot = rotulos_qualidade(indicador)
+        col_qtd_sucesso = rot["qtd_sucesso"]
+        df_mom_pdf_q = df_mom.rename(columns={"Qtd. Sucesso": col_qtd_sucesso})
+        cols_pdf_q = [c for c in colunas_qualidade_exibicao(indicador, incluir_ano=False, incluir_mom=True, incluir_acumulado=False) if c in df_mom_pdf_q.columns]
+        pdf.tabela_mom(df_mom_pdf_q[cols_pdf_q])
     elif eh_tecfil(indicador):
         pdf.tabela_mom(df_mom[["Mês", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$", "MoM_%"]])
     elif eh_resultado_financeiro(indicador):
@@ -4957,18 +4998,24 @@ with tab0:
         st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
-        st.dataframe(
-            df_yoy_dashboard[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Meses c/ dado"]].style
+        rot = rotulos_qualidade(indicador)
+        col_qtd_sucesso = rot["qtd_sucesso"]
+        df_yoy_dashboard_tela = df_yoy_dashboard[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Meses c/ dado"]].rename(columns={"Qtd. Sucesso": col_qtd_sucesso})
+        styler_yoy_q = (
+            df_yoy_dashboard_tela.style
             .format({
                 "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else "—"),
                 "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                col_qtd_sucesso: lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Meses c/ dado": "{:.0f}",
             })
             .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
-            .map(cor_diferenca_qualidade, subset=["Diferença"]),
+        )
+        styler_yoy_q = aplicar_estilo_diferenca_qualidade(styler_yoy_q, indicador, subset=["Diferença"])
+        st.dataframe(
+            styler_yoy_q,
             use_container_width=True,
             hide_index=True,
         )
@@ -5293,18 +5340,25 @@ with tab1:
     else:
         df_completa_tela = df_completa.copy()
         if eh_qualidade(indicador):
-            st.dataframe(
-                df_completa_tela.style
+            rot = rotulos_qualidade(indicador)
+            col_qtd_sucesso = rot["qtd_sucesso"]
+            df_completa_tela = df_completa_tela.rename(columns={"Qtd. Sucesso": col_qtd_sucesso})
+            cols_exibir = [c for c in colunas_qualidade_exibicao(indicador) if c in df_completa_tela.columns]
+            styler_q = (
+                df_completa_tela[cols_exibir].style
                 .format({
                     "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else ""),
                     "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "",
-                    "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "",
+                    col_qtd_sucesso: lambda v: fmt_num(v) if pd.notna(v) else "",
                     "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "",
                     "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "",
                     "Acumulado": lambda v: fmt_num(v) if pd.notna(v) else "",
                 })
                 .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
-                .map(cor_diferenca_qualidade, subset=["Diferença", "Acumulado"]),
+            )
+            styler_q = aplicar_estilo_diferenca_qualidade(styler_q, indicador, subset=["Diferença", "Acumulado"])
+            st.dataframe(
+                styler_q,
                 use_container_width=True,
                 hide_index=True,
             )
@@ -5555,23 +5609,30 @@ with tab2:
                 return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
             return ["" for _ in row]
 
-        st.dataframe(
-            df_mom_qualidade_tela.style
+        rot = rotulos_qualidade(indicador)
+        col_qtd_sucesso = rot["qtd_sucesso"]
+        df_mom_qualidade_tela = df_mom_qualidade_tela.rename(columns={"Qtd. Sucesso": col_qtd_sucesso})
+        cols_exibir = [c for c in colunas_qualidade_exibicao(indicador, incluir_ano=True, incluir_mom=True, incluir_acumulado=False) if c in df_mom_qualidade_tela.columns]
+        styler_mom_q = (
+            df_mom_qualidade_tela[cols_exibir].style
             .apply(destacar_total, axis=1)
             .format({
                 "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
                 "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
                 "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else "—"),
                 "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "—",
+                col_qtd_sucesso: lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Acumulado": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "MoM_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
             })
             .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
-            .map(cor_diferenca_qualidade, subset=["Diferença", "Acumulado"])
-            .map(cor_variacao, subset=["MoM_%"]),
+            .map(cor_variacao, subset=["MoM_%"])
+        )
+        styler_mom_q = aplicar_estilo_diferenca_qualidade(styler_mom_q, indicador, subset=["Diferença", "Acumulado"])
+        st.dataframe(
+            styler_mom_q,
             use_container_width=True,
             hide_index=True,
         )
