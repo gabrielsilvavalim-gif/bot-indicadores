@@ -1152,11 +1152,26 @@ def colunas_qualidade_exibicao(indicador, incluir_ano=False, incluir_mom=False, 
 
 def aplicar_estilo_diferenca_qualidade(styler, indicador, subset=("Diferença",)):
     """Aplica cor na diferença apenas quando fizer sentido.
-    Para Parâmetro de Coleta, o usuário pediu para tirar a cor da coluna Diferença.
+
+    Correção:
+    Antes, quando a coluna "Acumulado" era removida do Parâmetro de Coleta,
+    o Pandas quebrava ao tentar aplicar estilo em uma coluna inexistente.
+
+    Agora, a função só aplica estilo nas colunas que realmente existem.
     """
     if modelo_qualidade(indicador) == "parametro_coleta":
         return styler
-    return styler.map(cor_diferenca_qualidade, subset=list(subset))
+
+    try:
+        colunas_existentes = list(styler.data.columns)
+        subset_existente = [c for c in list(subset) if c in colunas_existentes]
+
+        if not subset_existente:
+            return styler
+
+        return styler.map(cor_diferenca_qualidade, subset=subset_existente)
+    except Exception:
+        return styler
 
 
 def filtrar(df, indicador, filial):
