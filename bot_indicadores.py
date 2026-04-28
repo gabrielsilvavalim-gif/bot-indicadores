@@ -1077,17 +1077,20 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
 
     # Fórmula correta:
     # Qtd. crítico = Qtd. coletas - Qtd. coletas normais
-    out["QTD_SUCESSO_CALC"] = out["QTD_TOTAL_CALC"] - out["QTD_NORMAIS_CALC"]
+    out["QTD_CRITICO_CALC"] = out["QTD_TOTAL_CALC"] - out["QTD_NORMAIS_CALC"]
+
+    # Mantém compatibilidade com o restante do app
+    out["QTD_SUCESSO_CALC"] = out["QTD_CRITICO_CALC"]
 
     # Resultado = Qtd. crítico - Limite crítico
-    out["DIFERENCA_CALC"] = out["QTD_SUCESSO_CALC"] - out["META_QUALIDADE_CALC"]
+    out["DIFERENCA_CALC"] = out["QTD_CRITICO_CALC"] - out["META_QUALIDADE_CALC"]
 
     # Result % = Qtd. crítico / Qtd. coletas
-    out["RESULTADO_QUALIDADE_CALC"] = out["QTD_SUCESSO_CALC"] / out["QTD_TOTAL_CALC"].replace(0, pd.NA)
+    out["RESULTADO_QUALIDADE_CALC"] = out["QTD_CRITICO_CALC"] / out["QTD_TOTAL_CALC"].replace(0, pd.NA)
 
     # Compatibilidade com blocos antigos do app
     out["META_CALC"] = out["META_QUALIDADE_CALC"]
-    out["REALIZADO_CALC"] = out["QTD_SUCESSO_CALC"]
+    out["REALIZADO_CALC"] = out["QTD_CRITICO_CALC"]
     out["ATINGIMENTO_CALC"] = out["RESULTADO_QUALIDADE_CALC"]
 
     return out.sort_values(["ANO", "MÊS", "FILIAL"]).replace([float("inf"), float("-inf")], pd.NA).reset_index(drop=True)
@@ -1113,11 +1116,20 @@ def resumo_qualidade_por_grupo(grupo, indicador):
         # Qtd. crítico = Qtd. coletas - Qtd. coletas normais.
         meta = pd.to_numeric(grupo.get("META_QUALIDADE_CALC"), errors="coerce").fillna(0).sum()
 
-        if "QTD_NORMAIS_CALC" in grupo.columns:
+        if "QTD_CRITICO_CALC" in grupo.columns:
+            qtd_sucesso = pd.to_numeric(grupo.get("QTD_CRITICO_CALC"), errors="coerce").fillna(0).sum()
+        elif "QTD_NORMAIS_CALC" in grupo.columns:
             qtd_normais = pd.to_numeric(grupo.get("QTD_NORMAIS_CALC"), errors="coerce").fillna(0).sum()
             qtd_sucesso = qtd_total - qtd_normais
         else:
-            qtd_sucesso = qtd_sucesso_base
+            # Fallback de segurança:
+            # se QTD_SUCESSO_CALC vier como "coletas normais",
+            # converte para o valor crítico usando a mesma fórmula da diferença:
+            # Qtd. crítico = Qtd. coletas - Qtd. coletas normais.
+            if qtd_total > 0 and qtd_sucesso_base > (qtd_total / 2):
+                qtd_sucesso = qtd_total - qtd_sucesso_base
+            else:
+                qtd_sucesso = qtd_sucesso_base
 
         diferenca = qtd_sucesso - meta
         resultado = qtd_sucesso / qtd_total if qtd_total > 0 else None
