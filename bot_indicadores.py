@@ -5118,20 +5118,40 @@ with col_titulo:
 # =========================
 with st.sidebar:
     st.header("⚙️ Filtros")
-    arquivo = st.file_uploader("Upload da planilha (.xlsx)", type=["xlsx"])
+
+    fonte_dados = st.radio(
+        "Fonte da base",
+        ["Google Drive", "Upload manual"],
+        index=0,
+    )
+
+    if fonte_dados == "Google Drive":
+        nome_arquivo_drive = st.text_input(
+            "Nome do arquivo no Drive",
+            value="BaseSistema.xlsx",
+        )
+        st.caption("A busca no Drive atualiza automaticamente a cada 5 minutos.")
+        arquivo = None
+    else:
+        arquivo = st.file_uploader("Carregar a planilha (.xlsx)", type=["xlsx"])
+
     st.divider()
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
     st.caption("v4.5 — Bot Indicadores")
 
-if not arquivo:
-    st.info("👈 Faça upload da planilha na barra lateral para começar.")
-    st.stop()
 
+if fonte_dados == "Google Drive":
+    df_raw = baixar_planilha_drive(nome_arquivo_drive)
+else:
+    if not arquivo:
+        st.info("👈 Faça upload da planilha na barra lateral ou selecione Google Drive como fonte da base.")
+        st.stop()
 
-df_raw = carregar(arquivo)
-df = filtrar_com_fallback_incremental(df_raw, indicador, filial)
+    df_raw = carregar(arquivo)
+
+df = filtrar(df_raw, indicador, filial)
 df_todas_unidades = filtrar(df_raw, indicador, "Geral")
 
 # Base correta para o Comparativo entre filiais/unidades.
