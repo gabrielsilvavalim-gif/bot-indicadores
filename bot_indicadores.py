@@ -174,7 +174,7 @@ INDICADORES = {
     },
     "Faturamento Incremental": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
-        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMENTAL", "TIPO DE META": "R$"
+        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMETAL", "TIPO DE META": "R$"
     },
     "Faturamento LCSAO": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
@@ -5202,7 +5202,7 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
     "📅 Por Ano",
     "📈 MoM",
     "🔁 YoY",
-    "🤖 Insights IA"
+    "📤 Opções"
 ])
 
 
@@ -5211,61 +5211,6 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
 # =========================
 with tab0:
     st.subheader(f"Dashboard — {indicador} | {filial}")
-    col_pdf_dashboard_espaco, col_pdf_dashboard = st.columns([3, 1])
-    with col_pdf_dashboard:
-        ano_pdf_dashboard = int(df["ANO"].max())
-        nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
-
-        with st.spinner("Gerando PDF..."):
-            pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
-
-        st.download_button(
-            label="📄 Baixar PDF",
-            data=pdf_bytes_dashboard,
-            file_name=nome_pdf_dashboard,
-            mime="application/pdf",
-            use_container_width=True,
-            key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
-        )
-
-        with st.expander("✉️ Enviar por e-mail"):
-            with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
-                email_destino = st.text_input("E-mail do destinatário")
-                assunto_email = st.text_input(
-                    "Assunto",
-                    value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
-                )
-                corpo_email = st.text_area(
-                    "Mensagem",
-                    value=(
-                        f"Olá,\n\n"
-                        f"Segue em anexo o relatório de indicadores referente a {indicador}, "
-                        f"base {filial}, ano {ano_pdf_dashboard}.\n\n"
-                        f"Atenciosamente."
-                    ),
-                    height=140
-                )
-
-                enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
-
-                if enviar_email:
-                    if not email_destino or "@" not in email_destino:
-                        st.warning("Informe um e-mail válido.")
-                    else:
-                        with st.spinner("Enviando e-mail..."):
-                            ok, msg_envio = enviar_email_relatorio(
-                                destinatario=email_destino,
-                                assunto=assunto_email,
-                                corpo=corpo_email,
-                                nome_arquivo=nome_pdf_dashboard,
-                                pdf_bytes=pdf_bytes_dashboard,
-                            )
-
-                        if ok:
-                            st.success(msg_envio)
-                        else:
-                            st.error(msg_envio)
-
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
@@ -6919,52 +6864,72 @@ with tab3:
 
 
 # =========================
-# ABA IA
+# ABA OPÇÕES
 # =========================
 with tab4:
-    col_chat1, col_chat2 = st.columns([4, 1])
-    with col_chat1:
-        st.subheader("🤖 Pergunte ao assistente")
-    with col_chat2:
-        if st.button("🗑️ Limpar chat", use_container_width=True):
-            st.session_state.chat = []
-            st.rerun()
+    st.subheader(f"Opções — {indicador} | {filial}")
+    st.caption("Nesta aba você pode baixar o PDF do relatório ou enviar o relatório por e-mail.")
 
-    if "chat" not in st.session_state:
-        st.session_state.chat = []
+    ano_pdf_dashboard = int(df["ANO"].max())
+    nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
 
-    for msg in st.session_state.chat:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    with st.spinner("Gerando PDF..."):
+        pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
 
-    pergunta = st.chat_input("Digite sua pergunta...")
-    if pergunta:
-        st.session_state.chat.append({"role": "user", "content": pergunta})
+    st.markdown("### Arquivos e envio")
+    col_op1, col_op2 = st.columns(2)
 
-        with st.chat_message("user"):
-            st.markdown(pergunta)
+    with col_op1:
+        st.download_button(
+            label="📄 Baixar PDF",
+            data=pdf_bytes_dashboard,
+            file_name=nome_pdf_dashboard,
+            mime="application/pdf",
+            use_container_width=True,
+            key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
+        )
 
-        with st.chat_message("assistant"):
-            with st.spinner("Analisando os dados..."):
-                try:
-                    if client is None:
-                        raise Exception("Cliente Anthropic não configurado.")
+    with col_op2:
+        st.info("Use a opção abaixo para enviar o relatório diretamente por e-mail.")
 
-                    prompt = resumo_para_ia(df, indicador, filial, pergunta)
-                    resp = client.messages.create(
-                        model="claude-sonnet-4-20250514",
-                        max_tokens=1500,
-                        messages=[{"role": "user", "content": prompt}],
-                    )
-                    texto = resp.content[0].text
-                    st.markdown(texto)
-                except Exception as e:
-                    erro_txt = str(e)
-                    if "credit balance is too low" in erro_txt.lower():
-                        texto = "A integração com a IA está ativa, mas a conta da Anthropic está sem créditos no momento."
-                        st.warning(texto)
+    with st.expander("✉️ Enviar por e-mail", expanded=True):
+        with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
+            email_destino = st.text_input("E-mail do destinatário")
+            assunto_email = st.text_input(
+                "Assunto",
+                value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
+            )
+            corpo_email = st.text_area(
+                "Mensagem",
+                value=(
+                    f"Olá,
+
+"
+                    f"Segue em anexo o relatório de indicadores referente a {indicador}, "
+                    f"base {filial}, ano {ano_pdf_dashboard}.
+
+"
+                    f"Atenciosamente."
+                ),
+                height=140
+            )
+
+            enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
+
+            if enviar_email:
+                if not email_destino or "@" not in email_destino:
+                    st.warning("Informe um e-mail válido.")
+                else:
+                    with st.spinner("Enviando e-mail..."):
+                        ok, msg_envio = enviar_email_relatorio(
+                            destinatario=email_destino,
+                            assunto=assunto_email,
+                            corpo=corpo_email,
+                            nome_arquivo=nome_pdf_dashboard,
+                            pdf_bytes=pdf_bytes_dashboard,
+                        )
+
+                    if ok:
+                        st.success(msg_envio)
                     else:
-                        texto = f"Erro ao consultar a IA: {erro_txt}"
-                        st.error(texto)
-
-        st.session_state.chat.append({"role": "assistant", "content": texto})
+                        st.error(msg_envio)
