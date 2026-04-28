@@ -3746,7 +3746,8 @@ class PDFRelatorio(FPDF):
                 self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
                 self.cell(widths[1], 6, fmt_pct(row["Meta"]) if pd.notna(row["Meta"]) and row["Meta"] <= 1 else fmt_num(row["Meta"]), border=1, align="R")
                 self.cell(widths[2], 6, fmt_num(row["Qtd. Coletas"]), border=1, align="R")
-                self.cell(widths[3], 6, fmt_num(row["Qtd. Sucesso"]), border=1, align="R")
+                qtd_sucesso_pdf = row["Qtd. Sucesso"] if "Qtd. Sucesso" in row.index else row.get("QTD. COLETAS NORMAIS", row.get("QTD.COL. OTIMO+BOM", None))
+                self.cell(widths[3], 6, fmt_num(qtd_sucesso_pdf), border=1, align="R")
                 self.cell(widths[4], 6, fmt_num(row["Diferença"]), border=1, align="R")
                 self.cell(widths[5], 6, fmt_pct(row["Resultado %"]), border=1, align="R")
                 self.cell(widths[6], 6, fmt_num(row["Acumulado"]), border=1, align="R")
@@ -4456,11 +4457,11 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     if eh_moto_margem(indicador):
         pdf.tabela_mom(df_mom[["Mês", "META", "Compra", "Realizado", "Margem Bruta", "Gap", "Ating.", "Acumulado", "MoM_%"]])
     elif eh_qualidade(indicador):
-        rot = rotulos_qualidade(indicador)
-        col_qtd_sucesso = rot["qtd_sucesso"]
-        df_mom_pdf_q = df_mom.rename(columns={"Qtd. Sucesso": col_qtd_sucesso})
-        cols_pdf_q = [c for c in colunas_qualidade_exibicao(indicador, incluir_ano=False, incluir_mom=True, incluir_acumulado=False) if c in df_mom_pdf_q.columns]
-        pdf.tabela_mom(df_mom_pdf_q[cols_pdf_q])
+        # No PDF, manter os nomes internos esperados pelo método tabela_mom.
+        # Não renomear "Qtd. Sucesso", pois tabela_mom usa row["Qtd. Sucesso"].
+        cols_pdf_q = ["Mês", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]
+        cols_pdf_q = [c for c in cols_pdf_q if c in df_mom.columns]
+        pdf.tabela_mom(df_mom[cols_pdf_q])
     elif eh_tecfil(indicador):
         pdf.tabela_mom(df_mom[["Mês", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$", "MoM_%"]])
     elif eh_resultado_financeiro(indicador):
