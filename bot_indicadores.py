@@ -21,28 +21,7 @@ except ModuleNotFoundError:
     MediaIoBaseDownload = None
 
 st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_icon="📊", layout="wide")
-def verificar_senha_acesso():
-    if "acesso_liberado" not in st.session_state:
-        st.session_state.acesso_liberado = False
 
-    if st.session_state.acesso_liberado:
-        return True
-
-    st.title("🔒 Acesso restrito")
-    senha = st.text_input("Digite a senha para acessar o painel", type="password")
-
-    if st.button("Entrar"):
-        if senha == st.secrets.get("1234"):
-            st.session_state.acesso_liberado = True
-            st.rerun()
-        else:
-            st.error("Senha incorreta.")
-
-    return False
-
-
-if not verificar_senha_acesso():
-    st.stop()
 # =========================
 # CONFIGURAÇÕES GERAIS
 # =========================
