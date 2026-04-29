@@ -213,6 +213,46 @@ if not verificar_senha_acesso():
 
 
 # =========================
+# PERFIS E PERMISSÕES DO APP
+# =========================
+def usuario_atual():
+    """Retorna o usuário logado na sessão atual."""
+    return str(st.session_state.get("usuario_logado", "")).strip()
+
+
+def perfil_usuario():
+    """
+    Retorna o perfil do usuário logado.
+
+    Configure no Secrets:
+
+    [perfis]
+    Mazola = "admin"
+    valim = "usuario"
+
+    Se o usuário não estiver em [perfis], ele será tratado como usuário comum.
+    """
+    usuario = usuario_atual()
+    perfis = st.secrets.get("perfis", {})
+
+    try:
+        return str(perfis.get(usuario, "usuario")).strip().lower()
+    except Exception:
+        return "usuario"
+
+
+def eh_admin():
+    """True apenas para perfil administrador."""
+    return perfil_usuario() == "admin"
+
+
+def nome_perfil_exibicao():
+    return "Administrador" if eh_admin() else "Usuário comum"
+
+
+
+
+# =========================
 # CONFIGURAÇÕES GERAIS
 # =========================
 COR_LARANJA = "#F26522"
@@ -462,6 +502,119 @@ INDICADORES = {
         "GRUPO 01": "DESPESAS", "GRUPO 02": "HORAS EXTRAS", "GRUPO 03": QUALQUER, "TIPO DE META": "R$"
     },
 }
+
+
+# =========================
+# BLOCOS DE INDICADORES
+# =========================
+INDICADORES_POR_BLOCO = {
+    "Econômico": {
+        "Faturamentos": [
+            "Faturamento",
+            "Faturamento Serviços",
+            "Faturamento Regular",
+            "Faturamento Incremental",
+            "Faturamento LCSAO",
+            "Faturamento Sucata Diversa",
+            "Faturamento Reman Total",
+            "Faturamento Reman Rev",
+            "Faturamento Reman Cap",
+            "Faturamento Pneus Velhos",
+            "Faturamento Pneu Exceto Moto",
+            "Faturamento Pneus Velhos Moto",
+            "Faturamento Especial",
+        ],
+        "Resultado Financeiro": [
+            "Resultado Financeiro",
+        ],
+        "Despesas": [
+            "Despesa Geral",
+            "Despesa Manutenção",
+            "Despesa Hora Extra",
+        ],
+    },
+    "Qualidade": {
+        "Qualidade": [
+            "Avaliação de Equipe",
+            "Parâmetro de Coleta",
+            "Parâmetro de Coleta Crítico",
+        ],
+    },
+    "Tecfil": {
+        "Tecfil": [
+            "Tecfil Geral",
+            "Tecfil SP",
+            "Tecfil MS",
+            "Tecfil ES",
+            "Tecfil PR",
+        ],
+    },
+}
+
+
+def _opcoes_validas_indicadores(lista):
+    """Garante que só apareçam indicadores existentes no dicionário INDICADORES."""
+    return [i for i in lista if i in INDICADORES]
+
+
+def selecionar_indicador_por_blocos():
+    """
+    Seleção organizada:
+    1. Bloco principal: Econômico / Qualidade / Tecfil
+    2. Grupo: Faturamentos / Resultado Financeiro / Despesas etc.
+    3. Indicador final.
+    """
+    blocos = list(INDICADORES_POR_BLOCO.keys())
+
+    bloco_atual = st.session_state.get("bloco_principal_indicador", "Econômico")
+    if bloco_atual not in blocos:
+        bloco_atual = "Econômico"
+
+    bloco = st.selectbox(
+        "Bloco",
+        blocos,
+        index=blocos.index(bloco_atual),
+        key="bloco_principal_indicador",
+    )
+
+    grupos_dict = INDICADORES_POR_BLOCO[bloco]
+    grupos = list(grupos_dict.keys())
+
+    grupo_atual = st.session_state.get("grupo_indicador", grupos[0])
+    if grupo_atual not in grupos:
+        grupo_atual = grupos[0]
+
+    # Se o bloco só tiver um grupo, não precisa poluir a tela com outro selectbox.
+    if len(grupos) > 1:
+        grupo = st.selectbox(
+            "Tipo",
+            grupos,
+            index=grupos.index(grupo_atual),
+            key="grupo_indicador",
+        )
+    else:
+        grupo = grupos[0]
+        st.session_state["grupo_indicador"] = grupo
+
+    opcoes = _opcoes_validas_indicadores(grupos_dict[grupo])
+
+    if not opcoes:
+        st.error("Nenhum indicador encontrado para o bloco selecionado.")
+        st.stop()
+
+    indicador_atual = st.session_state.get("indicador_selecionado", opcoes[0])
+    if indicador_atual not in opcoes:
+        indicador_atual = opcoes[0]
+
+    indicador = st.selectbox(
+        "Indicador",
+        opcoes,
+        index=opcoes.index(indicador_atual),
+        key="indicador_selecionado",
+    )
+
+    return indicador
+
 
 FILIAIS_REAIS = ["CANOAS/RS", "CURITIBA/PR", "DUQUE DE CAXIAS/RJ", "VALINHOS/SP"]
 MESES_MAPA = {
@@ -5370,28 +5523,26 @@ with col_titulo:
 with st.sidebar:
     st.header("⚙️ Filtros")
 
-    fonte_dados = st.radio(
-        "Fonte da base",
-        ["Google Drive", "Upload manual"],
-        index=0,
-    )
-
-    if fonte_dados == "Google Drive":
-        nome_arquivo_drive = st.text_input(
-            "Nome do arquivo no Drive",
-            value="BaseSistema.xlsx",
-        )
-        st.caption("A busca no Drive atualiza automaticamente a cada 5 minutos.")
+    # Usuário comum NÃO vê a origem da base.
+    # Ele fica travado no Google Drive, com o arquivo padrão.
+    if eh_admin():
+        fonte_dados = st.session_state.get("fonte_dados_admin", "Google Drive")
+        nome_arquivo_drive = st.session_state.get("nome_arquivo_drive_admin", "BaseSistema.xlsx")
         arquivo = None
+        st.caption("🔐 Fonte da base: configuração disponível na aba Opções.")
     else:
-        arquivo = st.file_uploader("Carregar a planilha (.xlsx)", type=["xlsx"])
+        fonte_dados = "Google Drive"
+        nome_arquivo_drive = "BaseSistema.xlsx"
+        arquivo = None
 
     st.divider()
-    indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
+    indicador = selecionar_indicador_por_blocos()
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
+
     st.divider()
     usuario_logado = st.session_state.get("usuario_logado", "usuário")
     st.caption(f"👤 Logado como: **{usuario_logado}**")
+    st.caption(f"Perfil: **{nome_perfil_exibicao()}**")
 
     # Mostra tempo restante de sessão (sutil)
     ultimo_acesso = st.session_state.get("ultimo_acesso", time.time())
@@ -5406,21 +5557,37 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Sair", use_container_width=True):
-        for chave in ["acesso_liberado", "usuario_logado", "tentativas_login", "bloqueado_ate", "ultimo_acesso"]:
+        for chave in [
+            "acesso_liberado",
+            "usuario_logado",
+            "tentativas_login",
+            "bloqueado_ate",
+            "ultimo_acesso",
+            "arquivo_manual_bytes_admin",
+            "arquivo_manual_nome_admin",
+        ]:
             st.session_state.pop(chave, None)
         st.rerun()
 
-    st.caption("v4.7 — Bot Indicadores")
+    st.caption("v4.8 — Bot Indicadores")
 
 
 if fonte_dados == "Google Drive":
     df_raw = baixar_planilha_drive(nome_arquivo_drive)
 else:
-    if not arquivo:
-        st.info("👈 Faça upload da planilha na barra lateral ou selecione Google Drive como fonte da base.")
+    # Upload manual é recurso exclusivo do administrador.
+    if not eh_admin():
+        st.error("Apenas administradores podem usar upload manual.")
         st.stop()
 
-    df_raw = carregar(arquivo)
+    arquivo_manual_bytes = st.session_state.get("arquivo_manual_bytes_admin")
+
+    if not arquivo_manual_bytes:
+        st.warning("Upload manual selecionado pelo administrador, mas nenhum arquivo foi carregado.")
+        st.info("Acesse Opções > Administração da base e carregue a planilha, ou volte para Google Drive.")
+        st.stop()
+
+    df_raw = carregar(io.BytesIO(arquivo_manual_bytes))
 
 df_raw = validar_colunas_base(df_raw)
 
@@ -7179,6 +7346,62 @@ with tab3:
 with tab4:
     st.subheader(f"Opções — {indicador} | {filial}")
     st.caption("Nesta aba você pode baixar o PDF do relatório ou enviar o relatório por e-mail.")
+
+    if eh_admin():
+        with st.expander("🔐 Administração da base", expanded=False):
+            st.caption("Área exclusiva do perfil Administrador.")
+
+            fonte_atual = st.session_state.get("fonte_dados_admin", "Google Drive")
+            nova_fonte = st.radio(
+                "Fonte da base",
+                ["Google Drive", "Upload manual"],
+                index=0 if fonte_atual == "Google Drive" else 1,
+                horizontal=True,
+                key="opcoes_fonte_dados_admin",
+            )
+
+            novo_nome_drive = st.text_input(
+                "Nome do arquivo no Drive",
+                value=st.session_state.get("nome_arquivo_drive_admin", "BaseSistema.xlsx"),
+                key="opcoes_nome_arquivo_drive_admin",
+            )
+
+            if nova_fonte == "Upload manual":
+                arquivo_admin = st.file_uploader(
+                    "Carregar planilha manualmente (.xlsx)",
+                    type=["xlsx"],
+                    key="opcoes_upload_manual_admin",
+                )
+
+                if arquivo_admin is not None:
+                    st.session_state["arquivo_manual_bytes_admin"] = arquivo_admin.getvalue()
+                    st.session_state["arquivo_manual_nome_admin"] = arquivo_admin.name
+                    st.success(f"Arquivo manual carregado: {arquivo_admin.name}")
+
+                if st.session_state.get("arquivo_manual_nome_admin"):
+                    st.info(f"Arquivo manual atual: {st.session_state.get('arquivo_manual_nome_admin')}")
+
+            col_admin_1, col_admin_2 = st.columns(2)
+
+            with col_admin_1:
+                if st.button("Salvar configuração da base", use_container_width=True):
+                    st.session_state["fonte_dados_admin"] = nova_fonte
+                    st.session_state["nome_arquivo_drive_admin"] = str(novo_nome_drive).strip() or "BaseSistema.xlsx"
+                    st.cache_data.clear()
+                    st.success("Configuração salva. Recarregando dados...")
+                    st.rerun()
+
+            with col_admin_2:
+                if st.button("Voltar para Google Drive padrão", use_container_width=True):
+                    st.session_state["fonte_dados_admin"] = "Google Drive"
+                    st.session_state["nome_arquivo_drive_admin"] = "BaseSistema.xlsx"
+                    st.session_state.pop("arquivo_manual_bytes_admin", None)
+                    st.session_state.pop("arquivo_manual_nome_admin", None)
+                    st.cache_data.clear()
+                    st.success("Fonte restaurada para Google Drive.")
+                    st.rerun()
+
+            st.info("Usuários comuns não veem essa área e ficam travados na importação pelo Google Drive.")
 
     ano_pdf_dashboard = int(df["ANO"].max())
     nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
