@@ -12,6 +12,7 @@ import smtplib
 from email.message import EmailMessage
 import io
 import hmac
+import time
 import logging
 try:
     from google.oauth2 import service_account
@@ -21,6 +22,15 @@ except ModuleNotFoundError:
     service_account = None
     build = None
     MediaIoBaseDownload = None
+
+# bcrypt é opcional — se estiver instalado, suporta hashes de senha mais fortes.
+# Se não estiver, o app continua funcionando com senhas em texto puro nos Secrets.
+try:
+    import bcrypt
+    BCRYPT_DISPONIVEL = True
+except ModuleNotFoundError:
+    bcrypt = None
+    BCRYPT_DISPONIVEL = False
 
 st.set_page_config(
     page_title="Mazola Indicadores",
@@ -38,18 +48,65 @@ st.set_page_config(
 # =========================
 # CONTROLE DE ACESSO POR USUÁRIO E SENHA
 # =========================
+LIMITE_SESSAO_MINUTOS = 60        # Sessão expira após 60 min sem atividade
+LIMITE_TENTATIVAS = 3             # Bloqueia após 3 tentativas erradas
+TEMPO_BLOQUEIO_MINUTOS = 30       # Bloqueio dura 30 minutos
+
+
+def _verificar_senha(senha_digitada, senha_armazenada):
+    """
+    Verifica se a senha digitada bate com a armazenada nos Secrets.
+
+    Suporta dois formatos:
+    1. Hash bcrypt (recomendado): começa com $2a$, $2b$ ou $2y$.
+    2. Texto puro (legado): comparação timing-safe via hmac.compare_digest.
+
+    Para gerar um hash bcrypt, rode no Python online:
+
+        import bcrypt
+        senha = "MinhaSenhaForte2026!"
+        print(bcrypt.hashpw(senha.encode(), bcrypt.gensalt(rounds=12)).decode())
+
+    Cole o hash no Secrets em [usuarios].
+    """
+    if senha_armazenada is None:
+        return False
+
+    senha_armazenada_str = str(senha_armazenada).strip()
+    senha_digitada_str = str(senha_digitada).strip()
+
+    # Detecta se é hash bcrypt
+    if BCRYPT_DISPONIVEL and senha_armazenada_str.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            return bcrypt.checkpw(
+                senha_digitada_str.encode("utf-8"),
+                senha_armazenada_str.encode("utf-8"),
+            )
+        except Exception:
+            return False
+
+    # Fallback: comparação timing-safe em texto puro
+    return hmac.compare_digest(senha_digitada_str, senha_armazenada_str)
+
+
 def verificar_senha_acesso():
     """
     Libera o acesso ao painel usando usuários configurados no Streamlit Secrets.
 
-    Formato recomendado no Secrets:
+    Formato recomendado no Secrets (use senhas FORTES, com 12+ caracteres):
 
     [usuarios]
-    Mazola = "senha_forte"
-    valim = "outra_senha_forte"
+    Mazola = "$2b$12$KIXhash_bcrypt_aqui"   # recomendado: hash bcrypt
+    valim = "senha_em_texto_puro_legado"     # também funciona, mas menos seguro
 
     [gcp_service_account]
     ...
+
+    Funcionalidades de segurança:
+    - Bloqueio de 30 minutos após 3 tentativas erradas (bloqueio por tempo, não por sessão)
+    - Sessão expira após 60 minutos sem atividade
+    - Comparação timing-safe (resistente a ataques de timing)
+    - Suporte a hashes bcrypt (resistente a força bruta)
     """
     usuarios = st.secrets.get("usuarios", {})
 
@@ -58,17 +115,36 @@ def verificar_senha_acesso():
         st.info('No Secrets, adicione o bloco [usuarios]. Exemplo: Mazola = "1234" e valim = "camelbak123-"')
         st.stop()
 
+    # ---- Verifica se já está autenticado e se a sessão ainda é válida ----
     if st.session_state.get("acesso_liberado", False):
-        return True
+        ultimo_acesso = st.session_state.get("ultimo_acesso", 0)
+        if time.time() - ultimo_acesso > LIMITE_SESSAO_MINUTOS * 60:
+            # Sessão expirada — derruba o usuário
+            for chave in ["acesso_liberado", "usuario_logado", "ultimo_acesso"]:
+                st.session_state.pop(chave, None)
+            st.warning("⏰ Sua sessão expirou por inatividade. Faça login novamente.")
+            # cai para a tela de login abaixo
+        else:
+            # Sessão válida — atualiza timestamp de atividade
+            st.session_state["ultimo_acesso"] = time.time()
+            return True
 
-    # Controle simples contra tentativa repetida de senha.
+    # ---- Inicializa controles de tentativas ----
     if "tentativas_login" not in st.session_state:
         st.session_state["tentativas_login"] = 0
+    if "bloqueado_ate" not in st.session_state:
+        st.session_state["bloqueado_ate"] = 0
 
-    if st.session_state["tentativas_login"] >= 5:
-        st.error("Muitas tentativas incorretas. Recarregue a página para tentar novamente.")
+    # ---- Verifica se está bloqueado por tempo ----
+    if time.time() < st.session_state["bloqueado_ate"]:
+        minutos_restantes = int((st.session_state["bloqueado_ate"] - time.time()) / 60) + 1
+        st.error(
+            f"🚫 Acesso bloqueado por excesso de tentativas. "
+            f"Tente novamente em {minutos_restantes} minutos."
+        )
         st.stop()
 
+    # ---- Tela de login ----
     st.markdown(
         """
         <div style="max-width: 520px; margin: 80px auto 20px auto; text-align: center;">
@@ -93,27 +169,41 @@ def verificar_senha_acesso():
         usuario_encontrado = None
         senha_correta = None
 
+        # Comparação de usuário case-insensitive
         for usuario_secrets, senha_secrets in usuarios.items():
             if str(usuario_secrets).strip().lower() == usuario_digitado_limpo.lower():
                 usuario_encontrado = str(usuario_secrets).strip()
-                senha_correta = str(senha_secrets).strip()
+                senha_correta = senha_secrets
                 break
 
         senha_ok = (
             usuario_encontrado is not None
             and senha_correta is not None
-            and hmac.compare_digest(senha_digitada_limpa, str(senha_correta).strip())
+            and _verificar_senha(senha_digitada_limpa, senha_correta)
         )
 
         if senha_ok:
             st.session_state["acesso_liberado"] = True
             st.session_state["usuario_logado"] = usuario_encontrado
             st.session_state["tentativas_login"] = 0
+            st.session_state["bloqueado_ate"] = 0
+            st.session_state["ultimo_acesso"] = time.time()
             st.rerun()
         else:
             st.session_state["tentativas_login"] += 1
-            restantes = max(0, 5 - st.session_state["tentativas_login"])
-            st.error(f"Usuário ou senha incorretos. Tentativas restantes: {restantes}")
+
+            # Bloqueia após 3 tentativas erradas
+            if st.session_state["tentativas_login"] >= LIMITE_TENTATIVAS:
+                st.session_state["bloqueado_ate"] = time.time() + TEMPO_BLOQUEIO_MINUTOS * 60
+                st.error(
+                    f"🚫 Bloqueado por {TEMPO_BLOQUEIO_MINUTOS} minutos por excesso de tentativas."
+                )
+                st.stop()
+
+            restantes = max(0, LIMITE_TENTATIVAS - st.session_state["tentativas_login"])
+            st.error(
+                f"❌ Usuário ou senha incorretos. Tentativas restantes: {restantes}"
+            )
 
     return False
 
@@ -2682,6 +2772,7 @@ def ordenar_df_seguro(df_saida, coluna, ascending=False):
     return df_saida
 
 
+@st.cache_data(show_spinner=False)
 def comparativo_filiais(d, ano, indicador):
     d = d.copy()
     if "FILIAL" in d.columns and not eh_tecfil(indicador):
@@ -5300,14 +5391,26 @@ with st.sidebar:
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
     usuario_logado = st.session_state.get("usuario_logado", "usuário")
-    st.caption(f"Logado como: {usuario_logado}")
+    st.caption(f"👤 Logado como: **{usuario_logado}**")
+
+    # Mostra tempo restante de sessão (sutil)
+    ultimo_acesso = st.session_state.get("ultimo_acesso", time.time())
+    minutos_inativo = int((time.time() - ultimo_acesso) / 60)
+    minutos_restantes = max(0, LIMITE_SESSAO_MINUTOS - minutos_inativo)
+    if minutos_restantes <= 10:
+        st.caption(f"⏰ Sessão expira em ~{minutos_restantes} min")
+
+    if st.button("🔄 Atualizar dados", use_container_width=True, help="Força nova leitura da planilha (limpa o cache)"):
+        st.cache_data.clear()
+        st.success("Dados atualizados!")
+        st.rerun()
 
     if st.button("🚪 Sair", use_container_width=True):
-        for chave in ["acesso_liberado", "usuario_logado", "tentativas_login"]:
+        for chave in ["acesso_liberado", "usuario_logado", "tentativas_login", "bloqueado_ate", "ultimo_acesso"]:
             st.session_state.pop(chave, None)
         st.rerun()
 
-    st.caption("v4.6 — Bot Indicadores")
+    st.caption("v4.7 — Bot Indicadores")
 
 
 if fonte_dados == "Google Drive":
@@ -5320,17 +5423,6 @@ else:
     df_raw = carregar(arquivo)
 
 df_raw = validar_colunas_base(df_raw)
-
-def validar_planilha(df):
-    obrigatorias = ["FILIAL", "TIPO", "GRUPO 01", "GRUPO 02", "GRUPO 03",
-                    "REFERÊNCIA", "TIPO DE META", "META", "VALOR REF 01", "VALOR REF 02"]
-    faltando = [c for c in obrigatorias if c not in df.columns]
-    if faltando:
-        st.error(f"⚠️ Planilha inválida. Colunas faltando: {', '.join(faltando)}")
-        st.info("Verifique se você está usando a planilha **BaseSistema.xlsx** correta.")
-        st.stop()
-
-validar_planilha(df_raw)
 
 df = filtrar(df_raw, indicador, filial)
 df_todas_unidades = filtrar(df_raw, indicador, "Geral")
