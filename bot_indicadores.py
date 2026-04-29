@@ -5321,6 +5321,17 @@ else:
 
 df_raw = validar_colunas_base(df_raw)
 
+def validar_planilha(df):
+    obrigatorias = ["FILIAL", "TIPO", "GRUPO 01", "GRUPO 02", "GRUPO 03",
+                    "REFERÊNCIA", "TIPO DE META", "META", "VALOR REF 01", "VALOR REF 02"]
+    faltando = [c for c in obrigatorias if c not in df.columns]
+    if faltando:
+        st.error(f"⚠️ Planilha inválida. Colunas faltando: {', '.join(faltando)}")
+        st.info("Verifique se você está usando a planilha **BaseSistema.xlsx** correta.")
+        st.stop()
+
+validar_planilha(df_raw)
+
 df = filtrar(df_raw, indicador, filial)
 df_todas_unidades = filtrar(df_raw, indicador, "Geral")
 
