@@ -32,7 +32,7 @@ def verificar_senha_acesso():
     senha = st.text_input("Digite a senha para acessar o painel", type="password")
 
     if st.button("Entrar"):
-        if senha == st.secrets.get("APP_PASSWORD"):
+        if senha == st.secrets.get("1234"):
             st.session_state.acesso_liberado = True
             st.rerun()
         else:
