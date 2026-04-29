@@ -24,18 +24,32 @@ st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_i
 
 
 
-# =========================
-# CONTROLE DE ACESSO POR SENHA
-# =========================
+
+
+
+
 # =========================
 # CONTROLE DE ACESSO POR USUÁRIO E SENHA
 # =========================
 def verificar_senha_acesso():
+    """
+    Libera o acesso ao painel usando usuários configurados no Streamlit Secrets.
+
+    Exemplo no Secrets, antes do bloco [gcp_service_account]:
+
+    [usuarios]
+    Mazola = "1234"
+    valim = "camelbak123-"
+
+    [gcp_service_account]
+    type = "service_account"
+    ...
+    """
     usuarios = st.secrets.get("usuarios", {})
 
     if not usuarios:
         st.error("Nenhum usuário foi encontrado no Secrets do Streamlit.")
-        st.info('No Secrets, adicione o bloco [usuarios], por exemplo: Mazola = "1234"')
+        st.info('No Secrets, adicione o bloco [usuarios]. Exemplo: Mazola = "1234" e valim = "camelbak123-"')
         st.stop()
 
     if st.session_state.get("acesso_liberado", False):
@@ -77,34 +91,6 @@ def verificar_senha_acesso():
             st.rerun()
         else:
             st.error("Usuário ou senha incorretos.")
-
-    return False
-
-
-if not verificar_senha_acesso():
-    st.stop()
-    st.markdown(
-        """
-        <div style="max-width: 520px; margin: 80px auto 20px auto; text-align: center;">
-            <h1>🔒 Acesso restrito</h1>
-            <p style="color: #666; font-size: 16px;">
-                Digite a senha para acessar o painel de indicadores.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    with st.form("form_login_acesso"):
-        senha_digitada = st.text_input("Senha", type="password")
-        entrar = st.form_submit_button("Entrar", use_container_width=True)
-
-    if entrar:
-        if str(senha_digitada).strip() == senha_correta:
-            st.session_state["acesso_liberado"] = True
-            st.rerun()
-        else:
-            st.error("Senha incorreta.")
 
     return False
 
