@@ -22,6 +22,57 @@ except ModuleNotFoundError:
 
 st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_icon="📊", layout="wide")
 
+
+
+# =========================
+# CONTROLE DE ACESSO POR SENHA
+# =========================
+def verificar_senha_acesso():
+    """
+    Libera o acesso ao painel usando a senha configurada no Streamlit Secrets:
+
+    APP_PASSWORD = "1234"
+    """
+    senha_correta = str(st.secrets.get("APP_PASSWORD", "")).strip()
+
+    if not senha_correta:
+        st.error('APP_PASSWORD não foi encontrada no Secrets do Streamlit.')
+        st.info('No Secrets, adicione: APP_PASSWORD = "1234"')
+        st.stop()
+
+    if st.session_state.get("acesso_liberado", False):
+        return True
+
+    st.markdown(
+        """
+        <div style="max-width: 520px; margin: 80px auto 20px auto; text-align: center;">
+            <h1>🔒 Acesso restrito</h1>
+            <p style="color: #666; font-size: 16px;">
+                Digite a senha para acessar o painel de indicadores.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.form("form_login_acesso"):
+        senha_digitada = st.text_input("Senha", type="password")
+        entrar = st.form_submit_button("Entrar", use_container_width=True)
+
+    if entrar:
+        if str(senha_digitada).strip() == senha_correta:
+            st.session_state["acesso_liberado"] = True
+            st.rerun()
+        else:
+            st.error("Senha incorreta.")
+
+    return False
+
+
+if not verificar_senha_acesso():
+    st.stop()
+
+
 # =========================
 # CONFIGURAÇÕES GERAIS
 # =========================
@@ -174,7 +225,7 @@ INDICADORES = {
     },
     "Faturamento Incremental": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
-        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMETAL", "TIPO DE META": "R$"
+        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMENTAL", "TIPO DE META": "R$"
     },
     "Faturamento LCSAO": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
