@@ -22,7 +22,12 @@ except ModuleNotFoundError:
     build = None
     MediaIoBaseDownload = None
 
-st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_icon="📊", layout="wide")
+st.set_page_config(
+    page_title="Mazola Indicadores",
+    page_icon="MazolaCertificado.ico",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
 
 
