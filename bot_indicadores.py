@@ -11,6 +11,8 @@ import unicodedata
 import smtplib
 from email.message import EmailMessage
 import io
+import hmac
+import logging
 try:
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
@@ -35,14 +37,13 @@ def verificar_senha_acesso():
     """
     Libera o acesso ao painel usando usuários configurados no Streamlit Secrets.
 
-    Exemplo no Secrets, antes do bloco [gcp_service_account]:
+    Formato recomendado no Secrets:
 
     [usuarios]
-    Mazola = "1234"
-    valim = "camelbak123-"
+    Mazola = "senha_forte"
+    valim = "outra_senha_forte"
 
     [gcp_service_account]
-    type = "service_account"
     ...
     """
     usuarios = st.secrets.get("usuarios", {})
@@ -54,6 +55,14 @@ def verificar_senha_acesso():
 
     if st.session_state.get("acesso_liberado", False):
         return True
+
+    # Controle simples contra tentativa repetida de senha.
+    if "tentativas_login" not in st.session_state:
+        st.session_state["tentativas_login"] = 0
+
+    if st.session_state["tentativas_login"] >= 5:
+        st.error("Muitas tentativas incorretas. Recarregue a página para tentar novamente.")
+        st.stop()
 
     st.markdown(
         """
@@ -85,12 +94,21 @@ def verificar_senha_acesso():
                 senha_correta = str(senha_secrets).strip()
                 break
 
-        if usuario_encontrado and senha_digitada_limpa == senha_correta:
+        senha_ok = (
+            usuario_encontrado is not None
+            and senha_correta is not None
+            and hmac.compare_digest(senha_digitada_limpa, str(senha_correta).strip())
+        )
+
+        if senha_ok:
             st.session_state["acesso_liberado"] = True
             st.session_state["usuario_logado"] = usuario_encontrado
+            st.session_state["tentativas_login"] = 0
             st.rerun()
         else:
-            st.error("Usuário ou senha incorretos.")
+            st.session_state["tentativas_login"] += 1
+            restantes = max(0, 5 - st.session_state["tentativas_login"])
+            st.error(f"Usuário ou senha incorretos. Tentativas restantes: {restantes}")
 
     return False
 
@@ -128,10 +146,10 @@ def baixar_planilha_drive(nome_arquivo="BaseSistema.xlsx"):
     """
     Busca automaticamente a planilha no Google Drive.
 
-    Requisitos:
-    1. A pasta do Drive precisa estar compartilhada com o e-mail da Service Account.
-    2. O arquivo precisa ter o nome configurado, por padrão: BaseSistema.xlsx.
-    3. O Streamlit Secrets precisa conter o bloco [gcp_service_account].
+    Melhorias:
+    - Se DRIVE_FOLDER_ID existir no Secrets, busca apenas dentro dessa pasta.
+    - Evita mostrar traceback técnico para usuário final.
+    - Atualiza o cache a cada 5 minutos.
     """
     if service_account is None or build is None or MediaIoBaseDownload is None:
         st.error("Bibliotecas do Google Drive não instaladas.")
@@ -149,7 +167,19 @@ def baixar_planilha_drive(nome_arquivo="BaseSistema.xlsx"):
 
         service = build("drive", "v3", credentials=credentials)
 
-        query = f"name = '{nome_arquivo}' and trashed = false"
+        nome_arquivo = str(nome_arquivo).strip()
+        nome_query = nome_arquivo.replace("'", "\\'")
+        pasta_id = str(st.secrets.get("DRIVE_FOLDER_ID", "")).strip()
+
+        query_partes = [
+            f"name = '{nome_query}'",
+            "trashed = false",
+        ]
+
+        if pasta_id:
+            query_partes.append(f"'{pasta_id}' in parents")
+
+        query = " and ".join(query_partes)
 
         resultado = service.files().list(
             q=query,
@@ -163,7 +193,10 @@ def baixar_planilha_drive(nome_arquivo="BaseSistema.xlsx"):
 
         if not arquivos:
             st.error(f"Arquivo '{nome_arquivo}' não encontrado no Google Drive.")
-            st.info("Confira se o arquivo está com esse nome e se a pasta foi compartilhada com o e-mail da Service Account.")
+            if pasta_id:
+                st.info("Confira se o arquivo está dentro da pasta configurada em DRIVE_FOLDER_ID e se a pasta foi compartilhada com a Service Account.")
+            else:
+                st.info("Confira se o arquivo está com esse nome e se a pasta foi compartilhada com o e-mail da Service Account.")
             st.stop()
 
         file_id = arquivos[0]["id"]
@@ -177,12 +210,14 @@ def baixar_planilha_drive(nome_arquivo="BaseSistema.xlsx"):
             status, done = downloader.next_chunk()
 
         arquivo_bytes.seek(0)
-
         return pd.read_excel(arquivo_bytes)
 
     except Exception as e:
+        logging.exception("Erro ao buscar a planilha no Google Drive")
         st.error("Erro ao buscar a planilha no Google Drive.")
-        st.exception(e)
+        st.info("Verifique o Secrets, a Service Account, a API do Google Drive e o compartilhamento da pasta/arquivo.")
+        if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+            st.exception(e)
         st.stop()
 
 
@@ -548,8 +583,7 @@ def cor_variacao(v):
     return f"color: {COR_VERDE}; font-weight:bold" if v > 0 else f"color: {COR_LARANJA}; font-weight:bold"
 
 
-@st.cache_data
-
+@st.cache_data(ttl=300)
 def carregar(arquivo):
     return pd.read_excel(arquivo)
 
@@ -569,6 +603,40 @@ def normalizar_texto(valor):
     txt = "".join(ch for ch in txt if not unicodedata.combining(ch))
     txt = " ".join(txt.split())
     return txt.upper()
+
+
+
+def validar_colunas_base(df_base):
+    """
+    Valida se a planilha possui as colunas mínimas necessárias para o painel.
+
+    Isso evita erro quebrado no meio do app e mostra uma mensagem clara
+    quando a planilha enviada/carregada estiver fora do padrão.
+    """
+    if df_base is None or df_base.empty:
+        st.error("A planilha carregada está vazia.")
+        st.stop()
+
+    colunas_obrigatorias = [
+        "TIPO",
+        "GRUPO 01",
+        "GRUPO 02",
+        "GRUPO 03",
+        "FILIAL",
+        "REFERÊNCIA",
+        "META",
+        "VALOR REF 01",
+    ]
+
+    faltando = [col for col in colunas_obrigatorias if col not in df_base.columns]
+
+    if faltando:
+        st.error("A planilha carregada não possui todas as colunas obrigatórias.")
+        st.write("Colunas faltando:", faltando)
+        st.info("Confira se você está usando a BaseSistema.xlsx correta.")
+        st.stop()
+
+    return df_base
 
 
 def aplicar_filtro_coluna(df, coluna, valor):
@@ -5223,7 +5291,15 @@ with st.sidebar:
     indicador = st.selectbox("Indicador", list(INDICADORES.keys()))
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
     st.divider()
-    st.caption("v4.5 — Bot Indicadores")
+    usuario_logado = st.session_state.get("usuario_logado", "usuário")
+    st.caption(f"Logado como: {usuario_logado}")
+
+    if st.button("🚪 Sair", use_container_width=True):
+        for chave in ["acesso_liberado", "usuario_logado", "tentativas_login"]:
+            st.session_state.pop(chave, None)
+        st.rerun()
+
+    st.caption("v4.6 — Bot Indicadores")
 
 
 if fonte_dados == "Google Drive":
@@ -5234,6 +5310,8 @@ else:
         st.stop()
 
     df_raw = carregar(arquivo)
+
+df_raw = validar_colunas_base(df_raw)
 
 df = filtrar(df_raw, indicador, filial)
 df_todas_unidades = filtrar(df_raw, indicador, "Geral")
