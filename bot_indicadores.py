@@ -27,22 +27,62 @@ st.set_page_config(page_title="Análise de Indicadores Mazola Ambiental", page_i
 # =========================
 # CONTROLE DE ACESSO POR SENHA
 # =========================
+# =========================
+# CONTROLE DE ACESSO POR USUÁRIO E SENHA
+# =========================
 def verificar_senha_acesso():
-    """
-    Libera o acesso ao painel usando a senha configurada no Streamlit Secrets:
+    usuarios = st.secrets.get("usuarios", {})
 
-    APP_PASSWORD = "1234"
-    """
-    senha_correta = str(st.secrets.get("APP_PASSWORD", "")).strip()
-
-    if not senha_correta:
-        st.error('APP_PASSWORD não foi encontrada no Secrets do Streamlit.')
-        st.info('No Secrets, adicione: APP_PASSWORD = "1234"')
+    if not usuarios:
+        st.error("Nenhum usuário foi encontrado no Secrets do Streamlit.")
+        st.info('No Secrets, adicione o bloco [usuarios], por exemplo: Mazola = "1234"')
         st.stop()
 
     if st.session_state.get("acesso_liberado", False):
         return True
 
+    st.markdown(
+        """
+        <div style="max-width: 520px; margin: 80px auto 20px auto; text-align: center;">
+            <h1>🔒 Acesso restrito</h1>
+            <p style="color: #666; font-size: 16px;">
+                Digite seu usuário e senha para acessar o painel de indicadores.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.form("form_login_acesso"):
+        usuario_digitado = st.text_input("Usuário")
+        senha_digitada = st.text_input("Senha", type="password")
+        entrar = st.form_submit_button("Entrar", use_container_width=True)
+
+    if entrar:
+        usuario_digitado_limpo = str(usuario_digitado).strip()
+        senha_digitada_limpa = str(senha_digitada).strip()
+
+        usuario_encontrado = None
+        senha_correta = None
+
+        for usuario_secrets, senha_secrets in usuarios.items():
+            if str(usuario_secrets).strip().lower() == usuario_digitado_limpo.lower():
+                usuario_encontrado = str(usuario_secrets).strip()
+                senha_correta = str(senha_secrets).strip()
+                break
+
+        if usuario_encontrado and senha_digitada_limpa == senha_correta:
+            st.session_state["acesso_liberado"] = True
+            st.session_state["usuario_logado"] = usuario_encontrado
+            st.rerun()
+        else:
+            st.error("Usuário ou senha incorretos.")
+
+    return False
+
+
+if not verificar_senha_acesso():
+    st.stop()
     st.markdown(
         """
         <div style="max-width: 520px; margin: 80px auto 20px auto; text-align: center;">
