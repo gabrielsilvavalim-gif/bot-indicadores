@@ -1651,7 +1651,7 @@ def aplicar_estilo_diferenca_qualidade(styler, indicador, subset=("Diferença",)
     except Exception:
         return styler
 
-
+@st.cache_data(show_spinner=False)
 def filtrar(df, indicador, filial):
     cfg = INDICADORES[indicador]
 
@@ -2288,7 +2288,8 @@ def tabela_completa_ano(d, ano, indicador):
     })
 
     return pd.DataFrame(rows)
-
+    
+@st.cache_data(show_spinner=False)
 def calcular_mom(d, indicador):
     if eh_moto_margem(indicador):
         linhas = []
@@ -2487,7 +2488,8 @@ def calcular_mom(d, indicador):
         "REALIZADO_CALC": "Realizado",
         "META_CALC": "META"
     })[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating.", "MoM_%", "MÊS_ORDEM"]]
-
+    
+@st.cache_data(show_spinner=False)
 def calcular_yoy(d, indicador):
     if eh_moto_margem(indicador):
         linhas = []
@@ -2867,7 +2869,8 @@ def comparativo_filiais(d, ano, indicador):
         comp["Atingimento"] = comp["Realizado"] / comp["Meta"].replace(0, pd.NA)
 
     return ordenar_df_seguro(comp, "Realizado", ascending=False)
-
+    
+@st.cache_data(show_spinner=False)
 def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
     if d.empty:
         return pd.DataFrame()
