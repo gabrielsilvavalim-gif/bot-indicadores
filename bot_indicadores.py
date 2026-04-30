@@ -5720,7 +5720,7 @@ if df.empty:
 def label_aba_com_icone(arquivo_icone, texto, emoji_fallback="📊"):
     """
     Cria um rótulo de aba com imagem local.
-    O Streamlit aceita Markdown em st.tabs; a imagem fica com altura de ícone no texto.
+    O Streamlit aceita Markdown em st.tabs; o tamanho da imagem é controlado por CSS antes das abas.
     Se o arquivo não existir, usa emoji de fallback.
     """
     try:
@@ -5735,8 +5735,32 @@ def label_aba_com_icone(arquivo_icone, texto, emoji_fallback="📊"):
 
 
 
+
+# CSS para alinhar e aumentar ícones nas abas do Streamlit
+st.markdown(
+    """
+    <style>
+        div[data-baseweb="tab-list"] img {
+            height: 20px !important;
+            width: 20px !important;
+            object-fit: contain !important;
+            vertical-align: -4px !important;
+            margin-right: 4px !important;
+        }
+
+        div[data-baseweb="tab"] p {
+            display: flex !important;
+            align-items: center !important;
+            gap: 4px !important;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
 tab0, tab1, tab2, tab3, tab4 = st.tabs([
-    label_aba_com_icone("caminhao-de-lixo (1).png", "Visão Geral", "📊"),
+    label_aba_com_icone("analise.png", "Visão Geral", "📊"),
     "📅 Por Ano",
     "📈 MoM",
     "🔁 YoY",
