@@ -210,7 +210,42 @@ def verificar_senha_acesso():
 
 if not verificar_senha_acesso():
     st.stop()
+# =========================
+# CONTROLE DE ACESSO ADMIN
+# =========================
+USUARIO_ADMIN = "Mazola"  # ← nome do usuário que pode ver tudo
 
+def eh_admin():
+    """Retorna True se o usuário logado é admin."""
+    usuario = st.session_state.get("usuario_logado", "")
+    return str(usuario).strip().lower() == USUARIO_ADMIN.lower()
+
+
+# Se NÃO for admin, esconde o botão "Manage app" do Streamlit Cloud
+if not eh_admin():
+    st.markdown(
+        """
+        <style>
+        /* Esconde o botão "Manage app" do Streamlit Cloud */
+        .stAppDeployButton, 
+        [data-testid="stAppDeployButton"],
+        button[kind="header"][data-testid="stBaseButton-header"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        
+        /* Esconde também o menu de 3 pontinhos do Streamlit */
+        #MainMenu {visibility: hidden !important;}
+        
+        /* Esconde o rodapé "Made with Streamlit" */
+        footer {visibility: hidden !important;}
+        
+        /* Esconde botão de reportar bug e similares */
+        [data-testid="stToolbar"] {display: none !important;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # =========================
 # PERFIS E PERMISSÕES DO APP
