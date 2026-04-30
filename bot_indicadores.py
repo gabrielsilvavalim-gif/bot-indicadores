@@ -209,66 +209,36 @@ def verificar_senha_acesso():
 
 
 if not verificar_senha_acesso():
-    get("perfis", {})
-    # =========================
-# CONTROLE DE ACESSO ADMIN
+    st.stop()
+
+
 # =========================
-USUARIO_ADMIN = "Mazola"  # ← nome do usuário que pode ver tudo
+# PERFIS E PERMISSÕES DO APP
+# =========================
+def usuario_atual():
+    """Retorna o usuário logado na sessão atual."""
+    return str(st.session_state.get("usuario_logado", "")).strip()
 
-def eh_admin():
-    """Retorna True se o usuário logado é admin."""
-    usuario = st.session_state.get("usuario_logado", "")
-    return str(usuario).strip().lower() == USUARIO_ADMIN.lower()
 
+def perfil_usuario():
+    """
+    Retorna o perfil do usuário logado.
 
-# Se NÃO for admin, esconde todos os botões de deploy/admin do Streamlit
-if not eh_admin():
-    st.markdown(
-        """
-        <style>
-        /* Bloqueia TUDO relacionado a admin/deploy */
-        [data-testid="stToolbar"] {display: none !important;}
-        [data-testid="stAppDeployButton"] {display: none !important;}
-        [data-testid="stDecoration"] {display: none !important;}
-        button[kind="header"] {display: none !important;}
-        #MainMenu {display: none !important;}
-        footer {display: none !important;}
-        .stDeployButton {display: none !important;}
-        
-        /* Força visual limpa */
-        header {visibility: hidden;}
-        </style>
-        
-        <script>
-        // JavaScript agressivo — remove o elemento mesmo que o CSS não pegue
-        window.addEventListener('load', function() {
-            // Procura e remove qualquer botão com "Manage app", "Deploy", etc.
-            let elementos = document.querySelectorAll('button, [role="button"], a, [data-testid]');
-            elementos.forEach(el => {
-                let texto = el.textContent || el.innerText || el.getAttribute('data-testid') || '';
-                if (texto.includes('Manage') || texto.includes('Deploy') || texto.includes('Settings')) {
-                    el.style.display = 'none';
-                    el.style.visibility = 'hidden';
-                }
-            });
-        });
-        
-        // Repetir a cada 1 segundo (em caso de elementos dinâmicos)
-        setInterval(function() {
-            let elementos = document.querySelectorAll('button, a, [data-testid]');
-            elementos.forEach(el => {
-                let texto = el.textContent || el.innerText || el.getAttribute('data-testid') || '';
-                if (texto.includes('Manage') || texto.includes('Deploy')) {
-                    el.style.display = 'none';
-                }
-            });
-        }, 1000);
-        </script>
-        """,
-        unsafe_allow_html=True,
-    )
+    Configure no Secrets:
 
-    
+    [perfis]
+    Mazola = "admin"
+    valim = "usuario"
+
+    Se o usuário não estiver em [perfis], ele será tratado como usuário comum.
+    """
+    usuario = usuario_atual()
+    perfis = st.secrets.get("perfis", {})
+
+    try:
+        return str(perfis.get(usuario, "usuario")).strip().lower()
+    except Exception:
+        return "usuario"
 
 
 def eh_admin():
@@ -5771,8 +5741,8 @@ st.markdown(
     """
     <style>
         div[data-baseweb="tab-list"] img {
-            height: 22px !important;
-            width: 22px !important;
+            height: 20px !important;
+            width: 20px !important;
             object-fit: contain !important;
             vertical-align: -4px !important;
             margin-right: 4px !important;
@@ -5790,7 +5760,7 @@ st.markdown(
 
 
 tab0, tab1, tab2, tab3, tab4 = st.tabs([
-    label_aba_com_icone("caminhao-de-lixo (1).png", "Visão Geral", "📊"),
+    label_aba_com_icone("analise.png", "Visão Geral", "📊"),
     "📅 Por Ano",
     "📈 MoM",
     "🔁 YoY",
