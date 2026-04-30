@@ -4043,9 +4043,11 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             name="Realizado R$",
             marker_color=cores,
             marker_cornerradius=4,
-            text=[f"Realizado: {fmt_brl(v)}" for v in dados["Realizado R$"]],
-            textposition="outside",
-            textfont=dict(size=10),
+            text=[fmt_brl(v) for v in dados["Realizado R$"]],
+            textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(size=10, color="white"),
+            cliponaxis=False,
         )
         fig.add_scatter(
             x=dados["Mês"],
@@ -4054,19 +4056,20 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             mode="lines+markers+text",
             line=dict(color=COR_LARANJA, width=3, dash="dot"),
             marker=dict(size=7),
-            text=[f"Meta: {fmt_brl(v)}" for v in dados["Meta R$"]],
+            text=[fmt_brl(v) for v in dados["Meta R$"]],
             textposition="top center",
             textfont=dict(size=10, color=COR_LARANJA),
+            cliponaxis=False,
         )
         fig.update_layout(
             title=titulo_final,
-            height=460,
-            margin=dict(t=90, b=35, l=20, r=20),
-            legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
+            height=470,
+            margin=dict(t=100, b=35, l=20, r=20),
+            legend=dict(orientation="h", y=1.10, x=0.5, xanchor="center"),
             yaxis_title="R$",
             bargap=0.22,
             uniformtext_minsize=8,
-            uniformtext_mode="hide",
+            uniformtext_mode="show",
         )
         fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
         return fig
@@ -4240,9 +4243,11 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         name=nome_realizado,
         marker_color=cor_barras,
         marker_cornerradius=4,
-        text=[f"{nome_realizado}: {fmt_brl(v)}" for v in dados["Realizado"]],
-        textposition="outside",
-        textfont=dict(size=10),
+        text=[fmt_brl(v) for v in dados["Realizado"]],
+        textposition="inside",
+        insidetextanchor="middle",
+        textfont=dict(size=10, color="white"),
+        cliponaxis=False,
         hovertemplate=f"<b>%{{x}}</b><br>{nome_realizado}: R$ %{{y:,.0f}}<extra></extra>",
     )
     fig.add_scatter(
@@ -4252,20 +4257,21 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         mode="lines+markers+text",
         line=dict(color=COR_LARANJA, width=3, dash="dot"),
         marker=dict(size=7),
-        text=[f"{nome_meta}: {fmt_brl(v)}" for v in dados["Meta"]],
+        text=[fmt_brl(v) for v in dados["Meta"]],
         textposition="top center",
         textfont=dict(size=10, color=COR_LARANJA),
+        cliponaxis=False,
         hovertemplate=f"<b>%{{x}}</b><br>{nome_meta}: R$ %{{y:,.0f}}<extra></extra>",
     )
     fig.update_layout(
         title=titulo_final,
-        height=460,
-        margin=dict(t=90, b=35, l=20, r=20),
-        legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
+        height=470,
+        margin=dict(t=100, b=35, l=20, r=20),
+        legend=dict(orientation="h", y=1.10, x=0.5, xanchor="center"),
         yaxis_title="R$",
         bargap=0.22,
         uniformtext_minsize=8,
-        uniformtext_mode="hide",
+        uniformtext_mode="show",
     )
     fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
     return fig
