@@ -5521,16 +5521,60 @@ with col_titulo:
 # SIDEBAR
 # =========================
 with st.sidebar:
-    # Cabeçalho da sidebar com ícone personalizado
+    # Cabeçalho da sidebar com ícone personalizado alinhado
     # Arquivo esperado no GitHub: reciclar-simbolo.png
     if os.path.exists("reciclar-simbolo.png"):
-        col_icone_filtro, col_texto_filtro = st.columns([0.16, 0.84], vertical_alignment="center")
-        with col_icone_filtro:
-            st.image("reciclar-simbolo.png", width=18)
-        with col_texto_filtro:
-            st.markdown("### Filtros")
+        import base64
+
+        with open("reciclar-simbolo.png", "rb") as img_file:
+            img_base64 = base64.b64encode(img_file.read()).decode()
+
+        st.markdown(
+            f"""
+            <div style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 0 0 18px 0;
+                padding: 0;
+                line-height: 1;
+            ">
+                <img src="data:image/png;base64,{img_base64}" style="
+                    width: 22px;
+                    height: 22px;
+                    object-fit: contain;
+                    display: block;
+                    margin: 0;
+                    padding: 0;
+                ">
+                <span style="
+                    font-size: 1.45rem;
+                    font-weight: 700;
+                    color: inherit;
+                    line-height: 1;
+                    margin: 0;
+                    padding: 0;
+                ">Filtros</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     else:
-        st.header("♻️ Filtros")
+        st.markdown(
+            """
+            <div style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 0 0 18px 0;
+                line-height: 1;
+            ">
+                <span style="font-size: 22px; line-height: 1;">♻️</span>
+                <span style="font-size: 1.45rem; font-weight: 700; line-height: 1;">Filtros</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # Usuário comum NÃO vê a origem da base.
     # Ele fica travado no Google Drive, com o arquivo padrão.
