@@ -5526,7 +5526,7 @@ with st.sidebar:
     if os.path.exists("reciclar-simbolo.png"):
         col_icone_filtro, col_texto_filtro = st.columns([0.16, 0.84], vertical_alignment="center")
         with col_icone_filtro:
-            st.image("reciclar-simbolo.png", width=28)
+            st.image("reciclar-simbolo.png", width=20)
         with col_texto_filtro:
             st.markdown("### Filtros")
     else:
