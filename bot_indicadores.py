@@ -6879,7 +6879,7 @@ with tab3:
 
     if eh_moto_margem(indicador):
         st.dataframe(
-            df_yoy[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso", "Meses c/ dado"]].style
+            df_yoy[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso"]].style
             .format({
                 "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
@@ -6982,7 +6982,7 @@ with tab3:
     else:
         if eh_qualidade(indicador):
             st.dataframe(
-                df_yoy[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Meses c/ dado"]].style
+                df_yoy[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]].style
                 .format({
                     "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else "—"),
                     "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
@@ -6999,7 +6999,7 @@ with tab3:
 
         elif eh_tecfil(indicador):
             st.dataframe(
-                df_yoy[["ANO", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Meses c/ dado"]].style
+                df_yoy[["ANO", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"]].style
                 .format({
                     "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
                     "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
@@ -7017,7 +7017,7 @@ with tab3:
 
         elif eh_resultado_financeiro(indicador):
             st.dataframe(
-                df_yoy[["ANO", "Meta %", "Despesa", "Receita", "Resultado R$", "Resultado %", "Meses c/ dado"]].style
+                df_yoy[["ANO", "Meta %", "Despesa", "Receita", "Resultado R$", "Resultado %"]].style
                 .format({
                     "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
@@ -7032,7 +7032,7 @@ with tab3:
 
         elif eh_despesa_geral(indicador):
             st.dataframe(
-                df_yoy[["ANO", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso", "Meses c/ dado"]].style
+                df_yoy[["ANO", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso"]].style
                 .format({
                     "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
@@ -7052,11 +7052,9 @@ with tab3:
                 "Pago em Hora Extra",
                 "Limite",
                 "Salário",
-                "Meses c/ dado",
                 "HE da Folha",
                 "Saldo do Limite",
                 "Resultado %",
-                "YoY_%"
             ]].copy()
 
             st.dataframe(
@@ -7070,8 +7068,7 @@ with tab3:
                     "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
                     })
                 .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
-                .map(cor_despesa_manutencao, subset=["Resultado %"])
-                .map(cor_variacao, subset=["YoY_%"]),
+                .map(cor_despesa_manutencao, subset=["Resultado %"]),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -7081,28 +7078,38 @@ with tab3:
                 "Realizado": "Despesa",
                 "Meta": "Limite",
                 "Atingimento": "Uso do Limite",
-            })
+            })[[
+                "ANO",
+                "Limite",
+                "Despesa",
+                "Uso do Limite",
+            ]]
             st.dataframe(
                 df_yoy_exibir.style
                 .format({
-                    "Despesa": "R$ {:,.0f}",
-                    "Limite": "R$ {:,.0f}",
-                    "Uso do Limite": "{:.1%}",
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Uso do Limite": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                         })
-                .map(cor_variacao, subset=["YoY_%"])
                 .map(cor_despesa_manutencao, subset=["Uso do Limite"]),
                 use_container_width=True,
                 hide_index=True,
             )
         else:
+            df_yoy_exibir = df_yoy[[
+                "ANO",
+                "Meta",
+                "Realizado",
+                "Atingimento",
+            ]].copy()
+
             st.dataframe(
-                df_yoy.style
+                df_yoy_exibir.style
                 .format({
-                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                         })
-                .map(cor_variacao, subset=["YoY_%"])
                 .map(cor_atingimento, subset=["Atingimento"]),
                 use_container_width=True,
                 hide_index=True,
@@ -7271,23 +7278,45 @@ with tab3:
                     COR_VERDE if pd.notna(r) and pd.notna(m) and r >= m else COR_LARANJA
                     for r, m in zip(comp_filiais["Realizado R$"], comp_filiais["Meta R$"])
                 ]
+                texto_pct_filiais_tecfil = []
+                for realizado_valor, meta_valor in zip(comp_filiais["Realizado R$"], comp_filiais["Meta R$"]):
+                    if pd.notna(realizado_valor) and pd.notna(meta_valor) and meta_valor != 0:
+                        texto_pct_filiais_tecfil.append(fmt_pct(realizado_valor / meta_valor))
+                    else:
+                        texto_pct_filiais_tecfil.append("")
+
                 fig_filiais.add_bar(
                     x=comp_filiais["FILIAL"],
                     y=comp_filiais["Realizado R$"],
                     name="Realizado R$",
                     marker_color=cores,
                     marker_cornerradius=4,
-                    text=[fmt_brl(v) for v in comp_filiais["Realizado R$"]],
-                    textposition="outside",
+                    text=texto_pct_filiais_tecfil,
+                    textposition="inside",
+                    insidetextanchor="middle",
+                    textfont=dict(size=12, color="white"),
+                    cliponaxis=False,
                 )
                 fig_filiais.add_scatter(
                     x=comp_filiais["FILIAL"],
                     y=comp_filiais["Meta R$"],
                     name="Meta R$",
-                    mode="lines+markers",
+                    mode="lines+markers+text",
                     line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                    marker=dict(size=7),
+                    text=[fmt_brl(v) for v in comp_filiais["Meta R$"]],
+                    textposition="top center",
+                    textfont=dict(size=10, color=COR_LARANJA),
+                    cliponaxis=False,
                 )
-                fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
+                fig_filiais.update_layout(
+                    height=470,
+                    margin=dict(t=100, b=35, l=20, r=20),
+                    legend=dict(orientation="h", y=1.10, x=0.5, xanchor="center"),
+                    yaxis_title="R$",
+                    uniformtext_minsize=8,
+                    uniformtext_mode="show",
+                )
                 st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_tecfil")
 
             elif eh_resultado_financeiro(indicador):
@@ -7386,24 +7415,53 @@ with tab3:
                     hide_index=True,
                 )
 
+                texto_pct_filiais = []
+                for realizado_valor, meta_valor in zip(comp_filiais["Realizado"], comp_filiais["Meta"]):
+                    if pd.notna(realizado_valor) and pd.notna(meta_valor) and meta_valor != 0:
+                        texto_pct_filiais.append(fmt_pct(realizado_valor / meta_valor))
+                    else:
+                        texto_pct_filiais.append("")
+
+                cores_filiais = [
+                    COR_VERDE if pd.notna(r) and pd.notna(m) and r >= m else COR_LARANJA
+                    for r, m in zip(comp_filiais["Realizado"], comp_filiais["Meta"])
+                ]
+
                 fig_filiais = go.Figure()
                 fig_filiais.add_bar(
                     x=comp_filiais["FILIAL"],
                     y=comp_filiais["Realizado"],
                     name="Realizado",
-                    marker_color=COR_VERDE,
+                    marker_color=cores_filiais,
                     marker_cornerradius=4,
-                    text=[fmt_brl(v) for v in comp_filiais["Realizado"]],
-                    textposition="outside",
+                    text=texto_pct_filiais,
+                    textposition="inside",
+                    insidetextanchor="middle",
+                    textfont=dict(size=12, color="white"),
+                    cliponaxis=False,
+                    hovertemplate="<b>%{x}</b><br>Realizado: R$ %{y:,.0f}<extra></extra>",
                 )
                 fig_filiais.add_scatter(
                     x=comp_filiais["FILIAL"],
                     y=comp_filiais["Meta"],
                     name="Meta",
-                    mode="lines+markers",
+                    mode="lines+markers+text",
                     line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                    marker=dict(size=7),
+                    text=[fmt_brl(v) for v in comp_filiais["Meta"]],
+                    textposition="top center",
+                    textfont=dict(size=10, color=COR_LARANJA),
+                    cliponaxis=False,
+                    hovertemplate="<b>%{x}</b><br>Meta: R$ %{y:,.0f}<extra></extra>",
                 )
-                fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
+                fig_filiais.update_layout(
+                    height=470,
+                    margin=dict(t=100, b=35, l=20, r=20),
+                    legend=dict(orientation="h", y=1.10, x=0.5, xanchor="center"),
+                    yaxis_title="R$",
+                    uniformtext_minsize=8,
+                    uniformtext_mode="show",
+                )
                 st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais")
 
 
