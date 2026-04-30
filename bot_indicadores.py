@@ -5807,7 +5807,7 @@ with tab0:
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         st.dataframe(
-            df_yoy_dashboard[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso", "Meses c/ dado"]].style
+            df_yoy_dashboard[["ANO", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso"]].style
             .format({
                 "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
@@ -5815,7 +5815,6 @@ with tab0:
                 "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Meses c/ dado": fmt_int_seguro,
             })
             .apply(cor_tx_sucesso_moto_por_linha, axis=1),
             use_container_width=True,
@@ -5865,7 +5864,7 @@ with tab0:
 
         rot = rotulos_qualidade(indicador)
         col_qtd_sucesso = rot["qtd_sucesso"]
-        df_yoy_dashboard_tela = preparar_tabela_qualidade_exibicao(df_yoy_dashboard[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %", "Meses c/ dado"]], indicador)
+        df_yoy_dashboard_tela = preparar_tabela_qualidade_exibicao(df_yoy_dashboard[["ANO", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]], indicador)
         styler_yoy_q = (
             df_yoy_dashboard_tela.style
             .format({
@@ -5875,7 +5874,6 @@ with tab0:
                 "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Meses c/ dado": fmt_int_seguro,
             })
             .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
         )
@@ -5924,7 +5922,7 @@ with tab0:
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         st.dataframe(
-            df_yoy_dashboard[["ANO", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Meses c/ dado"]].style
+            df_yoy_dashboard[["ANO", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$", "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"]].style
             .format({
                 "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
@@ -5934,7 +5932,6 @@ with tab0:
                 "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Meses c/ dado": fmt_int_seguro,
             })
             .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"]),
             use_container_width=True,
@@ -5979,14 +5976,13 @@ with tab0:
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         st.dataframe(
-            df_yoy_dashboard[["ANO", "Meta %", "Despesa", "Receita", "Resultado R$", "Resultado %", "Meses c/ dado"]].style
+            df_yoy_dashboard[["ANO", "Meta %", "Despesa", "Receita", "Resultado R$", "Resultado %"]].style
             .format({
                 "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                 "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Meses c/ dado": fmt_int_seguro,
             })
             .apply(cor_resultado_financeiro_por_linha, axis=1),
             use_container_width=True,
@@ -6031,14 +6027,13 @@ with tab0:
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         st.dataframe(
-            df_yoy_dashboard[["ANO", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso", "Meses c/ dado"]].style
+            df_yoy_dashboard[["ANO", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso"]].style
             .format({
                 "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Resultado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Meses c/ dado": fmt_int_seguro,
             })
             .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
             .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1),
@@ -6118,12 +6113,10 @@ with tab0:
                     "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                    "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                        "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
                     "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                     "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
-                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-                })
+                    })
                 .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
                 .map(cor_despesa_manutencao, subset=["Resultado %"])
                 .map(cor_variacao, subset=["YoY_%"]),
@@ -6143,9 +6136,7 @@ with tab0:
                     "Despesa": "R$ {:,.0f}",
                     "Limite": "R$ {:,.0f}",
                     "Uso do Limite": "{:.1%}",
-                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                })
+                        })
                 .map(cor_variacao, subset=["YoY_%"])
                 .map(cor_despesa_manutencao, subset=["Uso do Limite"]),
                 use_container_width=True,
@@ -6158,9 +6149,7 @@ with tab0:
                     "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                })
+                        })
                 .map(cor_variacao, subset=["YoY_%"])
                 .map(cor_atingimento, subset=["Atingimento"]),
                 use_container_width=True,
@@ -6888,7 +6877,6 @@ with tab3:
                 "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                 "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Meses c/ dado": fmt_int_seguro,
             })
             .apply(cor_tx_sucesso_moto_por_linha, axis=1),
             use_container_width=True,
@@ -6992,8 +6980,7 @@ with tab3:
                     "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
                 "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "—",
                     "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                })
+                    })
                 .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
                 .map(cor_diferenca_qualidade, subset=["Diferença"]),
                 use_container_width=True,
@@ -7012,8 +6999,7 @@ with tab3:
                     "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "—",
                     "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
                     "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                })
+                    })
                 .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$"]),
                 use_container_width=True,
                 hide_index=True,
@@ -7028,8 +7014,7 @@ with tab3:
                     "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                     "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                })
+                    })
                 .apply(cor_resultado_financeiro_por_linha, axis=1),
                 use_container_width=True,
                 hide_index=True,
@@ -7044,8 +7029,7 @@ with tab3:
                     "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                     "Tx. Sucesso": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                })
+                    })
                 .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
                 .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1),
                 use_container_width=True,
@@ -7071,12 +7055,10 @@ with tab3:
                     "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                    "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                        "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
                     "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                     "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
-                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-                })
+                    })
                 .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
                 .map(cor_despesa_manutencao, subset=["Resultado %"])
                 .map(cor_variacao, subset=["YoY_%"]),
@@ -7096,9 +7078,7 @@ with tab3:
                     "Despesa": "R$ {:,.0f}",
                     "Limite": "R$ {:,.0f}",
                     "Uso do Limite": "{:.1%}",
-                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                })
+                        })
                 .map(cor_variacao, subset=["YoY_%"])
                 .map(cor_despesa_manutencao, subset=["Uso do Limite"]),
                 use_container_width=True,
@@ -7111,9 +7091,7 @@ with tab3:
                     "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                    "YoY_%": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
-                    "Meses c/ dado": fmt_int_seguro,
-                })
+                        })
                 .map(cor_variacao, subset=["YoY_%"])
                 .map(cor_atingimento, subset=["Atingimento"]),
                 use_container_width=True,
