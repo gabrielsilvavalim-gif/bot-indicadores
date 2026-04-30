@@ -421,7 +421,7 @@ INDICADORES = {
     },
     "Faturamento Incremental": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
-        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMENTAL", "TIPO DE META": "R$"
+        "GRUPO 01": "FATURAMENTO", "GRUPO 02": "SERVICOS", "GRUPO 03": "INCREMETAL", "TIPO DE META": "R$"
     },
     "Faturamento LCSAO": {
         "tipo": "simples", "categoria": "faturamento", "TIPO": "ECONOMICO",
