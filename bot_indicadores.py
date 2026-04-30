@@ -5521,7 +5521,16 @@ with col_titulo:
 # SIDEBAR
 # =========================
 with st.sidebar:
-    st.header("⚙️ Filtros")
+    # Cabeçalho da sidebar com ícone personalizado
+    # Arquivo esperado no GitHub: reciclar-simbolo.png
+    if os.path.exists("reciclar-simbolo.png"):
+        col_icone_filtro, col_texto_filtro = st.columns([0.16, 0.84], vertical_alignment="center")
+        with col_icone_filtro:
+            st.image("reciclar-simbolo.png", width=28)
+        with col_texto_filtro:
+            st.markdown("### Filtros")
+    else:
+        st.header("♻️ Filtros")
 
     # Usuário comum NÃO vê a origem da base.
     # Ele fica travado no Google Drive, com o arquivo padrão.
