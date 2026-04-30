@@ -4036,6 +4036,13 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             for r, m in zip(dados["Realizado R$"], dados["Meta R$"])
         ]
 
+        texto_barras_tecfil = []
+        for realizado_valor, meta_valor in zip(dados["Realizado R$"], dados["Meta R$"]):
+            if pd.notna(realizado_valor) and pd.notna(meta_valor) and meta_valor != 0:
+                texto_barras_tecfil.append(fmt_pct(realizado_valor / meta_valor))
+            else:
+                texto_barras_tecfil.append("")
+
         fig = go.Figure()
         fig.add_bar(
             x=dados["Mês"],
@@ -4043,10 +4050,10 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             name="Realizado R$",
             marker_color=cores,
             marker_cornerradius=4,
-            text=[fmt_brl(v) for v in dados["Realizado R$"]],
+            text=texto_barras_tecfil,
             textposition="inside",
             insidetextanchor="middle",
-            textfont=dict(size=10, color="white"),
+            textfont=dict(size=12, color="white"),
             cliponaxis=False,
         )
         fig.add_scatter(
@@ -4236,6 +4243,13 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         nome_meta = "Meta"
         cor_barras = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(dados["Realizado"], dados["Meta"])]
 
+    texto_barras = []
+    for realizado_valor, meta_valor in zip(dados["Realizado"], dados["Meta"]):
+        if pd.notna(realizado_valor) and pd.notna(meta_valor) and meta_valor != 0:
+            texto_barras.append(fmt_pct(realizado_valor / meta_valor))
+        else:
+            texto_barras.append("")
+
     fig = go.Figure()
     fig.add_bar(
         x=dados["Mês"],
@@ -4243,10 +4257,10 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         name=nome_realizado,
         marker_color=cor_barras,
         marker_cornerradius=4,
-        text=[fmt_brl(v) for v in dados["Realizado"]],
+        text=texto_barras,
         textposition="inside",
         insidetextanchor="middle",
-        textfont=dict(size=10, color="white"),
+        textfont=dict(size=12, color="white"),
         cliponaxis=False,
         hovertemplate=f"<b>%{{x}}</b><br>{nome_realizado}: R$ %{{y:,.0f}}<extra></extra>",
     )
