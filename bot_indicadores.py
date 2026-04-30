@@ -5741,8 +5741,8 @@ st.markdown(
     """
     <style>
         div[data-baseweb="tab-list"] img {
-            height: 66px !important;
-            width: 66px !important;
+            height: 22px !important;
+            width: 22px !important;
             object-fit: contain !important;
             vertical-align: -4px !important;
             margin-right: 4px !important;
