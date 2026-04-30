@@ -5760,7 +5760,7 @@ st.markdown(
 
 
 tab0, tab1, tab2, tab3, tab4 = st.tabs([
-    label_aba_com_icone("analise.png", "Visão Geral", "📊"),
+    label_aba_com_icone("caminhao-de-lixo (1).png", "Visão Geral", "📊"),
     "📅 Por Ano",
     "📈 MoM",
     "🔁 YoY",
