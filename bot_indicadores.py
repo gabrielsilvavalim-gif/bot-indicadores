@@ -5716,8 +5716,27 @@ if df.empty:
     st.stop()
 
 
+
+def label_aba_com_icone(arquivo_icone, texto, emoji_fallback="📊"):
+    """
+    Cria um rótulo de aba com imagem local.
+    O Streamlit aceita Markdown em st.tabs; a imagem fica com altura de ícone no texto.
+    Se o arquivo não existir, usa emoji de fallback.
+    """
+    try:
+        if os.path.exists(arquivo_icone):
+            with open(arquivo_icone, "rb") as f:
+                img_base64 = base64.b64encode(f.read()).decode("utf-8")
+            return f"![{texto}](data:image/png;base64,{img_base64}) {texto}"
+    except Exception:
+        pass
+
+    return f"{emoji_fallback} {texto}"
+
+
+
 tab0, tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 Dashboard",
+    label_aba_com_icone("analise.png", "Visão Geral", "📊"),
     "📅 Por Ano",
     "📈 MoM",
     "🔁 YoY",
@@ -5726,10 +5745,10 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
 
 
 # =========================
-# ABA DASHBOARD
+# ABA VISÃO GERAL
 # =========================
 with tab0:
-    st.subheader(f"Dashboard — {indicador} | {filial}")
+    st.subheader(f"Visão Geral — {indicador} | {filial}")
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
