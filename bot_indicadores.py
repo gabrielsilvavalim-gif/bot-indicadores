@@ -5648,7 +5648,7 @@ with st.sidebar:
             st.session_state.pop(chave, None)
         st.rerun()
 
-    st.caption("v4.8 — Bot Indicadores")
+    st.caption("V12.8 — Análise de Indicadores")
 
 
 if fonte_dados == "Google Drive":
