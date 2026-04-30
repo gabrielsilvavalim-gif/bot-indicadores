@@ -6043,9 +6043,9 @@ with tab0:
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown(card_html(f"{rotulo_realizado(indicador)} Ano", fmt_brl(realizado_total)), unsafe_allow_html=True)
-        with c2:
             st.markdown(card_html(f"{rotulo_meta(indicador)} Ano", fmt_brl(meta_total)), unsafe_allow_html=True)
+        with c2:
+            st.markdown(card_html(f"{rotulo_realizado(indicador)} Ano", fmt_brl(realizado_total)), unsafe_allow_html=True)
         with c3:
             st.markdown(card_html(f"{rotulo_gap(indicador)} Ano", fmt_brl(gap_total)), unsafe_allow_html=True)
         with c4:
