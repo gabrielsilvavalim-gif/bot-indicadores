@@ -6094,17 +6094,16 @@ with tab0:
 
         st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
         df_yoy_dashboard = calcular_yoy(df, indicador)
+
         if eh_despesa_hora_extra(indicador):
             df_yoy_dashboard_exibir = df_yoy_dashboard[[
                 "ANO",
                 "Pago em Hora Extra",
                 "Limite",
                 "Salário",
-                "Meses c/ dado",
                 "HE da Folha",
                 "Saldo do Limite",
                 "Resultado %",
-                "YoY_%"
             ]].copy()
 
             st.dataframe(
@@ -6113,13 +6112,12 @@ with tab0:
                     "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                        "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
+                    "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
                     "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
                     "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
-                    })
+                })
                 .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
-                .map(cor_despesa_manutencao, subset=["Resultado %"])
-                .map(cor_variacao, subset=["YoY_%"]),
+                .map(cor_despesa_manutencao, subset=["Resultado %"]),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -6129,28 +6127,40 @@ with tab0:
                 "Realizado": "Despesa",
                 "Meta": "Limite",
                 "Atingimento": "Uso do Limite",
-            })
+            })[[
+                "ANO",
+                "Limite",
+                "Despesa",
+                "Uso do Limite",
+            ]]
+
             st.dataframe(
                 df_yoy_dashboard_exibir.style
                 .format({
-                    "Despesa": "R$ {:,.0f}",
-                    "Limite": "R$ {:,.0f}",
-                    "Uso do Limite": "{:.1%}",
-                        })
-                .map(cor_variacao, subset=["YoY_%"])
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Uso do Limite": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                })
                 .map(cor_despesa_manutencao, subset=["Uso do Limite"]),
                 use_container_width=True,
                 hide_index=True,
             )
+
         else:
+            df_yoy_dashboard_exibir = df_yoy_dashboard[[
+                "ANO",
+                "Meta",
+                "Realizado",
+                "Atingimento",
+            ]].copy()
+
             st.dataframe(
-                df_yoy_dashboard.style
+                df_yoy_dashboard_exibir.style
                 .format({
-                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                        })
-                .map(cor_variacao, subset=["YoY_%"])
+                })
                 .map(cor_atingimento, subset=["Atingimento"]),
                 use_container_width=True,
                 hide_index=True,
