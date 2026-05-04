@@ -899,88 +899,70 @@ def obter_data_geracao_planilha(df_base):
 
 def renderizar_cabecalho(data_geracao_planilha="-"):
     """
-    Renderiza o cabeçalho com a data acima do logo e o texto alinhado
-    verticalmente ao centro do logo da Mazola.
+    Renderiza o cabeçalho principal do app sem a data acima do logo.
+    A data será exibida na aba Visão Geral, no canto direito.
     """
-    col_logo, col_titulo = st.columns([1.25, 5], vertical_alignment="center", gap="small")
+    col_logo, col_titulo = st.columns([1, 5], vertical_alignment="center", gap="small")
 
     with col_logo:
-        st.markdown(
-            f"""
+        if os.path.exists(LOGO_ARQUIVO):
+            st.markdown('<div class="logo-alinhada">', unsafe_allow_html=True)
+            st.image(LOGO_ARQUIVO, width=160)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_titulo:
+        st.markdown('<div class="texto-cabecalho">', unsafe_allow_html=True)
+        st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
+        st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+def card_data_geracao_planilha(data_geracao_planilha="-"):
+    """
+    Card compacto para mostrar a data de geração da planilha
+    no canto direito da aba Visão Geral.
+    """
+    st.markdown(
+        f"""
+        <div style="
+            display: flex;
+            justify-content: flex-end;
+            align-items: flex-start;
+            width: 100%;
+            margin-top: 2px;
+            margin-bottom: 0;
+        ">
             <div style="
-                width: 160px;
-                text-align: center;
-                margin: 0 0 4px 0;
-                padding: 0;
-                line-height: 1.05;
+                min-width: 210px;
+                border: 1px solid #E5E7EB;
+                border-radius: 14px;
+                background: #FFFFFF;
+                padding: 9px 14px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+                text-align: right;
             ">
                 <div style="
-                    font-size: 10px;
+                    font-size: 11px;
                     color: #6B7280;
                     font-weight: 600;
-                    margin: 0 0 2px 0;
-                    padding: 0;
+                    margin-bottom: 3px;
                     white-space: nowrap;
                 ">
-                    Data de geração
+                    Data de geração da planilha
                 </div>
                 <div style="
-                    font-size: 12px;
+                    font-size: 15px;
                     color: #111827;
                     font-weight: 700;
-                    margin: 0;
-                    padding: 0;
                     white-space: nowrap;
                 ">
                     {data_geracao_planilha}
                 </div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if os.path.exists(LOGO_ARQUIVO):
-            st.image(LOGO_ARQUIVO, width=150)
-
-    with col_titulo:
-        st.markdown(
-            """
-            <div style="
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: flex-start;
-                min-height: 110px;
-                margin: 48px 0 0 0;
-                padding: 0;
-                line-height: 1.08;
-            ">
-                <div style="
-                    color: #F26522;
-                    font-size: 17px;
-                    font-weight: 700;
-                    margin: 0 0 2px 0;
-                    padding: 0;
-                    line-height: 1.08;
-                    white-space: nowrap;
-                ">
-                    Análise de Indicadores Mazola Ambiental
-                </div>
-                <div style="
-                    color: #00A350;
-                    font-size: 16px;
-                    font-weight: 700;
-                    margin: 0;
-                    padding: 0;
-                    line-height: 1.08;
-                    white-space: nowrap;
-                ">
-                    Painel gerencial de acompanhamento de metas e resultados
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def validar_colunas_base(df_base):
     """
@@ -5888,7 +5870,13 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
 # ABA VISÃO GERAL
 # =========================
 with tab0:
-    st.subheader(f"Visão Geral — {indicador} | {filial}")
+    col_titulo_visao, col_data_visao = st.columns([3.6, 1.4], vertical_alignment="top")
+
+    with col_titulo_visao:
+        st.subheader(f"Visão Geral — {indicador} | {filial}")
+
+    with col_data_visao:
+        card_data_geracao_planilha(data_geracao_planilha)
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
