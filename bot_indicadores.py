@@ -954,7 +954,7 @@ def renderizar_cabecalho(data_geracao_planilha="-"):
                     margin-bottom: 3px;
                     white-space: nowrap;
                 ">
-                    Data de geração da planilha
+                    Base atualizada em
                 </div>
                 <div style="
                     font-size: 15px;
@@ -4085,6 +4085,25 @@ def gerar_texto_explicativo_pdf(resumo, indicador):
 
     return texto
 
+def aplicar_tema_plotly_mazola(fig):
+    """
+    Tema visual padrão para gráficos Plotly do painel.
+    """
+    try:
+        fig.update_layout(
+            plot_bgcolor="#FFFFFF",
+            paper_bgcolor="#FFFFFF",
+            font=dict(family="Arial", size=12, color="#111827"),
+            hoverlabel=dict(bgcolor="#FFFFFF", font_size=12, font_color="#111827"),
+            legend=dict(orientation="h"),
+        )
+        fig.update_xaxes(showgrid=False, tickangle=0)
+        fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA", zeroline=False)
+    except Exception:
+        pass
+    return fig
+
+
 def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
     if indicador and eh_qualidade(indicador):
         dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Resultado %"].notna())].copy()
@@ -4137,7 +4156,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             yaxis_tickformat=".0%",
         )
         fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
-        return fig
+        return aplicar_tema_plotly_mazola(fig)
 
     if indicador and eh_tecfil(indicador):
         dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado R$"].notna())].copy()
@@ -4195,7 +4214,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             uniformtext_mode="show",
         )
         fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
-        return fig
+        return aplicar_tema_plotly_mazola(fig)
 
     if indicador and eh_resultado_financeiro(indicador):
         dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Receita"].notna())].copy()
@@ -4240,7 +4259,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             uniformtext_mode="hide",
         )
         fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
-        return fig
+        return aplicar_tema_plotly_mazola(fig)
 
     if indicador and eh_despesa_geral(indicador):
         dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Despesa"].notna())].copy()
@@ -4288,7 +4307,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             uniformtext_mode="hide",
         )
         fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
-        return fig
+        return aplicar_tema_plotly_mazola(fig)
 
     if indicador and eh_despesa_hora_extra(indicador):
         dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Pago em Hora Extra"].notna())].copy()
@@ -4337,7 +4356,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             uniformtext_mode="hide",
         )
         fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
-        return fig
+        return aplicar_tema_plotly_mazola(fig)
 
     dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
     if dados.empty:
@@ -4449,6 +4468,106 @@ def mes_ano_label(serie_meses, ano):
     """
     sufixo = str(int(ano))[-2:] if ano is not None else ""
     return [f"{str(m)}/{sufixo}" for m in serie_meses]
+
+
+def titulo_secao(titulo, subtitulo=None):
+    """
+    Título de seção com visual mais próximo de dashboard executivo.
+    """
+    subtitulo_html = ""
+    if subtitulo:
+        subtitulo_html = f'<div class="section-subtitle-v5">{subtitulo}</div>'
+
+    st.markdown(
+        f"""
+        <div class="section-title-v5">{titulo}</div>
+        {subtitulo_html}
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def contexto_dashboard(indicador, filial, ano, periodo="-", data_base="-"):
+    """
+    Bloco de contexto do dashboard para o usuário saber exatamente
+    qual indicador, unidade e período está analisando.
+    """
+    st.markdown(
+        f"""
+        <div class="dashboard-context">
+            <div class="context-left">
+                <span class="context-pill">📌 Indicador: <strong>{indicador}</strong></span>
+                <span class="context-pill">🏢 Unidade: <strong>{filial}</strong></span>
+                <span class="context-pill">📅 Ano: <strong>{ano}</strong></span>
+                <span class="context-pill">🧭 Período: <strong>{periodo}</strong></span>
+            </div>
+            <div class="context-update">
+                <div class="context-update-label">Base atualizada em</div>
+                <div class="context-update-value">{data_base}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def alerta_executivo_dashboard(titulo, texto, status="warn"):
+    """
+    Pequeno resumo executivo abaixo dos KPIs.
+    status = "good" ou "warn".
+    """
+    st.markdown(
+        f"""
+        <div class="exec-alert {status}">
+            <div>
+                <div class="exec-alert-title">{titulo}</div>
+                <div class="exec-alert-text">{texto}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def insight_meta_texto(atingimento=None, gap=None, indicador=None):
+    """
+    Gera um texto simples de status para indicadores com meta.
+    Não altera cálculo, apenas melhora a leitura executiva.
+    """
+    try:
+        if atingimento is None or pd.isna(atingimento):
+            return "Status do período", "Ainda não há dados suficientes para avaliar o atingimento da meta.", "warn"
+
+        ating_fmt = fmt_pct(atingimento)
+
+        if eh_despesa_com_limite(indicador):
+            if atingimento <= 1:
+                saldo = fmt_brl(gap) if gap is not None and pd.notna(gap) else "-"
+                return "Dentro do limite", f"O indicador está em {ating_fmt} do limite. Saldo disponível: {saldo}.", "good"
+            excesso = fmt_brl(abs(gap)) if gap is not None and pd.notna(gap) else "-"
+            return "Atenção ao limite", f"O indicador está em {ating_fmt} do limite. Excesso identificado: {excesso}.", "warn"
+
+        if atingimento >= 1:
+            folga = fmt_brl(gap) if gap is not None and pd.notna(gap) else "-"
+            return "Meta atingida", f"O indicador atingiu {ating_fmt} da meta. Resultado acima da meta: {folga}.", "good"
+
+        falta = fmt_brl(abs(gap)) if gap is not None and pd.notna(gap) else "-"
+        return "Atenção à meta", f"O indicador está em {ating_fmt} da meta. Falta aproximadamente {falta} para atingir o objetivo.", "warn"
+    except Exception:
+        return "Status do período", "Resumo executivo indisponível para este indicador.", "warn"
+
+
+def insight_variacao_texto(delta=None, nome="YTD"):
+    """
+    Texto para indicadores cuja leitura principal é comparação de mesmo período.
+    """
+    if delta is None or pd.isna(delta):
+        return "Comparativo indisponível", f"Não há dados suficientes para calcular a variação {nome}.", "warn"
+
+    if delta >= 0:
+        return "Evolução positiva", f"O {nome} está {delta:+.1%} acima do mesmo período anterior.", "good"
+
+    return "Ponto de atenção", f"O {nome} está {delta:+.1%} abaixo do mesmo período anterior.", "warn"
 
 
 class PDFRelatorio(FPDF):
@@ -5722,6 +5841,152 @@ div[data-testid="stMetricDelta"] {
     font-size: 11px;
 }
 
+
+/* Refinamento executivo v5.0 etapa 3 */
+.dashboard-context {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    width:100%;
+    padding:12px 16px;
+    margin:2px 0 18px 0;
+    border-radius:14px;
+    background: linear-gradient(90deg, rgba(242,101,34,0.08), rgba(0,163,80,0.06));
+    border:1px solid #F1F1F1;
+}
+
+.context-left {
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+}
+
+.context-pill {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 10px;
+    border-radius:999px;
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    color:#111827;
+    font-size:12px;
+    font-weight:600;
+    white-space:nowrap;
+}
+
+.context-pill strong {
+    color:#F26522;
+}
+
+.context-update {
+    text-align:right;
+    min-width:185px;
+}
+
+.context-update-label {
+    font-size:11px;
+    color:#6B7280;
+    font-weight:600;
+    margin-bottom:2px;
+    white-space:nowrap;
+}
+
+.context-update-value {
+    font-size:14px;
+    color:#111827;
+    font-weight:800;
+    white-space:nowrap;
+}
+
+.exec-alert {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    padding:12px 15px;
+    border-radius:14px;
+    margin:14px 0 16px 0;
+    background:#FFFFFF;
+    border-left:5px solid #F26522;
+    box-shadow:0 1px 5px rgba(0,0,0,0.06);
+}
+
+.exec-alert.good {
+    border-left-color:#00A350;
+    background:rgba(0,163,80,0.06);
+}
+
+.exec-alert.warn {
+    border-left-color:#F26522;
+    background:rgba(242,101,34,0.07);
+}
+
+.exec-alert-title {
+    font-size:13px;
+    font-weight:800;
+    color:#111827;
+    margin-bottom:2px;
+}
+
+.exec-alert-text {
+    font-size:12px;
+    color:#4B5563;
+    line-height:1.35;
+}
+
+.section-title-v5 {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin:18px 0 8px 0;
+    color:#111827;
+    font-size:18px;
+    font-weight:800;
+}
+
+.section-title-v5::before {
+    content:"";
+    display:inline-block;
+    width:5px;
+    height:22px;
+    border-radius:999px;
+    background:#F26522;
+}
+
+.section-subtitle-v5 {
+    margin:-4px 0 10px 13px;
+    color:#6B7280;
+    font-size:12px;
+}
+
+div[data-testid="stMetric"] {
+    transition: transform .12s ease, box-shadow .12s ease;
+}
+
+div[data-testid="stMetric"]:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+div[data-testid="stMetric"] [data-testid="stMetricLabel"] p {
+    font-weight:700;
+}
+
+div[data-testid="stMetricValue"] {
+    color:#111827;
+}
+
+div[data-testid="stMetricDelta"] svg {
+    display:none;
+}
+
+hr {
+    margin: 1.1rem 0;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -5832,7 +6097,7 @@ with st.sidebar:
             st.session_state.pop(chave, None)
         st.rerun()
 
-    st.caption("v5.0 etapa 2 — Dashboard com st.metric")
+    st.caption("v5.0 etapa 3 — Refinamento executivo visual")
 
 
 if fonte_dados == "Google Drive":
@@ -5965,6 +6230,10 @@ with tab0:
     ano_kpi = int(anos[-1])
     base_kpi = df[df["ANO"] == ano_kpi].copy()
 
+    periodo_contexto = f"Jan a {MESES_MAPA.get(int(base_kpi['MÊS'].max()), '-')}" if not base_kpi.empty and base_kpi["MÊS"].notna().any() else "-"
+    contexto_dashboard(indicador, filial, ano_kpi, periodo_contexto, data_geracao_planilha)
+    titulo_secao("Resumo executivo", "Principais indicadores consolidados do período selecionado.")
+
     if eh_moto_margem(indicador):
         resumo_ano_moto = resumo_moto_por_grupo(base_kpi)
         periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
@@ -5990,7 +6259,10 @@ with tab0:
         with c5:
             kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
-        st.divider()
+        _titulo_alerta, _texto_alerta, _status_alerta = insight_variacao_texto(delta_ytd, "YTD")
+        alerta_executivo_dashboard(_titulo_alerta, _texto_alerta, _status_alerta)
+
+        titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
         df_dashboard_ano = tabela_pneus_moto_ano(df, ano_kpi)
         dados_chart = df_dashboard_ano[(df_dashboard_ano["Mês"] != "TOTAL") & (df_dashboard_ano["Faturamento"].notna())]
@@ -6033,7 +6305,7 @@ with tab0:
 
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_moto")
 
-        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        titulo_secao("Comparativo ano a ano", "Resumo histórico consolidado do indicador selecionado.")
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         st.dataframe(
@@ -6078,9 +6350,10 @@ with tab0:
         with c5:
             kpi_metric(rot["resultado"], fmt_pct(resumo_ano_qualidade["Resultado %"]))
 
-        st.caption(f"YTD {periodo_label}: {fmt_pct(ytd_valor) if ytd_valor is not None else '-'}")
+        _titulo_alerta, _texto_alerta, _status_alerta = insight_variacao_texto(delta_ytd, "YTD")
+        alerta_executivo_dashboard(_titulo_alerta, _texto_alerta, _status_alerta)
 
-        st.divider()
+        titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
         df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
         dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Resultado %"])
@@ -6089,7 +6362,7 @@ with tab0:
             fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_qualidade")
 
-        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        titulo_secao("Comparativo ano a ano", "Resumo histórico consolidado do indicador selecionado.")
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         rot = rotulos_qualidade(indicador)
@@ -6139,7 +6412,10 @@ with tab0:
         with c5:
             kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
-        st.divider()
+        _titulo_alerta, _texto_alerta, _status_alerta = insight_variacao_texto(delta_ytd, "YTD")
+        alerta_executivo_dashboard(_titulo_alerta, _texto_alerta, _status_alerta)
+
+        titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
         df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
         dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Realizado R$"])
@@ -6148,7 +6424,7 @@ with tab0:
             fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_tecfil")
 
-        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        titulo_secao("Comparativo ano a ano", "Resumo histórico consolidado do indicador selecionado.")
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         st.dataframe(
@@ -6193,7 +6469,10 @@ with tab0:
         with c5:
             kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
-        st.divider()
+        _titulo_alerta, _texto_alerta, _status_alerta = insight_variacao_texto(delta_ytd, "YTD")
+        alerta_executivo_dashboard(_titulo_alerta, _texto_alerta, _status_alerta)
+
+        titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
         df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
         dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Resultado R$"])
@@ -6202,7 +6481,7 @@ with tab0:
             fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_resultado_financeiro")
 
-        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        titulo_secao("Comparativo ano a ano", "Resumo histórico consolidado do indicador selecionado.")
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         st.dataframe(
@@ -6244,7 +6523,10 @@ with tab0:
         with c5:
             kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
-        st.divider()
+        _titulo_alerta, _texto_alerta, _status_alerta = insight_variacao_texto(delta_ytd, "YTD")
+        alerta_executivo_dashboard(_titulo_alerta, _texto_alerta, _status_alerta)
+
+        titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
         df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
         dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Despesa"])
@@ -6253,7 +6535,7 @@ with tab0:
             fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_despesa_geral")
 
-        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        titulo_secao("Comparativo ano a ano", "Resumo histórico consolidado do indicador selecionado.")
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         st.dataframe(
@@ -6304,7 +6586,10 @@ with tab0:
         with c5:
             kpi_metric(f"YTD {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-", delta_ytd)
 
-        st.divider()
+        _titulo_alerta, _texto_alerta, _status_alerta = insight_meta_texto(ating_total, gap_total, indicador)
+        alerta_executivo_dashboard(_titulo_alerta, _texto_alerta, _status_alerta)
+
+        titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
         df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
 
@@ -6322,7 +6607,7 @@ with tab0:
             fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
             st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard")
 
-        st.subheader(f"{indicador} — {filial} · Comparativo Ano a Ano")
+        titulo_secao("Comparativo ano a ano", "Resumo histórico consolidado do indicador selecionado.")
         df_yoy_dashboard = calcular_yoy(df, indicador)
 
         if eh_despesa_hora_extra(indicador):
