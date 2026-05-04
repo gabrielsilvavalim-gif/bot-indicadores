@@ -899,87 +899,60 @@ def obter_data_geracao_planilha(df_base):
 
 def renderizar_cabecalho(data_geracao_planilha="-"):
     """
-    Renderiza o cabeçalho principal com tudo em um único bloco HTML.
-    Isso evita que a data acima do logo desalinhe o título e o subtítulo.
+    Renderiza o cabeçalho com método seguro:
+    - usa st.image para o logo, evitando problema com arquivo .ico em base64;
+    - mantém a data acima do logo;
+    - alinha título e subtítulo ao lado sem quebrar a formatação.
     """
-    logo_html = ""
+    col_logo, col_titulo = st.columns([1.25, 5], vertical_alignment="center", gap="small")
 
-    try:
-        if os.path.exists(LOGO_ARQUIVO):
-            import base64
-            with open(LOGO_ARQUIVO, "rb") as logo_file:
-                logo_base64 = base64.b64encode(logo_file.read()).decode("utf-8")
-
-            logo_html = f"""
-                <img src="data:image/png;base64,{logo_base64}" style="
-                    width: 150px;
-                    height: auto;
-                    display: block;
-                    margin: 0;
-                    padding: 0;
-                ">
-            """
-    except Exception:
-        logo_html = ""
-
-    st.markdown(
-        f"""
-        <div style="
-            display: flex;
-            align-items: center;
-            justify-content: flex-start;
-            gap: 24px;
-            width: 100%;
-            margin: 0 0 28px 0;
-            padding: 0;
-            min-height: 118px;
-        ">
+    with col_logo:
+        st.markdown(
+            f"""
             <div style="
-                width: 170px;
-                min-width: 170px;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: flex-start;
-                margin: 0;
+                width: 160px;
+                text-align: center;
+                margin: 0 0 4px 0;
                 padding: 0;
+                line-height: 1.05;
             ">
                 <div style="
-                    text-align: center;
-                    margin: 0 0 8px 0;
+                    font-size: 10px;
+                    color: #6B7280;
+                    font-weight: 600;
+                    margin: 0 0 2px 0;
                     padding: 0;
-                    line-height: 1.05;
+                    white-space: nowrap;
                 ">
-                    <div style="
-                        font-size: 10px;
-                        color: #6B7280;
-                        font-weight: 600;
-                        margin: 0 0 2px 0;
-                        padding: 0;
-                        white-space: nowrap;
-                    ">
-                        Data de geração
-                    </div>
-                    <div style="
-                        font-size: 12px;
-                        color: #111827;
-                        font-weight: 700;
-                        margin: 0;
-                        padding: 0;
-                        white-space: nowrap;
-                    ">
-                        {data_geracao_planilha}
-                    </div>
+                    Data de geração
                 </div>
-
-                {logo_html}
+                <div style="
+                    font-size: 12px;
+                    color: #111827;
+                    font-weight: 700;
+                    margin: 0;
+                    padding: 0;
+                    white-space: nowrap;
+                ">
+                    {data_geracao_planilha}
+                </div>
             </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
+        if os.path.exists(LOGO_ARQUIVO):
+            st.image(LOGO_ARQUIVO, width=150)
+
+    with col_titulo:
+        st.markdown(
+            """
             <div style="
                 display: flex;
                 flex-direction: column;
                 justify-content: center;
                 align-items: flex-start;
+                min-height: 110px;
                 margin: 18px 0 0 0;
                 padding: 0;
                 line-height: 1.08;
@@ -1007,10 +980,9 @@ def renderizar_cabecalho(data_geracao_planilha="-"):
                     Painel gerencial de acompanhamento de metas e resultados
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
 
 def validar_colunas_base(df_base):
     """
