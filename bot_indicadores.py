@@ -253,10 +253,30 @@ def nome_perfil_exibicao():
 
 
 # =========================
+# REFATORAÇÃO VISUAL v5.0 — ETAPA 1
+# =========================
+# Esta versão mantém a lógica original e inicia a padronização visual
+# para aproximar o app do padrão Power BI solicitado.
+
+# =========================
 # CONFIGURAÇÕES GERAIS
 # =========================
 COR_LARANJA = "#F26522"
 COR_VERDE = "#00A350"
+COR_AZUL = "#0078D4"
+COR_AMARELO = "#FFB900"
+COR_VERMELHO = "#D13438"
+COR_CINZA = "#A19F9D"
+
+CORES_MAZOLA = {
+    "verde": COR_VERDE,
+    "laranja": COR_LARANJA,
+    "azul": COR_AZUL,
+    "amarelo": COR_AMARELO,
+    "vermelho": COR_VERMELHO,
+    "cinza": COR_CINZA,
+}
+
 QUALQUER = "__ANY__"
 LOGO_ARQUIVO = "MazolaCertificado.ico"
 TZ_BR = ZoneInfo("America/Sao_Paulo")
@@ -4085,7 +4105,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
 
         fig = go.Figure()
         fig.add_bar(
-            x=dados["Mês"],
+            x=mes_ano_label(dados["Mês"], ano),
             y=dados["Resultado %"],
             name=rot["resultado"],
             marker_color=cores,
@@ -4097,11 +4117,11 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
 
         if modelo_qualidade(indicador) != "parametro_coleta_critico":
             fig.add_scatter(
-                x=dados["Mês"],
+                x=mes_ano_label(dados["Mês"], ano),
                 y=dados["Meta"],
                 name=rot["meta"],
                 mode="lines+markers",
-                line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                line=dict(color=COR_AZUL, width=3, dash="dot"),
                 marker=dict(size=7),
             )
 
@@ -4141,7 +4161,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
 
         fig = go.Figure()
         fig.add_bar(
-            x=dados["Mês"],
+            x=mes_ano_label(dados["Mês"], ano),
             y=dados["Realizado R$"],
             name="Realizado R$",
             marker_color=cores,
@@ -4153,15 +4173,15 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             cliponaxis=False,
         )
         fig.add_scatter(
-            x=dados["Mês"],
+            x=mes_ano_label(dados["Mês"], ano),
             y=dados["Meta R$"],
             name="Meta R$",
             mode="lines+markers+text",
-            line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            line=dict(color=COR_AZUL, width=3, dash="dot"),
             marker=dict(size=7),
             text=[fmt_brl(v) for v in dados["Meta R$"]],
             textposition="top center",
-            textfont=dict(size=10, color=COR_LARANJA),
+            textfont=dict(size=10, color=COR_AZUL),
             cliponaxis=False,
         )
         fig.update_layout(
@@ -4192,7 +4212,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
 
         fig = go.Figure()
         fig.add_bar(
-            x=dados["Mês"],
+            x=mes_ano_label(dados["Mês"], ano),
             y=dados["Receita"],
             name="Receita",
             marker_color=cores_receita,
@@ -4202,7 +4222,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             textfont=dict(size=11),
         )
         fig.add_scatter(
-            x=dados["Mês"],
+            x=mes_ano_label(dados["Mês"], ano),
             y=dados["Despesa"],
             name="Despesa",
             mode="lines+markers",
@@ -4238,7 +4258,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
 
         fig = go.Figure()
         fig.add_bar(
-            x=dados["Mês"],
+            x=mes_ano_label(dados["Mês"], ano),
             y=dados["Despesa"],
             name="Despesa",
             marker_color=cor_barras,
@@ -4249,11 +4269,11 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             hovertemplate="<b>%{x}</b><br>Despesa: R$ %{y:,.0f}<extra></extra>",
         )
         fig.add_scatter(
-            x=dados["Mês"],
+            x=mes_ano_label(dados["Mês"], ano),
             y=limite_rs,
             name="Limite R$",
             mode="lines+markers",
-            line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            line=dict(color=COR_AZUL, width=3, dash="dot"),
             marker=dict(size=7),
             hovertemplate="<b>%{x}</b><br>Limite R$: R$ %{y:,.0f}<extra></extra>",
         )
@@ -4287,7 +4307,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
 
         fig = go.Figure()
         fig.add_bar(
-            x=dados["Mês"],
+            x=mes_ano_label(dados["Mês"], ano),
             y=dados["Pago em Hora Extra"],
             name=nome_realizado,
             marker_color=cor_barras,
@@ -4298,11 +4318,11 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
             hovertemplate=f"<b>%{{x}}</b><br>{nome_realizado}: R$ %{{y:,.0f}}<extra></extra>",
         )
         fig.add_scatter(
-            x=dados["Mês"],
+            x=mes_ano_label(dados["Mês"], ano),
             y=dados["Limite"],
             name=nome_meta,
             mode="lines+markers",
-            line=dict(color=COR_LARANJA, width=3, dash="dot"),
+            line=dict(color=COR_AZUL, width=3, dash="dot"),
             marker=dict(size=7),
             hovertemplate=f"<b>%{{x}}</b><br>{nome_meta}: R$ %{{y:,.0f}}<extra></extra>",
         )
@@ -4348,7 +4368,7 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
 
     fig = go.Figure()
     fig.add_bar(
-        x=dados["Mês"],
+        x=mes_ano_label(dados["Mês"], ano),
         y=dados["Realizado"],
         name=nome_realizado,
         marker_color=cor_barras,
@@ -4361,15 +4381,15 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         hovertemplate=f"<b>%{{x}}</b><br>{nome_realizado}: R$ %{{y:,.0f}}<extra></extra>",
     )
     fig.add_scatter(
-        x=dados["Mês"],
+        x=mes_ano_label(dados["Mês"], ano),
         y=dados["Meta"],
         name=nome_meta,
         mode="lines+markers+text",
-        line=dict(color=COR_LARANJA, width=3, dash="dot"),
+        line=dict(color=COR_AZUL, width=3, dash="dot"),
         marker=dict(size=7),
         text=[fmt_brl(v) for v in dados["Meta"]],
         textposition="top center",
-        textfont=dict(size=10, color=COR_LARANJA),
+        textfont=dict(size=10, color=COR_AZUL),
         cliponaxis=False,
         hovertemplate=f"<b>%{{x}}</b><br>{nome_meta}: R$ %{{y:,.0f}}<extra></extra>",
     )
@@ -4405,6 +4425,30 @@ def card_html(titulo, valor, delta=None):
         f'{delta_html}'
         '</div>'
     )
+
+
+def kpi_metric(titulo, valor, delta=None):
+    """
+    KPI padrão da refatoração v5.0.
+    Usa st.metric(), conforme especificação, mantendo suporte a delta percentual.
+    """
+    delta_texto = None
+    if delta is not None and pd.notna(delta):
+        try:
+            delta_texto = f"{float(delta):+.1%}"
+        except Exception:
+            delta_texto = None
+
+    st.metric(label=titulo, value=valor, delta=delta_texto)
+
+
+def mes_ano_label(serie_meses, ano):
+    """
+    Formata o eixo X dos gráficos no padrão solicitado:
+    Jan/26, Fev/26, Mar/26...
+    """
+    sufixo = str(int(ano))[-2:] if ano is not None else ""
+    return [f"{str(m)}/{sufixo}" for m in serie_meses]
 
 
 class PDFRelatorio(FPDF):
@@ -5584,23 +5628,34 @@ st.markdown(
 
 .kpi-card {
     position: relative;
-    border:1px solid #E6E6E6;
-    border-radius:14px;
-    padding:14px 16px 40px 16px;
+    border:1px solid #E5E7EB;
+    border-radius:12px;
+    padding:11px 14px 34px 14px;
     background:#FFFFFF;
-    min-height:112px;
-    box-shadow:0 1px 3px rgba(0,0,0,0.04);
+    min-height:96px;
+    box-shadow:0 1px 4px rgba(0,0,0,0.06);
+}
+
+.kpi-card::before {
+    content:"";
+    position:absolute;
+    left:0;
+    top:0;
+    height:4px;
+    width:100%;
+    border-radius:12px 12px 0 0;
+    background:#F26522;
 }
 
 .kpi-label {
-    font-size:12px;
+    font-size:11px;
     color:#404040;
-    margin-bottom:8px;
+    margin-bottom:7px;
     white-space:nowrap;
 }
 
 .kpi-value {
-    font-size:18px;
+    font-size:17px;
     font-weight:700;
     color:#111827;
     line-height:1.15;
@@ -5610,15 +5665,63 @@ st.markdown(
 
 .kpi-delta {
     position:absolute;
-    left:16px;
-    bottom:12px;
+    left:14px;
+    bottom:9px;
     display:inline-block;
-    padding:4px 9px;
+    padding:3px 8px;
     border-radius:999px;
-    font-size:12px;
+    font-size:11px;
     font-weight:600;
     width:fit-content;
 }
+
+div[data-testid="stDataFrame"] {
+    border-radius: 10px;
+}
+
+.main .block-container {
+    padding-top: 1.2rem;
+}
+
+/* Cards st.metric — Dashboard v5.0 */
+div[data-testid="stMetric"] {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 10px 14px;
+    min-height: 88px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    position: relative;
+    overflow: hidden;
+}
+
+div[data-testid="stMetric"]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 4px;
+    width: 100%;
+    background: #F26522;
+}
+
+div[data-testid="stMetricLabel"] {
+    font-size: 11px;
+    color: #404040;
+    white-space: nowrap;
+}
+
+div[data-testid="stMetricValue"] {
+    font-size: 18px;
+    font-weight: 700;
+    color: #111827;
+    white-space: nowrap;
+}
+
+div[data-testid="stMetricDelta"] {
+    font-size: 11px;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -5729,7 +5832,7 @@ with st.sidebar:
             st.session_state.pop(chave, None)
         st.rerun()
 
-    st.caption("v12.8 — Análise de Indicadores")
+    st.caption("v5.0 etapa 2 — Dashboard com st.metric")
 
 
 if fonte_dados == "Google Drive":
@@ -5844,7 +5947,7 @@ st.markdown(
 
 
 tab0, tab1, tab2, tab3, tab4 = st.tabs([
-    label_aba_com_icone("caminhao-de-lixo (1).png", "Visão Geral", "📊"),
+    label_aba_com_icone("caminhao-de-lixo (1).png", "Dashboard", "📊"),
     "📅 Por Ano",
     "📈 MoM",
     "🔁 YoY",
@@ -5853,10 +5956,10 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
 
 
 # =========================
-# ABA VISÃO GERAL
+# ABA DASHBOARD
 # =========================
 with tab0:
-    st.subheader(f"Visão Geral — {indicador} | {filial}")
+    st.subheader(f"Dashboard — {indicador} | {filial}")
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
@@ -5877,15 +5980,15 @@ with tab0:
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown(card_html("Faturamento Ano", fmt_brl(resumo_ano_moto["Faturamento"])), unsafe_allow_html=True)
+            kpi_metric("Faturamento Ano", fmt_brl(resumo_ano_moto["Faturamento"]))
         with c2:
-            st.markdown(card_html("Compra Ano", fmt_brl(resumo_ano_moto["Compra"])), unsafe_allow_html=True)
+            kpi_metric("Compra Ano", fmt_brl(resumo_ano_moto["Compra"]))
         with c3:
-            st.markdown(card_html("Margem Bruta Ano", fmt_brl(resumo_ano_moto["Margem Bruta"])), unsafe_allow_html=True)
+            kpi_metric("Margem Bruta Ano", fmt_brl(resumo_ano_moto["Margem Bruta"]))
         with c4:
-            st.markdown(card_html("Tx. Sucesso", fmt_pct(resumo_ano_moto["Tx. Sucesso"])), unsafe_allow_html=True)
+            kpi_metric("Tx. Sucesso", fmt_pct(resumo_ano_moto["Tx. Sucesso"]))
         with c5:
-            st.markdown(card_html(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd), unsafe_allow_html=True)
+            kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         st.divider()
 
@@ -5901,7 +6004,7 @@ with tab0:
             ]
 
             fig_dash.add_bar(
-                x=dados_chart["Mês"],
+                x=mes_ano_label(dados_chart["Mês"], ano_kpi if "ano_kpi" in globals() else ano_selecionado),
                 y=dados_chart["Tx. Sucesso"],
                 name="Tx. Sucesso",
                 marker_color=cores_tx,
@@ -5911,11 +6014,11 @@ with tab0:
 
             if ano_kpi >= 2026:
                 fig_dash.add_scatter(
-                    x=dados_chart["Mês"],
+                    x=mes_ano_label(dados_chart["Mês"], ano_kpi if "ano_kpi" in globals() else ano_selecionado),
                     y=dados_chart["Meta"],
                     name="Meta %",
                     mode="lines+markers",
-                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                    line=dict(color=COR_AZUL, width=3, dash="dot"),
                     marker=dict(size=7),
                 )
 
@@ -5965,15 +6068,15 @@ with tab0:
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
             meta_valor = fmt_num(resumo_ano_qualidade["Meta"]) if modelo_qualidade(indicador) == "parametro_coleta_critico" else fmt_pct(resumo_ano_qualidade["Meta"])
-            st.markdown(card_html(rot["meta"], meta_valor), unsafe_allow_html=True)
+            kpi_metric(rot["meta"], meta_valor)
         with c2:
-            st.markdown(card_html(rot["qtd_total"], fmt_num(resumo_ano_qualidade["Qtd. Coletas"])), unsafe_allow_html=True)
+            kpi_metric(rot["qtd_total"], fmt_num(resumo_ano_qualidade["Qtd. Coletas"]))
         with c3:
-            st.markdown(card_html(rot["qtd_sucesso"], fmt_num(resumo_ano_qualidade["Qtd. Sucesso"])), unsafe_allow_html=True)
+            kpi_metric(rot["qtd_sucesso"], fmt_num(resumo_ano_qualidade["Qtd. Sucesso"]))
         with c4:
-            st.markdown(card_html(rot["diferenca"], fmt_num(resumo_ano_qualidade["Diferença"])), unsafe_allow_html=True)
+            kpi_metric(rot["diferenca"], fmt_num(resumo_ano_qualidade["Diferença"]))
         with c5:
-            st.markdown(card_html(rot["resultado"], fmt_pct(resumo_ano_qualidade["Resultado %"])), unsafe_allow_html=True)
+            kpi_metric(rot["resultado"], fmt_pct(resumo_ano_qualidade["Resultado %"]))
 
         st.caption(f"YTD {periodo_label}: {fmt_pct(ytd_valor) if ytd_valor is not None else '-'}")
 
@@ -6026,15 +6129,15 @@ with tab0:
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown(card_html("Realizado KG Ano", fmt_num(resumo_ano_tecfil["Realizado KG"])), unsafe_allow_html=True)
+            kpi_metric("Realizado KG Ano", fmt_num(resumo_ano_tecfil["Realizado KG"]))
         with c2:
-            st.markdown(card_html("Meta KG Ano", fmt_num(resumo_ano_tecfil["Meta KG"])), unsafe_allow_html=True)
+            kpi_metric("Meta KG Ano", fmt_num(resumo_ano_tecfil["Meta KG"]))
         with c3:
-            st.markdown(card_html("Diferença KG", fmt_num(resumo_ano_tecfil["Dif. KG"])), unsafe_allow_html=True)
+            kpi_metric("Diferença KG", fmt_num(resumo_ano_tecfil["Dif. KG"]))
         with c4:
-            st.markdown(card_html("Realizado R$ Ano", fmt_brl(resumo_ano_tecfil["Realizado R$"])), unsafe_allow_html=True)
+            kpi_metric("Realizado R$ Ano", fmt_brl(resumo_ano_tecfil["Realizado R$"]))
         with c5:
-            st.markdown(card_html(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd), unsafe_allow_html=True)
+            kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         st.divider()
 
@@ -6080,15 +6183,15 @@ with tab0:
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown(card_html("Despesa Ano", fmt_brl(resumo_ano_rf["Despesa"])), unsafe_allow_html=True)
+            kpi_metric("Despesa Ano", fmt_brl(resumo_ano_rf["Despesa"]))
         with c2:
-            st.markdown(card_html("Receita Ano", fmt_brl(resumo_ano_rf["Receita"])), unsafe_allow_html=True)
+            kpi_metric("Receita Ano", fmt_brl(resumo_ano_rf["Receita"]))
         with c3:
-            st.markdown(card_html("Resultado Ano", fmt_brl(resumo_ano_rf["Resultado R$"])), unsafe_allow_html=True)
+            kpi_metric("Resultado Ano", fmt_brl(resumo_ano_rf["Resultado R$"]))
         with c4:
-            st.markdown(card_html("Resultado %", fmt_pct(resumo_ano_rf["Resultado %"])), unsafe_allow_html=True)
+            kpi_metric("Resultado %", fmt_pct(resumo_ano_rf["Resultado %"]))
         with c5:
-            st.markdown(card_html(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd), unsafe_allow_html=True)
+            kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         st.divider()
 
@@ -6131,15 +6234,15 @@ with tab0:
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown(card_html("Despesa Ano", fmt_brl(resumo_ano_geral["Despesa"])), unsafe_allow_html=True)
+            kpi_metric("Despesa Ano", fmt_brl(resumo_ano_geral["Despesa"]))
         with c2:
-            st.markdown(card_html("Receita Ano", fmt_brl(resumo_ano_geral["Receita"])), unsafe_allow_html=True)
+            kpi_metric("Receita Ano", fmt_brl(resumo_ano_geral["Receita"]))
         with c3:
-            st.markdown(card_html("Resultado Ano", fmt_brl(resumo_ano_geral["Resultado R$"])), unsafe_allow_html=True)
+            kpi_metric("Resultado Ano", fmt_brl(resumo_ano_geral["Resultado R$"]))
         with c4:
-            st.markdown(card_html("Tx. Sucesso", fmt_pct(resumo_ano_geral["Tx. Sucesso"])), unsafe_allow_html=True)
+            kpi_metric("Tx. Sucesso", fmt_pct(resumo_ano_geral["Tx. Sucesso"]))
         with c5:
-            st.markdown(card_html(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd), unsafe_allow_html=True)
+            kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         st.divider()
 
@@ -6191,15 +6294,15 @@ with tab0:
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.markdown(card_html(f"{rotulo_meta(indicador)} Ano", fmt_brl(meta_total)), unsafe_allow_html=True)
+            kpi_metric(f"{rotulo_meta(indicador)} Ano", fmt_brl(meta_total))
         with c2:
-            st.markdown(card_html(f"{rotulo_realizado(indicador)} Ano", fmt_brl(realizado_total)), unsafe_allow_html=True)
+            kpi_metric(f"{rotulo_realizado(indicador)} Ano", fmt_brl(realizado_total))
         with c3:
-            st.markdown(card_html(f"{rotulo_gap(indicador)} Ano", fmt_brl(gap_total)), unsafe_allow_html=True)
+            kpi_metric(f"{rotulo_gap(indicador)} Ano", fmt_brl(gap_total))
         with c4:
-            st.markdown(card_html(("Uso do limite" if eh_despesa_manutencao(indicador) else "Atingimento da meta"), fmt_pct(ating_total)), unsafe_allow_html=True)
+            kpi_metric(("Uso do limite" if eh_despesa_manutencao(indicador) else "Atingimento da meta"), fmt_pct(ating_total))
         with c5:
-            st.markdown(card_html(f"YTD {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-", delta_ytd), unsafe_allow_html=True)
+            kpi_metric(f"YTD {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-", delta_ytd)
 
         st.divider()
 
@@ -6505,7 +6608,7 @@ with tab1:
             ]
 
             fig_ano.add_bar(
-                x=dados_chart["Mês"],
+                x=mes_ano_label(dados_chart["Mês"], ano_kpi if "ano_kpi" in globals() else ano_selecionado),
                 y=dados_chart["Tx. Sucesso"],
                 name="Tx. Sucesso",
                 marker_color=cores_tx,
@@ -6515,11 +6618,11 @@ with tab1:
 
             if ano_selecionado >= 2026:
                 fig_ano.add_scatter(
-                    x=dados_chart["Mês"],
+                    x=mes_ano_label(dados_chart["Mês"], ano_kpi if "ano_kpi" in globals() else ano_selecionado),
                     y=dados_chart["Meta"],
                     name="Meta %",
                     mode="lines+markers",
-                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                    line=dict(color=COR_AZUL, width=3, dash="dot"),
                     marker=dict(size=7),
                 )
 
@@ -7093,7 +7196,7 @@ with tab3:
                 y=comp_filiais["Meta %"],
                 name="Meta %",
                 mode="lines+markers",
-                line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                line=dict(color=COR_AZUL, width=3, dash="dot"),
             )
 
             fig_filiais.update_layout(
@@ -7429,11 +7532,11 @@ with tab3:
                     y=comp_filiais["Meta R$"],
                     name="Meta R$",
                     mode="lines+markers+text",
-                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                    line=dict(color=COR_AZUL, width=3, dash="dot"),
                     marker=dict(size=7),
                     text=[fmt_brl(v) for v in comp_filiais["Meta R$"]],
                     textposition="top center",
-                    textfont=dict(size=10, color=COR_LARANJA),
+                    textfont=dict(size=10, color=COR_AZUL),
                     cliponaxis=False,
                 )
                 fig_filiais.update_layout(
@@ -7522,7 +7625,7 @@ with tab3:
                     y=limite_rs_filiais,
                     name="Limite R$",
                     mode="lines+markers",
-                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                    line=dict(color=COR_AZUL, width=3, dash="dot"),
                 )
                 fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
                 st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_despesa_geral")
@@ -7573,11 +7676,11 @@ with tab3:
                     y=comp_filiais["Meta"],
                     name="Meta",
                     mode="lines+markers+text",
-                    line=dict(color=COR_LARANJA, width=3, dash="dot"),
+                    line=dict(color=COR_AZUL, width=3, dash="dot"),
                     marker=dict(size=7),
                     text=[fmt_brl(v) for v in comp_filiais["Meta"]],
                     textposition="top center",
-                    textfont=dict(size=10, color=COR_LARANJA),
+                    textfont=dict(size=10, color=COR_AZUL),
                     cliponaxis=False,
                     hovertemplate="<b>%{x}</b><br>Meta: R$ %{y:,.0f}<extra></extra>",
                 )
