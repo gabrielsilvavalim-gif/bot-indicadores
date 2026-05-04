@@ -899,52 +899,118 @@ def obter_data_geracao_planilha(df_base):
 
 def renderizar_cabecalho(data_geracao_planilha="-"):
     """
-    Renderiza o cabeçalho principal do app com a data de geração
-    acima do logo da Mazola.
+    Renderiza o cabeçalho principal com tudo em um único bloco HTML.
+    Isso evita que a data acima do logo desalinhe o título e o subtítulo.
     """
-    col_logo, col_titulo = st.columns([1.4, 5], vertical_alignment="center", gap="small")
+    logo_html = ""
 
-    with col_logo:
-        st.markdown(
-            f"""
+    try:
+        if os.path.exists(LOGO_ARQUIVO):
+            import base64
+            with open(LOGO_ARQUIVO, "rb") as logo_file:
+                logo_base64 = base64.b64encode(logo_file.read()).decode("utf-8")
+
+            logo_html = f"""
+                <img src="data:image/png;base64,{logo_base64}" style="
+                    width: 150px;
+                    height: auto;
+                    display: block;
+                    margin: 0;
+                    padding: 0;
+                ">
+            """
+    except Exception:
+        logo_html = ""
+
+    st.markdown(
+        f"""
+        <div style="
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 24px;
+            width: 100%;
+            margin: 0 0 28px 0;
+            padding: 0;
+            min-height: 118px;
+        ">
             <div style="
-                text-align: center;
-                margin-bottom: 6px;
+                width: 170px;
+                min-width: 170px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-start;
+                margin: 0;
+                padding: 0;
             ">
                 <div style="
-                    font-size: 11px;
-                    color: #6B7280;
-                    font-weight: 600;
-                    margin-bottom: 2px;
+                    text-align: center;
+                    margin: 0 0 8px 0;
+                    padding: 0;
+                    line-height: 1.05;
+                ">
+                    <div style="
+                        font-size: 10px;
+                        color: #6B7280;
+                        font-weight: 600;
+                        margin: 0 0 2px 0;
+                        padding: 0;
+                        white-space: nowrap;
+                    ">
+                        Data de geração
+                    </div>
+                    <div style="
+                        font-size: 12px;
+                        color: #111827;
+                        font-weight: 700;
+                        margin: 0;
+                        padding: 0;
+                        white-space: nowrap;
+                    ">
+                        {data_geracao_planilha}
+                    </div>
+                </div>
+
+                {logo_html}
+            </div>
+
+            <div style="
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: flex-start;
+                margin: 18px 0 0 0;
+                padding: 0;
+                line-height: 1.08;
+            ">
+                <div style="
+                    color: #F26522;
+                    font-size: 17px;
+                    font-weight: 700;
+                    margin: 0 0 2px 0;
+                    padding: 0;
+                    line-height: 1.08;
                     white-space: nowrap;
                 ">
-                    Data de geração
+                    Análise de Indicadores Mazola Ambiental
                 </div>
                 <div style="
-                    font-size: 14px;
-                    color: #111827;
+                    color: #00A350;
+                    font-size: 16px;
                     font-weight: 700;
+                    margin: 0;
+                    padding: 0;
+                    line-height: 1.08;
                     white-space: nowrap;
                 ">
-                    {data_geracao_planilha}
+                    Painel gerencial de acompanhamento de metas e resultados
                 </div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if os.path.exists(LOGO_ARQUIVO):
-            st.markdown('<div class="logo-alinhada">', unsafe_allow_html=True)
-            st.image(LOGO_ARQUIVO, width=160)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    with col_titulo:
-        st.markdown('<div class="texto-cabecalho">', unsafe_allow_html=True)
-        st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
-        st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def validar_colunas_base(df_base):
     """
