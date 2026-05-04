@@ -899,10 +899,8 @@ def obter_data_geracao_planilha(df_base):
 
 def renderizar_cabecalho(data_geracao_planilha="-"):
     """
-    Renderiza o cabeçalho com método seguro:
-    - usa st.image para o logo, evitando problema com arquivo .ico em base64;
-    - mantém a data acima do logo;
-    - alinha título e subtítulo ao lado sem quebrar a formatação.
+    Renderiza o cabeçalho com a data acima do logo e o texto alinhado
+    verticalmente ao centro do logo da Mazola.
     """
     col_logo, col_titulo = st.columns([1.25, 5], vertical_alignment="center", gap="small")
 
@@ -953,7 +951,7 @@ def renderizar_cabecalho(data_geracao_planilha="-"):
                 justify-content: center;
                 align-items: flex-start;
                 min-height: 110px;
-                margin: 18px 0 0 0;
+                margin: 48px 0 0 0;
                 padding: 0;
                 line-height: 1.08;
             ">
