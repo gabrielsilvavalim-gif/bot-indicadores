@@ -900,21 +900,19 @@ def obter_data_geracao_planilha(df_base):
 def renderizar_cabecalho(data_geracao_planilha="-"):
     """
     Renderiza o cabeçalho principal do app com a data de geração
-    acima do logo da Mazola, mais alinhada à esquerda.
+    acima do logo da Mazola.
     """
-    col_logo, col_titulo = st.columns([1.15, 5.25], vertical_alignment="center", gap="small")
+    col_logo, col_titulo = st.columns([1.4, 5], vertical_alignment="center", gap="small")
 
     with col_logo:
         st.markdown(
             f"""
             <div style="
-                text-align: left;
-                margin-bottom: 4px;
-                margin-left: 0px;
-                padding-left: 0px;
+                text-align: center;
+                margin-bottom: 6px;
             ">
                 <div style="
-                    font-size: 10px;
+                    font-size: 11px;
                     color: #6B7280;
                     font-weight: 600;
                     margin-bottom: 2px;
@@ -923,7 +921,7 @@ def renderizar_cabecalho(data_geracao_planilha="-"):
                     Data de geração
                 </div>
                 <div style="
-                    font-size: 13px;
+                    font-size: 14px;
                     color: #111827;
                     font-weight: 700;
                     white-space: nowrap;
@@ -936,26 +934,17 @@ def renderizar_cabecalho(data_geracao_planilha="-"):
         )
 
         if os.path.exists(LOGO_ARQUIVO):
-            st.markdown(
-                """
-                <div style="
-                    display: flex;
-                    justify-content: flex-start;
-                    align-items: center;
-                    margin-left: 0px;
-                    padding-left: 0px;
-                ">
-                """,
-                unsafe_allow_html=True,
-            )
-            st.image(LOGO_ARQUIVO, width=150)
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown('<div class="logo-alinhada">', unsafe_allow_html=True)
+            st.image(LOGO_ARQUIVO, width=160)
+            st.markdown('</div>', unsafe_allow_html=True)
 
     with col_titulo:
         st.markdown('<div class="texto-cabecalho">', unsafe_allow_html=True)
         st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
         st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+
 
 def validar_colunas_base(df_base):
     """
