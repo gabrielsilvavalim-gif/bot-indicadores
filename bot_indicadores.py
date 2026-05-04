@@ -899,10 +899,12 @@ def obter_data_geracao_planilha(df_base):
 
 def renderizar_cabecalho(data_geracao_planilha="-"):
     """
-    Renderiza o cabeçalho principal do app sem a data acima do logo.
-    A data será exibida na aba Visão Geral, no canto direito.
+    Renderiza o cabeçalho principal do app:
+    - logo à esquerda;
+    - título e subtítulo com a formatação original no centro;
+    - data de geração da planilha à direita, sem contorno.
     """
-    col_logo, col_titulo = st.columns([1, 5], vertical_alignment="center", gap="small")
+    col_logo, col_titulo, col_data = st.columns([1, 5, 1.7], vertical_alignment="center", gap="small")
 
     with col_logo:
         if os.path.exists(LOGO_ARQUIVO):
@@ -916,30 +918,14 @@ def renderizar_cabecalho(data_geracao_planilha="-"):
         st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-
-def card_data_geracao_planilha(data_geracao_planilha="-"):
-    """
-    Informação flutuante para mostrar a data de geração da planilha
-    no canto direito da aba Visão Geral, sem borda e sem fundo de card.
-    """
-    st.markdown(
-        f"""
-        <div style="
-            display: flex;
-            justify-content: flex-end;
-            align-items: flex-start;
-            width: 100%;
-            margin-top: 4px;
-            margin-bottom: 0;
-        ">
+    with col_data:
+        st.markdown(
+            f"""
             <div style="
-                min-width: 210px;
-                padding: 0;
-                margin: 0;
                 text-align: right;
-                background: transparent;
-                border: none;
-                box-shadow: none;
+                margin-top: 6px;
+                padding-right: 2px;
+                line-height: 1.1;
             ">
                 <div style="
                     font-size: 11px;
@@ -959,10 +945,10 @@ def card_data_geracao_planilha(data_geracao_planilha="-"):
                     {data_geracao_planilha}
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+
 
 def validar_colunas_base(df_base):
     """
@@ -5870,13 +5856,7 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
 # ABA VISÃO GERAL
 # =========================
 with tab0:
-    col_titulo_visao, col_data_visao = st.columns([3.6, 1.4], vertical_alignment="top")
-
-    with col_titulo_visao:
-        st.subheader(f"Visão Geral — {indicador} | {filial}")
-
-    with col_data_visao:
-        card_data_geracao_planilha(data_geracao_planilha)
+    st.subheader(f"Visão Geral — {indicador} | {filial}")
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
