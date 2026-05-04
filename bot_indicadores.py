@@ -899,42 +899,29 @@ def obter_data_geracao_planilha(df_base):
 
 def renderizar_cabecalho(data_geracao_planilha="-"):
     """
-    Renderiza o cabeçalho principal do app com logo, título e data de geração
-    da planilha no canto direito.
+    Renderiza o cabeçalho principal do app com a data de geração
+    acima do logo da Mazola.
     """
-    col_logo, col_titulo, col_data = st.columns([1, 5, 2], vertical_alignment="center", gap="small")
+    col_logo, col_titulo = st.columns([1.4, 5], vertical_alignment="center", gap="small")
 
     with col_logo:
-        if os.path.exists(LOGO_ARQUIVO):
-            st.markdown('<div class="logo-alinhada">', unsafe_allow_html=True)
-            st.image(LOGO_ARQUIVO, width=160)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    with col_titulo:
-        st.markdown('<div class="texto-cabecalho">', unsafe_allow_html=True)
-        st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
-        st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with col_data:
         st.markdown(
             f"""
             <div style="
-                text-align: right;
-                margin-top: 8px;
-                padding-right: 4px;
+                text-align: center;
+                margin-bottom: 6px;
             ">
                 <div style="
                     font-size: 11px;
                     color: #6B7280;
                     font-weight: 600;
-                    margin-bottom: 3px;
+                    margin-bottom: 2px;
                     white-space: nowrap;
                 ">
-                    Data de geração da planilha
+                    Data de geração
                 </div>
                 <div style="
-                    font-size: 15px;
+                    font-size: 14px;
                     color: #111827;
                     font-weight: 700;
                     white-space: nowrap;
@@ -945,6 +932,17 @@ def renderizar_cabecalho(data_geracao_planilha="-"):
             """,
             unsafe_allow_html=True,
         )
+
+        if os.path.exists(LOGO_ARQUIVO):
+            st.markdown('<div class="logo-alinhada">', unsafe_allow_html=True)
+            st.image(LOGO_ARQUIVO, width=160)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_titulo:
+        st.markdown('<div class="texto-cabecalho">', unsafe_allow_html=True)
+        st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
+        st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 
