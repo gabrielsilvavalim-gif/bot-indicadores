@@ -4799,17 +4799,17 @@ def cards_comparativo_periodo(df_periodo_tela, indicador):
                 <div class="compare-mini-card">
                     <div class="compare-label">Valor atual do período</div>
                     <div class="compare-value">{principal_txt}</div>
-                    <div class="compare-note">Indicador principal detectado para esta estrutura.</div>
+                    <div class="compare-note">Resultado principal do período atual.</div>
                 </div>
                 <div class="compare-mini-card">
                     <div class="compare-label">Mesmo período anterior</div>
                     <div class="compare-value">{anterior_txt}</div>
-                    <div class="compare-note">Base comparativa do ano anterior.</div>
+                    <div class="compare-note">Referência do mesmo período no ano anterior.</div>
                 </div>
                 <div class="compare-mini-card {status_var}">
                     <div class="compare-label">Variação do período</div>
                     <div class="compare-value">{var_txt}</div>
-                    <div class="compare-note">Meta/referência atual: {meta_txt}</div>
+                    <div class="compare-note">Meta ou referência atual: {meta_txt}</div>
                 </div>
             </div>
             """,
@@ -6929,24 +6929,25 @@ div[data-testid="stSelectbox"] > div {
 .compare-mini-card.warn::before { background:#F26522; }
 
 .compare-label {
-    font-size:11px;
-    color:#6B7280;
-    font-weight:700;
-    margin-bottom:5px;
+    font-size:12px;
+    color:#4B5563;
+    font-weight:800;
+    margin-bottom:6px;
 }
 
 .compare-value {
-    font-size:18px;
+    font-size:21px;
     color:#111827;
     font-weight:850;
     white-space:nowrap;
 }
 
 .compare-note {
-    font-size:11px;
-    color:#4B5563;
-    margin-top:4px;
-    line-height:1.3;
+    font-size:13px;
+    color:#374151;
+    margin-top:8px;
+    line-height:1.4;
+    font-weight:500;
 }
 
 @media (max-width: 900px) {
@@ -7065,7 +7066,7 @@ with st.sidebar:
             st.session_state.pop(chave, None)
         st.rerun()
 
-    st.caption("v5.0 etapa 7 — acabamento visual e estruturas por indicador")
+    st.caption("v5.0 etapa 7.1 — ajuste visual dos cards comparativos")
 
 
 if fonte_dados == "Google Drive":
