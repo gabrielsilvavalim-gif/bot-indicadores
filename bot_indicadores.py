@@ -854,6 +854,100 @@ def normalizar_texto(valor):
 
 
 
+
+
+def obter_data_geracao_planilha(df_base):
+    """
+    Busca a data de geração da planilha.
+
+    Regra:
+    - usa preferencialmente a coluna cujo nome contém "Data e Hora Geração";
+    - se não encontrar, usa a última coluna da planilha;
+    - pega o primeiro valor preenchido;
+    - formata como dd/mm/aaaa HH:mm.
+    """
+    try:
+        if df_base is None or df_base.empty:
+            return "-"
+
+        colunas = list(df_base.columns)
+
+        coluna_data = None
+        for col in colunas:
+            nome_norm = normalizar_texto(col)
+            if "DATA" in nome_norm and "HORA" in nome_norm and "GERACAO" in nome_norm:
+                coluna_data = col
+                break
+
+        if coluna_data is None:
+            coluna_data = colunas[-1]
+
+        serie = df_base[coluna_data].dropna()
+        if serie.empty:
+            return "-"
+
+        valor = serie.iloc[0]
+
+        data = pd.to_datetime(valor, errors="coerce", dayfirst=True)
+        if pd.isna(data):
+            return str(valor)
+
+        return data.strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return "-"
+
+
+def renderizar_cabecalho(data_geracao_planilha="-"):
+    """
+    Renderiza o cabeçalho principal do app com logo, título e data de geração
+    da planilha no canto direito.
+    """
+    col_logo, col_titulo, col_data = st.columns([1, 5, 2], vertical_alignment="center", gap="small")
+
+    with col_logo:
+        if os.path.exists(LOGO_ARQUIVO):
+            st.markdown('<div class="logo-alinhada">', unsafe_allow_html=True)
+            st.image(LOGO_ARQUIVO, width=160)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_titulo:
+        st.markdown('<div class="texto-cabecalho">', unsafe_allow_html=True)
+        st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
+        st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_data:
+        st.markdown(
+            f"""
+            <div style="
+                text-align: right;
+                margin-top: 8px;
+                padding-right: 4px;
+            ">
+                <div style="
+                    font-size: 11px;
+                    color: #6B7280;
+                    font-weight: 600;
+                    margin-bottom: 3px;
+                    white-space: nowrap;
+                ">
+                    Data de geração da planilha
+                </div>
+                <div style="
+                    font-size: 15px;
+                    color: #111827;
+                    font-weight: 700;
+                    white-space: nowrap;
+                ">
+                    {data_geracao_planilha}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+
 def validar_colunas_base(df_base):
     """
     Valida se a planilha possui as colunas mínimas necessárias para o painel.
@@ -5528,21 +5622,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-col_logo, col_titulo = st.columns([1, 5], vertical_alignment="center", gap="small")
-
-with col_logo:
-    if os.path.exists(LOGO_ARQUIVO):
-        st.markdown('<div class="logo-alinhada">', unsafe_allow_html=True)
-        st.image(LOGO_ARQUIVO, width=160)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-with col_titulo:
-    st.markdown('<div class="texto-cabecalho">', unsafe_allow_html=True)
-    st.markdown('<p class="titulo-mazola">Análise de Indicadores Mazola Ambiental</p>', unsafe_allow_html=True)
-    st.markdown('<p class="subtitulo-mazola">Painel gerencial de acompanhamento de metas e resultados</p>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
 # =========================
 # SIDEBAR
 # =========================
@@ -5669,6 +5748,9 @@ else:
     df_raw = carregar(io.BytesIO(arquivo_manual_bytes))
 
 df_raw = validar_colunas_base(df_raw)
+
+data_geracao_planilha = obter_data_geracao_planilha(df_raw)
+renderizar_cabecalho(data_geracao_planilha)
 
 df = filtrar(df_raw, indicador, filial)
 df_todas_unidades = filtrar(df_raw, indicador, "Geral")
