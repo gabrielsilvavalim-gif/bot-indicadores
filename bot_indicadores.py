@@ -4412,7 +4412,7 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
     informação de ritmo e tendência de fechamento.
     Não repete a aba Análise.
     """
-    st.subheader(f"Projeção — {indicador} | {filial}")
+    st.markdown(f"<h2 style='margin-bottom:6px;'>Projeção — {indicador} | {filial}</h2>", unsafe_allow_html=True)
 
     if df is None or df.empty:
         st.warning("Não há dados suficientes para gerar projeção.")
@@ -4604,7 +4604,7 @@ def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, d
     informações executivas de alto impacto.
     Diferente da aba Projeção: aqui o foco é comparação, ranking e pontos importantes.
     """
-    st.subheader(f"Análise Executiva — {indicador} | {filial}")
+    st.markdown(f"<h2 style='margin-bottom:6px;'>Análise Executiva — {indicador} | {filial}</h2>", unsafe_allow_html=True)
 
     if df is None or df.empty:
         st.warning("Não há dados suficientes para gerar a análise executiva.")
@@ -4732,6 +4732,97 @@ def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, d
 
 
 
+
+
+
+
+def _primeira_coluna_existente(df_obj, candidatos):
+    if df_obj is None or df_obj.empty:
+        return None
+    for col in candidatos:
+        if col in df_obj.columns:
+            return col
+    return None
+
+
+def _formatar_compare(valor, coluna):
+    if valor is None or pd.isna(valor):
+        return "—"
+    nome = normalizar_texto(coluna)
+    if "%" in str(coluna) or "TX" in nome or "ATING" in nome or "RESULTADO %" in nome or "VARIACAO" in nome:
+        return fmt_pct(valor)
+    if "KG" in nome or "QTD" in nome:
+        return fmt_num(valor)
+    return fmt_brl(valor)
+
+
+def cards_comparativo_periodo(df_periodo_tela, indicador):
+    """
+    Cards resumidos para a seção 'Mesmo período x ano anterior'.
+    A função detecta a estrutura do indicador:
+    - Faturamento/Despesa simples: Realizado, Meta, Atingimento/Gap
+    - Moto: Faturamento, Margem, Tx. Sucesso
+    - Tecfil: Realizado R$, Meta R$, % Dif. R$
+    - Qualidade: Qtd. Coletas, Qtd. Sucesso, Resultado %
+    - Resultado Financeiro/Despesa Geral: Receita/Despesa/Resultado conforme disponível
+    """
+    try:
+        if df_periodo_tela is None or df_periodo_tela.empty or len(df_periodo_tela) < 2:
+            return
+
+        atual = df_periodo_tela.iloc[-1]
+        anterior = df_periodo_tela.iloc[-2]
+
+        col_principal = _primeira_coluna_existente(
+            df_periodo_tela,
+            ["Realizado", "Faturamento", "Realizado R$", "Receita", "Resultado R$", "Resultado %", "Tx. Sucesso", "Resultado %"]
+        )
+        col_meta = _primeira_coluna_existente(
+            df_periodo_tela,
+            ["Meta", "Meta R$", "Meta %", "Limite %", "Meta Margem (R$)"]
+        )
+        col_var = _primeira_coluna_existente(
+            df_periodo_tela,
+            ["Variação", "Variação R$", "Variação Faturamento", "Variação Resultado", "Variação Receita", "Variação %"]
+        )
+
+        principal_txt = _formatar_compare(atual.get(col_principal), col_principal) if col_principal else "—"
+        anterior_txt = _formatar_compare(anterior.get(col_principal), col_principal) if col_principal else "—"
+        meta_txt = _formatar_compare(atual.get(col_meta), col_meta) if col_meta else "—"
+        var_valor = atual.get(col_var) if col_var else None
+        var_txt = fmt_var_pct_seguro(var_valor) if var_valor is not None and pd.notna(var_valor) else "—"
+        status_var = "good" if var_valor is not None and pd.notna(var_valor) and var_valor >= 0 else "warn"
+
+        st.markdown(
+            f"""
+            <div class="compare-card-grid">
+                <div class="compare-mini-card">
+                    <div class="compare-label">Valor atual do período</div>
+                    <div class="compare-value">{principal_txt}</div>
+                    <div class="compare-note">Indicador principal detectado para esta estrutura.</div>
+                </div>
+                <div class="compare-mini-card">
+                    <div class="compare-label">Mesmo período anterior</div>
+                    <div class="compare-value">{anterior_txt}</div>
+                    <div class="compare-note">Base comparativa do ano anterior.</div>
+                </div>
+                <div class="compare-mini-card {status_var}">
+                    <div class="compare-label">Variação do período</div>
+                    <div class="compare-value">{var_txt}</div>
+                    <div class="compare-note">Meta/referência atual: {meta_txt}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass
+
+
+def titulo_comparativo_filiais(indicador, ano_base_filial):
+    if eh_tecfil(indicador):
+        return "Comparativo entre unidades"
+    return "Comparativo entre filiais"
 
 
 
@@ -6781,6 +6872,89 @@ div[data-baseweb="tab-list"] {
     }
 }
 
+
+/* Acabamento visual etapa 7 */
+div[data-testid="stDataFrame"] {
+    border: 1px solid #E5E7EB;
+    border-radius: 14px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.05);
+    overflow: hidden;
+    background: #FFFFFF;
+}
+
+div[data-testid="stSelectbox"] label p {
+    font-weight: 700 !important;
+    color: #374151 !important;
+    font-size: 12px !important;
+}
+
+div[data-testid="stSelectbox"] > div {
+    border-radius: 12px !important;
+}
+
+.section-wrapper-note {
+    color:#6B7280;
+    font-size:12px;
+    margin:-4px 0 12px 13px;
+}
+
+.compare-card-grid {
+    display:grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin: 8px 0 14px 0;
+}
+
+.compare-mini-card {
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    border-radius:14px;
+    padding:12px 14px;
+    box-shadow:0 1px 5px rgba(0,0,0,0.05);
+    position:relative;
+    overflow:hidden;
+}
+
+.compare-mini-card::before {
+    content:"";
+    position:absolute;
+    top:0;
+    left:0;
+    height:4px;
+    width:100%;
+    background:#0078D4;
+}
+
+.compare-mini-card.good::before { background:#00A350; }
+.compare-mini-card.warn::before { background:#F26522; }
+
+.compare-label {
+    font-size:11px;
+    color:#6B7280;
+    font-weight:700;
+    margin-bottom:5px;
+}
+
+.compare-value {
+    font-size:18px;
+    color:#111827;
+    font-weight:850;
+    white-space:nowrap;
+}
+
+.compare-note {
+    font-size:11px;
+    color:#4B5563;
+    margin-top:4px;
+    line-height:1.3;
+}
+
+@media (max-width: 900px) {
+    .compare-card-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -6891,7 +7065,7 @@ with st.sidebar:
             st.session_state.pop(chave, None)
         st.rerun()
 
-    st.caption("v5.0 etapa 6 — Projeção e ranking executivo")
+    st.caption("v5.0 etapa 7 — acabamento visual e estruturas por indicador")
 
 
 if fonte_dados == "Google Drive":
@@ -7020,7 +7194,7 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 # ABA VISÃO GERAL
 # =========================
 with tab0:
-    st.subheader(f"Visão Geral — {indicador} | {filial}")
+    st.markdown(f"<h2 style='margin-bottom:6px;'>Visão Geral — {indicador} | {filial}</h2>", unsafe_allow_html=True)
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
@@ -8184,9 +8358,9 @@ with tab3:
             hide_index=True,
         )
 
-        st.divider()
-        st.subheader("Mesmo período x ano anterior")
+        titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado do período atual contra o mesmo período do ano anterior.")
         df_periodo_tela = comparar_mesmo_periodo(df, indicador)
+        cards_comparativo_periodo(df_periodo_tela, indicador)
 
         if not df_periodo_tela.empty:
             st.dataframe(
@@ -8217,8 +8391,11 @@ with tab3:
                 st.info("Sem dados das filiais reais para montar o comparativo entre filiais.")
                 st.stop()
 
-            ano_base_filial = st.selectbox("Ano do comparativo entre filiais", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
-            st.subheader(f"Comparativo entre unidades — {ano_base_filial}" if eh_tecfil(indicador) else f"Comparativo entre filiais — {ano_base_filial}")
+            ano_base_filial = st.selectbox("Ano do comparativo", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
+            titulo_secao(
+                titulo_comparativo_filiais(indicador, ano_base_filial),
+                f"Ano base: {ano_base_filial}. Comparação adaptada à estrutura do indicador selecionado."
+            )
 
             comp_filiais = comparativo_filiais(df_comparativo_filiais, ano_base_filial, indicador)
             st.dataframe(
@@ -8406,9 +8583,9 @@ with tab3:
                 hide_index=True,
             )
 
-        st.divider()
-        st.subheader("Mesmo período x ano anterior")
+        titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado do período atual contra o mesmo período do ano anterior.")
         df_periodo_tela = comparar_mesmo_periodo(df, indicador)
+        cards_comparativo_periodo(df_periodo_tela, indicador)
 
         if not df_periodo_tela.empty:
             if eh_qualidade(indicador):
@@ -8504,8 +8681,11 @@ with tab3:
                 st.info("Sem dados das filiais reais para montar o comparativo entre filiais.")
                 st.stop()
 
-            ano_base_filial = st.selectbox("Ano do comparativo entre filiais", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
-            st.subheader(f"Comparativo entre unidades — {ano_base_filial}" if eh_tecfil(indicador) else f"Comparativo entre filiais — {ano_base_filial}")
+            ano_base_filial = st.selectbox("Ano do comparativo", anos_filial, index=len(anos_filial) - 1, key="ano_filiais")
+            titulo_secao(
+                titulo_comparativo_filiais(indicador, ano_base_filial),
+                f"Ano base: {ano_base_filial}. Comparação adaptada à estrutura do indicador selecionado."
+            )
 
             comp_filiais = comparativo_filiais(df_comparativo_filiais, ano_base_filial, indicador)
 
