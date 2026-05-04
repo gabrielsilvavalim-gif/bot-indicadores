@@ -919,8 +919,8 @@ def renderizar_cabecalho(data_geracao_planilha="-"):
 
 def card_data_geracao_planilha(data_geracao_planilha="-"):
     """
-    Card compacto para mostrar a data de geração da planilha
-    no canto direito da aba Visão Geral.
+    Informação flutuante para mostrar a data de geração da planilha
+    no canto direito da aba Visão Geral, sem borda e sem fundo de card.
     """
     st.markdown(
         f"""
@@ -929,17 +929,17 @@ def card_data_geracao_planilha(data_geracao_planilha="-"):
             justify-content: flex-end;
             align-items: flex-start;
             width: 100%;
-            margin-top: 2px;
+            margin-top: 4px;
             margin-bottom: 0;
         ">
             <div style="
                 min-width: 210px;
-                border: 1px solid #E5E7EB;
-                border-radius: 14px;
-                background: #FFFFFF;
-                padding: 9px 14px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+                padding: 0;
+                margin: 0;
                 text-align: right;
+                background: transparent;
+                border: none;
+                box-shadow: none;
             ">
                 <div style="
                     font-size: 11px;
