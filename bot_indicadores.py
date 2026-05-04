@@ -4206,7 +4206,11 @@ def formata_valor_analise(valor, coluna, modo):
 def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha):
     """
     Aba Análise:
-    leitura executiva textual, comparando anos, meses e dias úteis.
+    análise executiva mais limpa, com foco em:
+    - período analisado;
+    - dias úteis;
+    - comparação segura com mesmo período do ano anterior;
+    - comparação com mês anterior quando disponível.
     """
     st.subheader(f"Análise Executiva — {indicador} | {filial}")
 
@@ -4221,156 +4225,138 @@ def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha):
 
     ano_atual = int(anos[-1])
     ano_anterior = int(ano_atual - 1)
-    base_atual = df[df["ANO"] == ano_atual].copy()
-
-    if base_atual.empty:
-        st.warning("Não há dados do ano atual para análise.")
-        return
-
-    mes_atual = int(base_atual["MÊS"].max())
-    mes_nome = MESES_MAPA.get(mes_atual, str(mes_atual))
     data_base = parse_data_geracao(data_geracao_planilha)
-    dias_uteis_total = dias_uteis_mes(ano_atual, mes_atual)
 
-    if data_base and data_base.year == ano_atual and data_base.month == mes_atual:
-        uteis_decorridos = dias_uteis_ate_data(data_base)
+    if data_base is not None and data_base.year == ano_atual:
+        mes_atual = int(data_base.month)
     else:
-        uteis_decorridos = dias_uteis_total
+        base_ano = df[df["ANO"] == ano_atual].copy()
+        mes_atual = int(base_ano["MÊS"].max()) if not base_ano.empty and base_ano["MÊS"].notna().any() else 12
 
-    uteis_restantes = None
-    if dias_uteis_total is not None and uteis_decorridos is not None:
-        uteis_restantes = max(dias_uteis_total - uteis_decorridos, 0)
+    mes_nome = MESES_MAPA.get(mes_atual, str(mes_atual))
+    periodo_label = f"Jan a {mes_nome}"
 
-    contexto_dashboard(indicador, filial, ano_atual, f"Jan a {mes_nome}", data_geracao_planilha)
+    dias_total = dias_uteis_mes(ano_atual, mes_atual)
+    if data_base is not None and data_base.year == ano_atual and data_base.month == mes_atual:
+        dias_decorridos = dias_uteis_ate_data(data_base)
+    else:
+        dias_decorridos = dias_total
 
-    col_a, col_b, col_c, col_d = st.columns(4)
-    with col_a:
-        st.metric("📅 Mês analisado", f"{mes_nome}/{str(ano_atual)[-2:]}")
-    with col_b:
-        st.metric("🗓️ Dias úteis no mês", fmt_num(dias_uteis_total) if dias_uteis_total is not None else "-")
-    with col_c:
-        st.metric("✅ Dias úteis decorridos", fmt_num(uteis_decorridos) if uteis_decorridos is not None else "-")
-    with col_d:
-        st.metric("⏳ Dias úteis restantes", fmt_num(uteis_restantes) if uteis_restantes is not None else "-")
+    dias_restantes = None
+    if dias_total is not None and dias_decorridos is not None:
+        dias_restantes = max(dias_total - dias_decorridos, 0)
 
+    contexto_dashboard(indicador, filial, ano_atual, periodo_label, data_geracao_planilha)
+
+    titulo_secao("Calendário de referência", "Dias úteis considerados na leitura do mês atual.")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📅 Mês base", f"{mes_nome}/{str(ano_atual)[-2:]}")
+    with col2:
+        st.metric("🗓️ Dias úteis no mês", fmt_num(dias_total) if dias_total is not None else "-")
+    with col3:
+        st.metric("✅ Dias úteis decorridos", fmt_num(dias_decorridos) if dias_decorridos is not None else "-")
+    with col4:
+        st.metric("⏳ Dias úteis restantes", fmt_num(dias_restantes) if dias_restantes is not None else "-")
+
+    titulo_secao("Comparativo executivo", "Leitura automática com base nos dados consolidados disponíveis.")
+
+    try:
+        periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_atual)
+    except Exception:
+        periodo_cmp = pd.DataFrame()
+
+    yoy_txt = "—"
+    valor_atual_txt = "—"
+    valor_anterior_txt = "—"
+    texto_yoy = "Não foi possível calcular o comparativo com o mesmo período do ano anterior para este indicador."
+
+    if periodo_cmp is not None and not periodo_cmp.empty and len(periodo_cmp) >= 2:
+        linha_ant = periodo_cmp.iloc[0]
+        linha_atual = periodo_cmp.iloc[1]
+
+        col_var = next((c for c in periodo_cmp.columns if normalizar_texto(c).startswith("VARIACAO")), None)
+
+        # escolhe uma coluna de valor principal de forma conservadora
+        candidatos = [
+            "Realizado", "Faturamento", "Realizado R$", "Resultado R$",
+            "Receita", "Despesa", "Resultado %", "Tx. Sucesso"
+        ]
+        col_valor = next((c for c in candidatos if c in periodo_cmp.columns), None)
+
+        if col_valor:
+            valor_atual_txt = formata_valor_analise(linha_atual.get(col_valor), col_valor, "soma")
+            valor_anterior_txt = formata_valor_analise(linha_ant.get(col_valor), col_valor, "soma")
+
+        if col_var:
+            var_yoy_valor = linha_atual.get(col_var)
+            yoy_txt = fmt_var_pct_seguro(var_yoy_valor)
+            status = "good" if pd.notna(var_yoy_valor) and var_yoy_valor >= 0 else "warn"
+        else:
+            var_yoy_valor = None
+            status = "warn"
+
+        texto_yoy = (
+            f"No período <strong>{periodo_label}/{ano_atual}</strong>, o valor analisado foi "
+            f"<strong>{valor_atual_txt}</strong>. No mesmo período de <strong>{ano_anterior}</strong>, "
+            f"foi <strong>{valor_anterior_txt}</strong>. A variação apurada foi <strong>{yoy_txt}</strong>."
+        )
+        titulo_yoy = "Comparativo contra o mesmo período anterior" if status == "good" else "Ponto de atenção no comparativo anual"
+        alerta_executivo_dashboard(titulo_yoy, texto_yoy, status)
+    else:
+        alerta_executivo_dashboard("Comparativo anual indisponível", texto_yoy, "warn")
+
+    # Comparativo mês atual x mês anterior, com base na tabela mensal já existente
+    mom_txt = "—"
+    valor_mes_txt = "—"
+    valor_mes_ant_txt = "—"
     try:
         tabela_atual = tabela_completa_ano(df, ano_atual, indicador)
+        mensal = tabela_atual[tabela_atual["Mês"] != "TOTAL"].copy() if "Mês" in tabela_atual.columns else tabela_atual.copy()
+
+        coluna, label, modo = valor_principal_para_analise(mensal, indicador)
+        if coluna and "MÊS" in mensal.columns:
+            atual = agrega_analise(mensal[mensal["MÊS"] == mes_atual], coluna, modo)
+            anterior = agrega_analise(mensal[mensal["MÊS"] == mes_atual - 1], coluna, modo) if mes_atual > 1 else None
+
+            valor_mes_txt = formata_valor_analise(atual, coluna, modo)
+            valor_mes_ant_txt = formata_valor_analise(anterior, coluna, modo)
+
+            if anterior not in [None, 0] and pd.notna(anterior) and atual is not None and pd.notna(atual):
+                mom_valor = (atual / anterior) - 1
+                mom_txt = fmt_var_pct_seguro(mom_valor)
+                status_mom = "good" if mom_valor >= 0 else "warn"
+            else:
+                mom_valor = None
+                status_mom = "warn"
+
+            texto_mom = (
+                f"Em <strong>{mes_nome}/{ano_atual}</strong>, o valor analisado foi "
+                f"<strong>{valor_mes_txt}</strong>. No mês anterior, foi "
+                f"<strong>{valor_mes_ant_txt}</strong>. A variação mês contra mês foi "
+                f"<strong>{mom_txt}</strong>."
+            )
+            alerta_executivo_dashboard("Comparativo mensal", texto_mom, status_mom)
     except Exception:
-        tabela_atual = pd.DataFrame()
+        alerta_executivo_dashboard("Comparativo mensal indisponível", "Não foi possível calcular a comparação com o mês anterior.", "warn")
 
-    mensal_atual = tabela_atual[tabela_atual["Mês"] != "TOTAL"].copy() if "Mês" in tabela_atual.columns else tabela_atual.copy()
-    mensal_atual = mensal_atual[mensal_atual["Mês"].notna()].copy() if "Mês" in mensal_atual.columns else mensal_atual
-
-    coluna, label, modo = valor_principal_para_analise(mensal_atual, indicador)
-    valor_ytd_atual = agrega_analise(mensal_atual[mensal_atual.get("MÊS", pd.Series(index=mensal_atual.index, dtype=float)).fillna(0) <= mes_atual] if "MÊS" in mensal_atual.columns else mensal_atual, coluna, modo)
-
-    # Mesmo período do ano anterior
-    valor_ytd_anterior = None
-    try:
-        tabela_anterior = tabela_completa_ano(df, ano_anterior, indicador)
-        mensal_anterior = tabela_anterior[tabela_anterior["Mês"] != "TOTAL"].copy() if "Mês" in tabela_anterior.columns else tabela_anterior.copy()
-        if "MÊS" in mensal_anterior.columns:
-            mensal_anterior = mensal_anterior[mensal_anterior["MÊS"] <= mes_atual]
-        coluna_ant, _, modo_ant = valor_principal_para_analise(mensal_anterior, indicador)
-        valor_ytd_anterior = agrega_analise(mensal_anterior, coluna_ant, modo_ant)
-    except Exception:
-        pass
-
-    variacao_yoy = None
-    if valor_ytd_anterior not in [None, 0] and pd.notna(valor_ytd_anterior) and valor_ytd_atual is not None and pd.notna(valor_ytd_atual):
-        variacao_yoy = (valor_ytd_atual / valor_ytd_anterior) - 1
-
-    # Comparação mês atual x mês anterior
-    valor_mes_atual = None
-    valor_mes_anterior = None
-    variacao_mom = None
-    try:
-        if "MÊS" in mensal_atual.columns:
-            valor_mes_atual = agrega_analise(mensal_atual[mensal_atual["MÊS"] == mes_atual], coluna, modo)
-            if mes_atual > 1:
-                valor_mes_anterior = agrega_analise(mensal_atual[mensal_atual["MÊS"] == mes_atual - 1], coluna, modo)
-            if valor_mes_anterior not in [None, 0] and pd.notna(valor_mes_anterior) and valor_mes_atual is not None and pd.notna(valor_mes_atual):
-                variacao_mom = (valor_mes_atual / valor_mes_anterior) - 1
-    except Exception:
-        pass
-
-    titulo_secao("Leitura executiva", "Análise automática com base no ano atual, mesmo período do ano anterior e mês mais recente.")
-
-    valor_atual_txt = formata_valor_analise(valor_ytd_atual, coluna, modo)
-    valor_anterior_txt = formata_valor_analise(valor_ytd_anterior, coluna, modo)
-    var_yoy_txt = fmt_var_pct_seguro(variacao_yoy) if variacao_yoy is not None else "—"
-    valor_mes_txt = formata_valor_analise(valor_mes_atual, coluna, modo)
-    valor_mes_ant_txt = formata_valor_analise(valor_mes_anterior, coluna, modo)
-    var_mom_txt = fmt_var_pct_seguro(variacao_mom) if variacao_mom is not None else "—"
-
-    if variacao_yoy is not None and variacao_yoy >= 0:
-        status_yoy = "good"
-        titulo_yoy = "Desempenho superior ao mesmo período anterior"
-    elif variacao_yoy is not None:
-        status_yoy = "warn"
-        titulo_yoy = "Ponto de atenção no comparativo anual"
-    else:
-        status_yoy = "warn"
-        titulo_yoy = "Comparativo anual insuficiente"
-
-    texto_yoy = (
-        f"No acumulado de Jan a {mes_nome}/{ano_atual}, o indicador principal "
-        f"({label or 'valor analisado'}) está em <strong>{valor_atual_txt}</strong>. "
-        f"No mesmo período de {ano_anterior}, o valor foi <strong>{valor_anterior_txt}</strong>. "
-        f"A variação entre os períodos é <strong>{var_yoy_txt}</strong>."
-    )
-    alerta_executivo_dashboard(titulo_yoy, texto_yoy, status_yoy)
-
-    if variacao_mom is not None and variacao_mom >= 0:
-        status_mom = "good"
-        titulo_mom = "Evolução positiva no mês mais recente"
-    elif variacao_mom is not None:
-        status_mom = "warn"
-        titulo_mom = "Redução frente ao mês anterior"
-    else:
-        status_mom = "warn"
-        titulo_mom = "Comparativo mensal indisponível"
-
-    texto_mom = (
-        f"Em {mes_nome}/{ano_atual}, o resultado do mês foi <strong>{valor_mes_txt}</strong>. "
-        f"No mês anterior, foi <strong>{valor_mes_ant_txt}</strong>. "
-        f"A variação mês contra mês é <strong>{var_mom_txt}</strong>."
-    )
-    alerta_executivo_dashboard(titulo_mom, texto_mom, status_mom)
-
-    titulo_secao("Interpretação operacional", "Leitura considerando calendário útil do mês.")
-    st.markdown(
-        f"""
-        <div class="exec-alert good">
-            <div>
-                <div class="exec-alert-title">Calendário útil do mês</div>
-                <div class="exec-alert-text">
-                    O mês de <strong>{mes_nome}/{ano_atual}</strong> possui 
-                    <strong>{fmt_num(dias_uteis_total) if dias_uteis_total is not None else '-'}</strong> dias úteis.
-                    Até a data base informada, foram considerados 
-                    <strong>{fmt_num(uteis_decorridos) if uteis_decorridos is not None else '-'}</strong> dias úteis,
-                    restando <strong>{fmt_num(uteis_restantes) if uteis_restantes is not None else '-'}</strong>.
-                    Essa leitura ajuda a avaliar se o desempenho está proporcional ao avanço do mês.
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    titulo_secao("Tabela de apoio", "Valores consolidados usados como base para a análise.")
+    titulo_secao("Tabela-resumo da análise", "Resumo dos principais pontos usados na leitura executiva.")
     apoio = pd.DataFrame([
-        {"Indicador": "Valor atual acumulado", "Resultado": valor_atual_txt},
-        {"Indicador": f"Mesmo período {ano_anterior}", "Resultado": valor_anterior_txt},
-        {"Indicador": "Variação YoY", "Resultado": var_yoy_txt},
-        {"Indicador": f"{mes_nome}/{ano_atual}", "Resultado": valor_mes_txt},
-        {"Indicador": "Mês anterior", "Resultado": valor_mes_ant_txt},
-        {"Indicador": "Variação MoM", "Resultado": var_mom_txt},
-        {"Indicador": "Dias úteis no mês", "Resultado": fmt_num(dias_uteis_total) if dias_uteis_total is not None else "-"},
-        {"Indicador": "Dias úteis restantes", "Resultado": fmt_num(uteis_restantes) if uteis_restantes is not None else "-"},
-        {"Indicador": "Base atualizada em", "Resultado": data_geracao_planilha},
+        {"Item": "Período analisado", "Resultado": f"{periodo_label}/{ano_atual}"},
+        {"Item": "Base atualizada em", "Resultado": data_geracao_planilha},
+        {"Item": "Dias úteis no mês", "Resultado": fmt_num(dias_total) if dias_total is not None else "-"},
+        {"Item": "Dias úteis decorridos", "Resultado": fmt_num(dias_decorridos) if dias_decorridos is not None else "-"},
+        {"Item": "Dias úteis restantes", "Resultado": fmt_num(dias_restantes) if dias_restantes is not None else "-"},
+        {"Item": "Valor atual no período", "Resultado": valor_atual_txt},
+        {"Item": f"Mesmo período {ano_anterior}", "Resultado": valor_anterior_txt},
+        {"Item": "Variação YoY", "Resultado": yoy_txt},
+        {"Item": f"{mes_nome}/{ano_atual}", "Resultado": valor_mes_txt},
+        {"Item": "Mês anterior", "Resultado": valor_mes_ant_txt},
+        {"Item": "Variação MoM", "Resultado": mom_txt},
     ])
     st.dataframe(apoio, use_container_width=True, hide_index=True)
+
+
 
 
 
@@ -4777,10 +4763,49 @@ def titulo_secao(titulo, subtitulo=None):
     )
 
 
+def periodo_contexto_por_data_ou_dados(df_base_periodo, ano, data_geracao_planilha="-"):
+    """
+    Define o período mostrado na Visão Geral.
+    Preferência:
+    1. Mês da data de geração da planilha, se for do mesmo ano.
+    2. Último mês com algum valor relevante diferente de zero.
+    3. Último mês encontrado na base.
+    """
+    try:
+        data_base = parse_data_geracao(data_geracao_planilha) if "parse_data_geracao" in globals() else None
+        if data_base is not None and int(data_base.year) == int(ano):
+            mes = int(data_base.month)
+            return f"Jan a {MESES_MAPA.get(mes, mes)}"
+
+        d = df_base_periodo.copy()
+        if d is None or d.empty or "MÊS" not in d.columns:
+            return "-"
+
+        colunas_valor = [
+            "VALOR REF 01", "VALOR REF 02", "META", "REALIZADO_CALC",
+            "META_CALC", "DESPESA_CALC", "RECEITA_CALC"
+        ]
+        colunas_existentes = [c for c in colunas_valor if c in d.columns]
+
+        if colunas_existentes:
+            mascara = pd.Series(False, index=d.index)
+            for col in colunas_existentes:
+                mascara = mascara | (pd.to_numeric(d[col], errors="coerce").fillna(0) != 0)
+            d_valida = d[mascara].copy()
+            if not d_valida.empty:
+                mes = int(d_valida["MÊS"].max())
+                return f"Jan a {MESES_MAPA.get(mes, mes)}"
+
+        mes = int(d["MÊS"].max())
+        return f"Jan a {MESES_MAPA.get(mes, mes)}"
+    except Exception:
+        return "-"
+
+
 def contexto_dashboard(indicador, filial, ano, periodo="-", data_base="-"):
     """
     Bloco de contexto da Visão Geral.
-    Mantém o usuário localizado sem poluir a tela com data/hora.
+    Mantém indicador, unidade, ano e período à esquerda; data/hora da base à direita.
     """
     st.markdown(
         f"""
@@ -4790,6 +4815,10 @@ def contexto_dashboard(indicador, filial, ano, periodo="-", data_base="-"):
                 <span class="context-pill">🏢 Unidade: <strong>{filial}</strong></span>
                 <span class="context-pill">📅 Ano: <strong>{ano}</strong></span>
                 <span class="context-pill">🧭 Período: <strong>{periodo}</strong></span>
+            </div>
+            <div class="context-update">
+                <div class="context-update-label">Base atualizada em</div>
+                <div class="context-update-value">{data_base}</div>
             </div>
         </div>
         """,
@@ -6272,6 +6301,44 @@ hr {
     margin: 1.1rem 0;
 }
 
+
+/* Ajuste do bloco de contexto com data à direita */
+.dashboard-context {
+    align-items:center;
+}
+
+.context-left {
+    flex: 1;
+}
+
+.context-update {
+    text-align:right;
+    min-width:190px;
+    padding-left:14px;
+    border-left:1px solid rgba(17,24,39,0.08);
+}
+
+.context-update-label {
+    font-size:10.5px;
+    color:#6B7280;
+    font-weight:700;
+    margin-bottom:2px;
+    white-space:nowrap;
+}
+
+.context-update-value {
+    font-size:13.5px;
+    color:#111827;
+    font-weight:800;
+    white-space:nowrap;
+}
+
+div[data-baseweb="tab-list"] {
+    background:#FFFFFF;
+    border-radius:12px;
+    padding:4px 6px 0 6px;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -6382,7 +6449,7 @@ with st.sidebar:
             st.session_state.pop(chave, None)
         st.rerun()
 
-    st.caption("v5.0 etapa 4 — Análise executiva e visual refinado")
+    st.caption("v5.0 etapa 5 — Visão Geral refinada e análise ajustada")
 
 
 if fonte_dados == "Google Drive":
@@ -6497,7 +6564,7 @@ st.markdown(
 
 
 tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    label_aba_com_icone("caminhao-de-lixo (1).png", "Visão Geral", "📊"),
+    "📊 Visão Geral",
     "📅 Por Ano",
     "📈 MoM",
     "🔁 YoY",
@@ -6516,7 +6583,7 @@ with tab0:
     ano_kpi = int(anos[-1])
     base_kpi = df[df["ANO"] == ano_kpi].copy()
 
-    periodo_contexto = f"Jan a {MESES_MAPA.get(int(base_kpi['MÊS'].max()), '-')}" if not base_kpi.empty and base_kpi["MÊS"].notna().any() else "-"
+    periodo_contexto = periodo_contexto_por_data_ou_dados(base_kpi, ano_kpi, data_geracao_planilha)
     contexto_dashboard(indicador, filial, ano_kpi, periodo_contexto, data_geracao_planilha)
     titulo_secao("Resumo executivo", "Principais indicadores consolidados do período selecionado.")
 
@@ -6954,7 +7021,7 @@ with tab0:
 # ABA POR ANO
 # =========================
 with tab1:
-    titulo_secao("Por Ano", f"{indicador} — {filial}: tabela mensal e gráfico do ano selecionado.")
+    titulo_secao("Por Ano", f"{indicador} — {filial}: acompanhamento mensal com tabela detalhada e gráfico interativo.")
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos) - 1)
@@ -7197,7 +7264,7 @@ with tab1:
 # =========================
 
 with tab2:
-    titulo_secao("MoM — Variação mês a mês", f"{indicador} — {filial}: evolução mensal e variação percentual.")
+    titulo_secao("MoM — Variação mês a mês", f"{indicador} — {filial}: leitura da evolução mensal e dos movimentos entre meses.")
     df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").copy()
 
     if eh_moto_margem(indicador):
@@ -7655,7 +7722,7 @@ with tab2:
 # ABA YOY
 # =========================
 with tab3:
-    titulo_secao("YoY — Comparativo ano a ano", f"{indicador} — {filial}: comparação histórica e mesmo período.")
+    titulo_secao("YoY — Comparativo ano a ano", f"{indicador} — {filial}: visão histórica consolidada e comparativo por ano.")
     df_yoy = calcular_yoy(df, indicador)
 
     if eh_moto_margem(indicador):
