@@ -6956,6 +6956,133 @@ div[data-testid="stSelectbox"] > div {
     }
 }
 
+
+/* Sidebar executiva — etapa 8 */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #F7F7F7 0%, #FFFFFF 100%);
+}
+
+.sidebar-section-title {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:13px;
+    font-weight:850;
+    color:#111827;
+    margin: 14px 0 8px 0;
+    padding: 0;
+}
+
+.sidebar-section-title::before {
+    content:"";
+    display:inline-block;
+    width:4px;
+    height:18px;
+    border-radius:999px;
+    background:#F26522;
+}
+
+.sidebar-info-card {
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    border-radius:14px;
+    padding:11px 12px;
+    margin: 8px 0 14px 0;
+    box-shadow:0 1px 5px rgba(0,0,0,0.05);
+}
+
+.sidebar-info-title {
+    font-size:11px;
+    color:#6B7280;
+    font-weight:700;
+    margin-bottom:6px;
+}
+
+.sidebar-info-value {
+    font-size:13px;
+    color:#111827;
+    font-weight:800;
+    line-height:1.25;
+}
+
+.sidebar-chip-list {
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    margin-top:8px;
+}
+
+.sidebar-chip {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    border-radius:999px;
+    padding:6px 9px;
+}
+
+.sidebar-chip-label {
+    font-size:10.5px;
+    color:#6B7280;
+    font-weight:700;
+    white-space:nowrap;
+}
+
+.sidebar-chip-value {
+    font-size:11.5px;
+    color:#F26522;
+    font-weight:800;
+    text-align:right;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    max-width:150px;
+}
+
+.sidebar-user-card {
+    background: linear-gradient(90deg, rgba(242,101,34,0.08), rgba(0,163,80,0.06));
+    border:1px solid #E5E7EB;
+    border-radius:14px;
+    padding:12px;
+    margin: 12px 0;
+}
+
+.sidebar-user-name {
+    font-size:13px;
+    font-weight:850;
+    color:#111827;
+    margin-bottom:2px;
+}
+
+.sidebar-user-profile {
+    font-size:11px;
+    color:#4B5563;
+    font-weight:650;
+}
+
+.sidebar-small-note {
+    font-size:11px;
+    color:#6B7280;
+    line-height:1.35;
+    margin: 4px 0 8px 0;
+}
+
+section[data-testid="stSidebar"] div[data-testid="stSelectbox"] {
+    margin-bottom: 8px;
+}
+
+section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label p {
+    font-size: 11.5px !important;
+    font-weight: 800 !important;
+    color: #374151 !important;
+}
+
+section[data-testid="stSidebar"] button {
+    border-radius: 12px !important;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -6966,7 +7093,6 @@ div[data-testid="stSelectbox"] > div {
 # =========================
 with st.sidebar:
     # Cabeçalho da sidebar com ícone personalizado alinhado
-    # Arquivo esperado no GitHub: reciclar-simbolo.png
     if os.path.exists("reciclar-simbolo.png"):
         import base64
 
@@ -6979,13 +7105,13 @@ with st.sidebar:
                 display: flex;
                 align-items: center;
                 gap: 10px;
-                margin: 0 0 18px 0;
+                margin: 0 0 10px 0;
                 padding: 0;
                 line-height: 1;
             ">
                 <img src="data:image/png;base64,{img_base64}" style="
-                    width: 22px;
-                    height: 22px;
+                    width: 23px;
+                    height: 23px;
                     object-fit: contain;
                     display: block;
                     margin: 0;
@@ -6993,7 +7119,7 @@ with st.sidebar:
                 ">
                 <span style="
                     font-size: 1.45rem;
-                    font-weight: 700;
+                    font-weight: 850;
                     color: inherit;
                     line-height: 1;
                     margin: 0;
@@ -7010,36 +7136,94 @@ with st.sidebar:
                 display: flex;
                 align-items: center;
                 gap: 10px;
-                margin: 0 0 18px 0;
+                margin: 0 0 10px 0;
                 line-height: 1;
             ">
                 <span style="font-size: 22px; line-height: 1;">♻️</span>
-                <span style="font-size: 1.45rem; font-weight: 700; line-height: 1;">Filtros</span>
+                <span style="font-size: 1.45rem; font-weight: 850; line-height: 1;">Filtros</span>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # Usuário comum NÃO vê a origem da base.
-    # Ele fica travado no Google Drive, com o arquivo padrão.
+    # Fonte da base continua escondida para usuários comuns.
     if eh_admin():
         fonte_dados = st.session_state.get("fonte_dados_admin", "Google Drive")
         nome_arquivo_drive = st.session_state.get("nome_arquivo_drive_admin", "BaseSistema.xlsx")
         arquivo = None
-        st.caption("🔐 Fonte da base: configuração disponível na aba Opções.")
+        st.markdown(
+            """
+            <div class="sidebar-info-card">
+                <div class="sidebar-info-title">🔐 Administração da base</div>
+                <div class="sidebar-info-value">Configuração disponível na aba Opções</div>
+                <div class="sidebar-small-note">Somente o perfil Administrador pode alterar a origem dos dados.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     else:
         fonte_dados = "Google Drive"
         nome_arquivo_drive = "BaseSistema.xlsx"
         arquivo = None
+        st.markdown(
+            """
+            <div class="sidebar-info-card">
+                <div class="sidebar-info-title">🔒 Fonte da base</div>
+                <div class="sidebar-info-value">Configuração protegida</div>
+                <div class="sidebar-small-note">A leitura da base é feita automaticamente conforme configuração do administrador.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    st.divider()
+    st.markdown('<div class="sidebar-section-title">Estrutura da análise</div>', unsafe_allow_html=True)
     indicador = selecionar_indicador_por_blocos()
+
+    st.markdown('<div class="sidebar-section-title">Unidade analisada</div>', unsafe_allow_html=True)
     filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
 
-    st.divider()
+    bloco_selecionado = st.session_state.get("bloco_principal_indicador", "-")
+    grupo_selecionado = st.session_state.get("grupo_indicador", "-")
+
+    st.markdown(
+        f"""
+        <div class="sidebar-info-card">
+            <div class="sidebar-info-title">Resumo dos filtros ativos</div>
+            <div class="sidebar-chip-list">
+                <div class="sidebar-chip">
+                    <span class="sidebar-chip-label">Bloco</span>
+                    <span class="sidebar-chip-value">{bloco_selecionado}</span>
+                </div>
+                <div class="sidebar-chip">
+                    <span class="sidebar-chip-label">Tipo</span>
+                    <span class="sidebar-chip-value">{grupo_selecionado}</span>
+                </div>
+                <div class="sidebar-chip">
+                    <span class="sidebar-chip-label">Indicador</span>
+                    <span class="sidebar-chip-value">{indicador}</span>
+                </div>
+                <div class="sidebar-chip">
+                    <span class="sidebar-chip-label">Filial</span>
+                    <span class="sidebar-chip-value">{filial}</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     usuario_logado = st.session_state.get("usuario_logado", "usuário")
-    st.caption(f"👤 Logado como: **{usuario_logado}**")
-    st.caption(f"Perfil: **{nome_perfil_exibicao()}**")
+    perfil_exibicao = nome_perfil_exibicao()
+
+    st.markdown(
+        f"""
+        <div class="sidebar-user-card">
+            <div class="sidebar-user-name">👤 {usuario_logado}</div>
+            <div class="sidebar-user-profile">Perfil: <strong>{perfil_exibicao}</strong></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # Mostra tempo restante de sessão (sutil)
     ultimo_acesso = st.session_state.get("ultimo_acesso", time.time())
@@ -7048,25 +7232,29 @@ with st.sidebar:
     if minutos_restantes <= 10:
         st.caption(f"⏰ Sessão expira em ~{minutos_restantes} min")
 
-    if st.button("🔄 Atualizar dados", use_container_width=True, help="Força nova leitura da planilha (limpa o cache)"):
-        st.cache_data.clear()
-        st.success("Dados atualizados!")
-        st.rerun()
+    col_side_1, col_side_2 = st.columns(2)
+    with col_side_1:
+        if st.button("🔄 Atualizar", use_container_width=True, help="Força nova leitura da planilha (limpa o cache)"):
+            st.cache_data.clear()
+            st.success("Dados atualizados!")
+            st.rerun()
 
-    if st.button("🚪 Sair", use_container_width=True):
-        for chave in [
-            "acesso_liberado",
-            "usuario_logado",
-            "tentativas_login",
-            "bloqueado_ate",
-            "ultimo_acesso",
-            "arquivo_manual_bytes_admin",
-            "arquivo_manual_nome_admin",
-        ]:
-            st.session_state.pop(chave, None)
-        st.rerun()
+    with col_side_2:
+        if st.button("🚪 Sair", use_container_width=True):
+            for chave in [
+                "acesso_liberado",
+                "usuario_logado",
+                "tentativas_login",
+                "bloqueado_ate",
+                "ultimo_acesso",
+                "arquivo_manual_bytes_admin",
+                "arquivo_manual_nome_admin",
+            ]:
+                st.session_state.pop(chave, None)
+            st.rerun()
 
-    st.caption("v5.0 etapa 7.1 — ajuste visual dos cards comparativos")
+    st.caption("v5.0 etapa 8 — sidebar executiva")
+
 
 
 if fonte_dados == "Google Drive":
