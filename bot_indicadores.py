@@ -4412,7 +4412,7 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
     informação de ritmo e tendência de fechamento.
     Não repete a aba Análise.
     """
-    st.markdown(f"<h2 style='margin-bottom:6px;'>Projeção — {indicador} | {filial}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='margin-bottom:6px;'>📌 Projeção — {indicador} | {filial}</h2>", unsafe_allow_html=True)
 
     if df is None or df.empty:
         st.warning("Não há dados suficientes para gerar projeção.")
@@ -4437,6 +4437,8 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
     col_meta = info.get("col_meta")
 
     status_proj = "good" if gap_projetado is not None and pd.notna(gap_projetado) and gap_projetado >= 0 else "warn"
+
+    renderizar_semaforo_projecao(info)
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -4524,6 +4526,7 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
         st.plotly_chart(aplicar_tema_plotly_mazola(fig), use_container_width=True, key="grafico_projecao_executiva")
 
     titulo_secao("Tabela da projeção", "Base numérica usada no cálculo do ritmo.")
+    st.markdown('<div class="table-note-v5">Use esta tabela para validar os números utilizados na projeção de fechamento.</div>', unsafe_allow_html=True)
     tabela = pd.DataFrame([
         {"Item": "Base atualizada em", "Resultado": info.get("data_base", "-")},
         {"Item": "Mês base", "Resultado": f"{info.get('mes_nome', '-')}/{info.get('ano', '-')}" },
@@ -4604,7 +4607,7 @@ def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, d
     informações executivas de alto impacto.
     Diferente da aba Projeção: aqui o foco é comparação, ranking e pontos importantes.
     """
-    st.markdown(f"<h2 style='margin-bottom:6px;'>Análise Executiva — {indicador} | {filial}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='margin-bottom:6px;'>🧠 Análise Executiva — {indicador} | {filial}</h2>", unsafe_allow_html=True)
 
     if df is None or df.empty:
         st.warning("Não há dados suficientes para gerar a análise executiva.")
@@ -4621,6 +4624,9 @@ def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, d
     periodo_label = f"Jan a {mes_nome}"
 
     contexto_dashboard(indicador, filial, ano_atual, periodo_label, data_geracao_planilha)
+
+    titulo_secao("Top insights", "Três informações de leitura rápida para decisão executiva.")
+    renderizar_top_insights(df, indicador, filial, data_geracao_planilha, df_filiais)
 
     titulo_secao("Informações que merecem atenção", "Leitura executiva do desempenho, com foco em comparação e priorização.")
 
@@ -4692,6 +4698,7 @@ def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, d
     # Ranking por atingimento de meta
     if filial == "Geral":
         titulo_secao("Ranking de unidades por atingimento da meta", "Ranking justo por percentual de meta; ao lado ficam os valores de realizado, meta e gap.")
+        st.markdown('<div class="table-note-v5">Ordenação principal por % de atingimento, para não favorecer apenas unidades com maior volume absoluto.</div>', unsafe_allow_html=True)
 
         ranking = montar_ranking_atingimento(df_filiais, indicador, ano_atual, mes_atual)
 
@@ -4723,6 +4730,7 @@ def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, d
             st.info("Não há dados suficientes para montar o ranking por unidade.")
 
     titulo_secao("Resumo de apoio", "Tabela objetiva com os principais dados da leitura executiva.")
+    st.markdown('<div class="table-note-v5">Resumo compacto dos dados usados na análise automática.</div>', unsafe_allow_html=True)
     apoio = pd.DataFrame([
         {"Item": "Período analisado", "Resultado": f"{periodo_label}/{ano_atual}"},
         {"Item": "Base atualizada em", "Resultado": data_geracao_planilha},
@@ -4826,6 +4834,218 @@ def titulo_comparativo_filiais(indicador, ano_base_filial):
 
 
 
+
+def status_geral_indicador(df, indicador, ano):
+    """
+    Status visual simples para capa premium.
+    Respeita estruturas principais e evita alterar cálculo existente.
+    """
+    try:
+        tabela = obter_tabela_mensal_ano(df, indicador, ano)
+        if tabela is None or tabela.empty:
+            return "info", "Em acompanhamento", "Sem dados suficientes para status automático."
+
+        # Totais/indicadores principais
+        col_valor, _ = coluna_valor_principal_projecao(tabela, indicador)
+        col_meta, _ = coluna_meta_principal_projecao(tabela, indicador)
+
+        if eh_qualidade(indicador):
+            col_result = "Resultado %" if "Resultado %" in tabela.columns else col_valor
+            col_meta_q = "Meta" if "Meta" in tabela.columns else col_meta
+            serie_res = pd.to_numeric(tabela.get(col_result), errors="coerce").dropna()
+            serie_meta = pd.to_numeric(tabela.get(col_meta_q), errors="coerce").dropna()
+            if not serie_res.empty and not serie_meta.empty:
+                res = serie_res.iloc[-1]
+                meta = serie_meta.iloc[-1]
+                if modelo_qualidade(indicador) == "parametro_coleta_critico":
+                    ok = res <= meta
+                else:
+                    ok = res >= meta
+                return ("good" if ok else "warn"), ("Dentro da referência" if ok else "Ponto de atenção"), f"Resultado atual: {fmt_pct(res)} | Referência: {fmt_pct(meta)}"
+
+        if col_valor and col_meta and col_valor in tabela.columns and col_meta in tabela.columns:
+            realizado = pd.to_numeric(tabela[col_valor], errors="coerce").fillna(0).sum()
+            meta = pd.to_numeric(tabela[col_meta], errors="coerce").fillna(0).sum()
+            if meta:
+                ating = realizado / meta
+                if eh_despesa_com_limite(indicador):
+                    ok = ating <= 1
+                    return ("good" if ok else "warn"), ("Dentro do limite" if ok else "Acima do limite"), f"Uso do limite: {fmt_pct(ating)}"
+                return ("good" if ating >= 1 else "warn"), ("Meta atingida" if ating >= 1 else "Abaixo da meta"), f"Atingimento acumulado: {fmt_pct(ating)}"
+
+        return "info", "Em acompanhamento", "Indicador monitorado conforme estrutura selecionada."
+    except Exception:
+        return "info", "Em acompanhamento", "Status automático indisponível."
+
+
+def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_contexto=None):
+    status, status_titulo, status_desc = status_geral_indicador(df_contexto, indicador, ano) if df_contexto is not None else ("info", "Em acompanhamento", "")
+    st.markdown(
+        f"""
+        <div class="premium-hero">
+            <div class="premium-hero-top">
+                <div>
+                    <div class="premium-hero-title">Painel executivo</div>
+                    <div class="premium-hero-main">{indicador} | {filial}</div>
+                    <div class="premium-hero-sub">Leitura consolidada para acompanhamento de metas, tendência e desempenho.</div>
+                </div>
+                <div class="premium-status {status}">
+                    <div class="premium-status-label">Status geral</div>
+                    <div class="premium-status-value">{status_titulo}</div>
+                    <div style="font-size:11px;color:#6B7280;font-weight:650;margin-top:3px;">{status_desc}</div>
+                </div>
+            </div>
+            <div class="premium-hero-pills">
+                <div class="premium-pill">📅 Ano <span>{ano}</span></div>
+                <div class="premium-pill">🧭 Período <span>{periodo}</span></div>
+                <div class="premium-pill">🏢 Unidade <span>{filial}</span></div>
+                <div class="premium-pill">🔄 Base <span>{data_base}</span></div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def renderizar_semaforo_projecao(info):
+    gap = info.get("gap_projetado")
+    media_atual = info.get("media_atual")
+    media_necessaria = info.get("media_necessaria")
+    col_valor = info.get("col_valor")
+    dias_restantes = info.get("dias_restantes")
+
+    if gap is not None and pd.notna(gap) and gap >= 0:
+        status = "good"
+        icon = "🟢"
+        titulo = "Tendência de bater a meta"
+        texto = f"No ritmo atual, a projeção indica fechamento acima da meta em {formatar_generico_por_coluna(gap, col_valor)}."
+    elif gap is not None and pd.notna(gap):
+        status = "warn"
+        icon = "🟠"
+        falta_ritmo = ""
+        if media_atual not in [None, 0] and media_necessaria is not None and pd.notna(media_necessaria):
+            try:
+                dif = (media_necessaria / media_atual) - 1
+                falta_ritmo = f" A média diária necessária está {fmt_pct(dif)} acima da média atual."
+            except Exception:
+                falta_ritmo = ""
+        titulo = "Atenção: precisa acelerar"
+        texto = f"No ritmo atual, a projeção indica fechamento abaixo da meta em {formatar_generico_por_coluna(abs(gap), col_valor)}.{falta_ritmo} Dias úteis restantes: {fmt_num(dias_restantes)}."
+    else:
+        status = "warn"
+        icon = "🟠"
+        titulo = "Projeção em acompanhamento"
+        texto = "Ainda não há informações suficientes para determinar a tendência de fechamento."
+
+    st.markdown(
+        f"""
+        <div class="semaforo-box {status}">
+            <div class="semaforo-icon">{icon}</div>
+            <div class="semaforo-content">
+                <div class="semaforo-title">{titulo}</div>
+                <div class="semaforo-text">{texto}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def renderizar_top_insights(df, indicador, filial, data_geracao_planilha, df_filiais=None):
+    try:
+        anos = sorted(df["ANO"].dropna().unique())
+        ano = int(anos[-1])
+        mes = mes_base_por_data(df, ano, data_geracao_planilha)
+        mes_nome = MESES_MAPA.get(mes, str(mes))
+    except Exception:
+        return
+
+    insight1_titulo = "Comparativo anual"
+    insight1_texto = "Sem dados suficientes para comparar com o mesmo período anterior."
+    insight1_status = "warn"
+
+    try:
+        periodo_cmp = comparar_mesmo_periodo(df, indicador, ano)
+        if periodo_cmp is not None and not periodo_cmp.empty and len(periodo_cmp) >= 2:
+            linha = periodo_cmp.iloc[-1]
+            col_var = _primeira_coluna_existente(periodo_cmp, ["Variação", "Variação R$", "Variação Faturamento", "Variação Resultado", "Variação Receita", "Variação %"])
+            var = linha.get(col_var) if col_var else None
+            insight1_status = "good" if var is not None and pd.notna(var) and var >= 0 else "warn"
+            insight1_titulo = "Acima do ano anterior" if insight1_status == "good" else "Abaixo do ano anterior"
+            insight1_texto = f"No acumulado Jan a {mes_nome}, a variação contra o ano anterior é {fmt_var_pct_seguro(var) if var is not None else '—'}."
+    except Exception:
+        pass
+
+    insight2_titulo = "Melhor mês"
+    insight2_texto = "Ainda não identificado."
+    insight2_status = "good"
+
+    insight3_titulo = "Ponto de atenção"
+    insight3_texto = "Nenhum alerta automático relevante identificado."
+    insight3_status = "info"
+
+    try:
+        tabela = obter_tabela_mensal_ano(df, indicador, ano)
+        col, label, modo = valor_principal_para_analise(tabela, indicador)
+        if tabela is not None and not tabela.empty and col in tabela.columns:
+            base = tabela[(tabela["MÊS"] <= mes)].copy() if "MÊS" in tabela.columns else tabela.copy()
+            base["_valor"] = pd.to_numeric(base[col], errors="coerce")
+            base = base[base["_valor"].notna()]
+            if not base.empty:
+                melhor = base.sort_values("_valor", ascending=False).iloc[0]
+                pior = base.sort_values("_valor", ascending=True).iloc[0]
+                insight2_texto = f"{melhor.get('Mês', '-')} foi o melhor mês, com {formatar_generico_por_coluna(melhor.get('_valor'), col)}."
+                insight3_texto = f"{pior.get('Mês', '-')} foi o menor resultado do período, com {formatar_generico_por_coluna(pior.get('_valor'), col)}."
+                insight3_status = "warn"
+    except Exception:
+        pass
+
+    # Ranking se estiver geral
+    if filial == "Geral" and df_filiais is not None:
+        try:
+            ranking = montar_ranking_atingimento(df_filiais, indicador, ano, mes)
+            if ranking is not None and not ranking.empty:
+                top = ranking.iloc[0]
+                insight2_titulo = "Unidade destaque"
+                insight2_texto = f"{top.get('FILIAL', '-')} lidera o ranking com {fmt_pct(top.get('Atingimento'))} de atingimento."
+        except Exception:
+            pass
+
+    st.markdown(
+        f"""
+        <div class="top-insights-grid">
+            <div class="top-insight {insight1_status}">
+                <div class="top-insight-label">Insight 1</div>
+                <div class="top-insight-title">{insight1_titulo}</div>
+                <div class="top-insight-text">{insight1_texto}</div>
+            </div>
+            <div class="top-insight {insight2_status}">
+                <div class="top-insight-label">Insight 2</div>
+                <div class="top-insight-title">{insight2_titulo}</div>
+                <div class="top-insight-text">{insight2_texto}</div>
+            </div>
+            <div class="top-insight {insight3_status}">
+                <div class="top-insight-label">Insight 3</div>
+                <div class="top-insight-title">{insight3_titulo}</div>
+                <div class="top-insight-text">{insight3_texto}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def dataframe_premium(styler_ou_df, **kwargs):
+    """
+    Mantém compatibilidade: centraliza use_container_width/hide_index quando possível.
+    Nem todas as tabelas serão convertidas agora, mas a função fica disponível para próximos ajustes.
+    """
+    kwargs.setdefault("use_container_width", True)
+    return st.dataframe(styler_ou_df, **kwargs)
+
+
+
+
 def aplicar_tema_plotly_mazola(fig):
     """
     Tema visual padrão para gráficos Plotly do painel.
@@ -4835,11 +5055,24 @@ def aplicar_tema_plotly_mazola(fig):
             plot_bgcolor="#FFFFFF",
             paper_bgcolor="#FFFFFF",
             font=dict(family="Arial", size=12, color="#111827"),
-            hoverlabel=dict(bgcolor="#FFFFFF", font_size=12, font_color="#111827"),
-            legend=dict(orientation="h"),
+            hoverlabel=dict(
+                bgcolor="#FFFFFF",
+                font_size=12,
+                font_color="#111827",
+                bordercolor="#E5E7EB",
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="center",
+                x=0.5,
+            ),
+            margin=dict(t=70, b=35, l=25, r=25),
+            title=dict(font=dict(size=16, color="#111827")),
         )
-        fig.update_xaxes(showgrid=False, tickangle=0)
-        fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA", zeroline=False)
+        fig.update_xaxes(showgrid=False, tickangle=0, linecolor="#E5E7EB")
+        fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA", zeroline=False, linecolor="#E5E7EB")
     except Exception:
         pass
     return fig
@@ -7083,6 +7316,227 @@ section[data-testid="stSidebar"] button {
     border-radius: 12px !important;
 }
 
+
+/* Pacote visual completo — etapa 9 */
+.premium-hero {
+    width:100%;
+    border-radius:18px;
+    padding:18px 20px;
+    margin: 4px 0 18px 0;
+    background:
+        radial-gradient(circle at 0% 0%, rgba(242,101,34,0.14), transparent 32%),
+        radial-gradient(circle at 100% 20%, rgba(0,163,80,0.12), transparent 30%),
+        linear-gradient(90deg, #FFFFFF 0%, #FAFAFA 100%);
+    border:1px solid #E5E7EB;
+    box-shadow:0 2px 10px rgba(0,0,0,0.06);
+}
+
+.premium-hero-top {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:18px;
+}
+
+.premium-hero-title {
+    font-size:13px;
+    color:#6B7280;
+    font-weight:800;
+    margin-bottom:4px;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+}
+
+.premium-hero-main {
+    font-size:25px;
+    color:#111827;
+    font-weight:900;
+    line-height:1.1;
+    margin:0;
+}
+
+.premium-hero-sub {
+    margin-top:6px;
+    color:#4B5563;
+    font-size:13px;
+    font-weight:600;
+}
+
+.premium-status {
+    min-width:210px;
+    text-align:right;
+    padding:10px 12px;
+    border-radius:14px;
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    box-shadow:0 1px 5px rgba(0,0,0,0.04);
+}
+
+.premium-status-label {
+    font-size:11px;
+    color:#6B7280;
+    font-weight:800;
+    margin-bottom:3px;
+}
+
+.premium-status-value {
+    font-size:15px;
+    font-weight:900;
+}
+
+.premium-status.good .premium-status-value { color:#00A350; }
+.premium-status.warn .premium-status-value { color:#F26522; }
+.premium-status.info .premium-status-value { color:#0078D4; }
+
+.premium-hero-pills {
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-top:14px;
+}
+
+.premium-pill {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    border-radius:999px;
+    border:1px solid #E5E7EB;
+    background:#FFFFFF;
+    padding:7px 10px;
+    font-size:12px;
+    font-weight:750;
+    color:#111827;
+}
+
+.premium-pill span {
+    color:#F26522;
+    font-weight:900;
+}
+
+.semaforo-box {
+    border-radius:18px;
+    padding:16px 18px;
+    margin: 12px 0 18px 0;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    border:1px solid #E5E7EB;
+    box-shadow:0 2px 9px rgba(0,0,0,0.06);
+    background:#FFFFFF;
+}
+
+.semaforo-box.good {
+    background: linear-gradient(90deg, rgba(0,163,80,0.12), #FFFFFF);
+    border-left:6px solid #00A350;
+}
+
+.semaforo-box.warn {
+    background: linear-gradient(90deg, rgba(242,101,34,0.13), #FFFFFF);
+    border-left:6px solid #F26522;
+}
+
+.semaforo-icon {
+    font-size:30px;
+    line-height:1;
+}
+
+.semaforo-content {
+    flex:1;
+}
+
+.semaforo-title {
+    font-size:16px;
+    font-weight:900;
+    color:#111827;
+    margin-bottom:3px;
+}
+
+.semaforo-text {
+    font-size:13px;
+    color:#374151;
+    font-weight:600;
+    line-height:1.35;
+}
+
+.top-insights-grid {
+    display:grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap:14px;
+    margin: 8px 0 18px 0;
+}
+
+.top-insight {
+    position:relative;
+    border-radius:16px;
+    border:1px solid #E5E7EB;
+    background:#FFFFFF;
+    padding:14px 15px 14px 15px;
+    box-shadow:0 1px 6px rgba(0,0,0,0.05);
+    overflow:hidden;
+}
+
+.top-insight::before {
+    content:"";
+    position:absolute;
+    left:0;
+    top:0;
+    width:100%;
+    height:4px;
+    background:#0078D4;
+}
+
+.top-insight.good::before { background:#00A350; }
+.top-insight.warn::before { background:#F26522; }
+
+.top-insight-label {
+    font-size:11px;
+    color:#6B7280;
+    font-weight:850;
+    margin-bottom:5px;
+    text-transform:uppercase;
+    letter-spacing:.02em;
+}
+
+.top-insight-title {
+    font-size:15px;
+    color:#111827;
+    font-weight:900;
+    margin-bottom:4px;
+}
+
+.top-insight-text {
+    font-size:13px;
+    color:#374151;
+    font-weight:550;
+    line-height:1.35;
+}
+
+.table-note-v5 {
+    font-size:12px;
+    color:#6B7280;
+    margin: -2px 0 10px 13px;
+    font-weight:600;
+}
+
+div[data-testid="stDataFrame"] {
+    margin-top: 6px;
+    margin-bottom: 18px;
+}
+
+@media (max-width: 950px) {
+    .premium-hero-top {
+        flex-direction:column;
+    }
+    .premium-status {
+        width:100%;
+        text-align:left;
+    }
+    .top-insights-grid {
+        grid-template-columns:1fr;
+    }
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -7253,7 +7707,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 8 — sidebar executiva")
+    st.caption("v5.0 etapa 9 — pacote visual completo")
 
 
 
@@ -7383,14 +7837,14 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 # ABA VISÃO GERAL
 # =========================
 with tab0:
-    st.markdown(f"<h2 style='margin-bottom:6px;'>Visão Geral — {indicador} | {filial}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='margin-bottom:6px;'>📊 Visão Geral — {indicador} | {filial}</h2>", unsafe_allow_html=True)
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
     base_kpi = df[df["ANO"] == ano_kpi].copy()
 
     periodo_contexto = periodo_contexto_por_data_ou_dados(base_kpi, ano_kpi, data_geracao_planilha)
-    contexto_dashboard(indicador, filial, ano_kpi, periodo_contexto, data_geracao_planilha)
+    renderizar_capa_premium(indicador, filial, ano_kpi, periodo_contexto, data_geracao_planilha, df)
     titulo_secao("Resumo executivo", "Principais indicadores consolidados do período selecionado.")
 
     if eh_moto_margem(indicador):
