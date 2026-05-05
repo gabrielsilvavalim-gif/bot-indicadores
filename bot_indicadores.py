@@ -7605,30 +7605,10 @@ with st.sidebar:
         fonte_dados = st.session_state.get("fonte_dados_admin", "Google Drive")
         nome_arquivo_drive = st.session_state.get("nome_arquivo_drive_admin", "BaseSistema.xlsx")
         arquivo = None
-        st.markdown(
-            """
-            <div class="sidebar-info-card">
-                <div class="sidebar-info-title">🔐 Administração da base</div>
-                <div class="sidebar-info-value">Configuração disponível na aba Opções</div>
-                <div class="sidebar-small-note">Somente o perfil Administrador pode alterar a origem dos dados.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
     else:
         fonte_dados = "Google Drive"
         nome_arquivo_drive = "BaseSistema.xlsx"
         arquivo = None
-        st.markdown(
-            """
-            <div class="sidebar-info-card">
-                <div class="sidebar-info-title">🔒 Fonte da base</div>
-                <div class="sidebar-info-value">Configuração protegida</div>
-                <div class="sidebar-small-note">A leitura da base é feita automaticamente conforme configuração do administrador.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
     st.markdown('<div class="sidebar-section-title">Estrutura da análise</div>', unsafe_allow_html=True)
     indicador = selecionar_indicador_por_blocos()
@@ -7707,7 +7687,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9 — pacote visual completo")
+    st.caption("v5.0 etapa 9.1 — sidebar limpa")
 
 
 
