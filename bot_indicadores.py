@@ -4803,7 +4803,7 @@ def cards_comparativo_periodo(df_periodo_tela, indicador):
 
         st.markdown(
             f"""
-            <div class="compare-card-grid">
+            <div class="compare-card-grid compare-card-grid-two">
                 <div class="compare-mini-card">
                     <div class="compare-label">Valor atual do período</div>
                     <div class="compare-value">{principal_txt}</div>
@@ -4813,11 +4813,6 @@ def cards_comparativo_periodo(df_periodo_tela, indicador):
                     <div class="compare-label">Mesmo período anterior</div>
                     <div class="compare-value">{anterior_txt}</div>
                     <div class="compare-note">Referência do mesmo período no ano anterior.</div>
-                </div>
-                <div class="compare-mini-card {status_var}">
-                    <div class="compare-label">Variação do período</div>
-                    <div class="compare-value">{var_txt}</div>
-                    <div class="compare-note">Meta ou referência atual: {meta_txt}</div>
                 </div>
             </div>
             """,
@@ -7537,6 +7532,17 @@ div[data-testid="stDataFrame"] {
     }
 }
 
+
+/* Ajuste etapa 9.2 — comparativo com dois cards */
+.compare-card-grid-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 900px) {
+    .compare-card-grid-two {
+        grid-template-columns: 1fr;
+    }
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -7687,7 +7693,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9.1 — sidebar limpa")
+    st.caption("v5.0 etapa 9.2 — projeção admin e comparativo limpo")
 
 
 
@@ -7802,15 +7808,26 @@ st.markdown(
 )
 
 
-tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📊 Visão Geral",
-    "📅 Por Ano",
-    "📈 MoM",
-    "🔁 YoY",
-    "📌 Projeção",
-    "🧠 Análise",
-    "📤 Opções"
-])
+if eh_admin():
+    tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 Visão Geral",
+        "📅 Por Ano",
+        "📈 MoM",
+        "🔁 YoY",
+        "📌 Projeção",
+        "🧠 Análise",
+        "📤 Opções"
+    ])
+else:
+    tab0, tab1, tab2, tab3, tab5, tab6 = st.tabs([
+        "📊 Visão Geral",
+        "📅 Por Ano",
+        "📈 MoM",
+        "🔁 YoY",
+        "🧠 Análise",
+        "📤 Opções"
+    ])
+    tab4 = None
 
 
 # =========================
@@ -9562,8 +9579,9 @@ with tab3:
 # =========================
 # ABA PROJEÇÃO
 # =========================
-with tab4:
-    renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha)
+if eh_admin() and tab4 is not None:
+    with tab4:
+        renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha)
 
 
 # =========================
