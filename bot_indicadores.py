@@ -1440,15 +1440,15 @@ def resumo_despesa_geral_por_grupo(grupo):
     if limite_pct is None or pd.isna(limite_pct):
         limite_rs = None
         resultado = None
-        tx_sucesso = None
     else:
         limite_rs = receita * limite_pct
         resultado = limite_rs - despesa
 
-        # Fórmula solicitada:
-        # Tx. Sucesso = (Receita x Limite %) / Despesa
-        # Excel: =SEERRO((AD5*AB5)/AC5;"0")
-        tx_sucesso = limite_rs / despesa if despesa > 0 else None
+    # Fórmula correta:
+    # Tx. Sucesso = Despesa / Receita
+    # Interpretação: quanto da receita foi consumido pela despesa.
+    # Para Despesa Geral, menor ou igual ao Limite % é melhor.
+    tx_sucesso = despesa / receita if receita > 0 else None
 
     return {
         "Limite %": limite_pct,
@@ -1473,10 +1473,11 @@ def consolidar_despesa_geral(df):
     DESPESA = coluna J:J / VALOR REF 01
     RECEITA = coluna L:L / VALOR REF 02
     RESULTADO R$ = (RECEITA x LIMITE %) - DESPESA
-    TX. SUCESSO = (RECEITA x LIMITE %) / DESPESA
+    TX. SUCESSO = DESPESA / RECEITA
 
-    Fórmula da Tx. Sucesso no Excel:
-    =SEERRO((AD5*AB5)/AC5;"0")
+    Interpretação:
+    A Tx. Sucesso mostra quanto da receita foi consumido pela despesa.
+    Para Despesa Geral, menor ou igual ao Limite % é melhor.
 
     2023, 2024 e 2025 não têm limite/meta.
     """
@@ -1504,9 +1505,9 @@ def consolidar_despesa_geral(df):
     d["LIMITE_RS_CALC"] = d["RECEITA_CALC"] * d["LIMITE_PERCENTUAL_CALC"]
     d["RESULTADO_RS"] = d["LIMITE_RS_CALC"] - d["DESPESA_CALC"]
 
-    # Fórmula solicitada:
-    # Tx. Sucesso = (Receita x Limite %) / Despesa
-    d["TX_SUCESSO_CALC"] = d["LIMITE_RS_CALC"] / d["DESPESA_CALC"].replace(0, pd.NA)
+    # Fórmula correta:
+    # Tx. Sucesso = Despesa / Receita
+    d["TX_SUCESSO_CALC"] = d["DESPESA_CALC"] / d["RECEITA_CALC"].replace(0, pd.NA)
 
     # Campos de compatibilidade
     d["META_CALC"] = d["LIMITE_PERCENTUAL_CALC"]
@@ -2445,11 +2446,11 @@ def cor_resultado_financeiro_por_linha(row):
 def cor_tx_sucesso_despesa_geral_por_linha(row):
     """
     Para Despesa Geral com a fórmula:
-    Tx. Sucesso = (Receita x Limite %) / Despesa
+    Tx. Sucesso = Despesa / Receita
 
     Interpretação:
-    - Verde quando Tx. Sucesso >= 100%.
-    - Laranja quando Tx. Sucesso < 100%.
+    - Verde quando Tx. Sucesso <= Limite %.
+    - Laranja quando Tx. Sucesso > Limite %.
     - Se o ano não possui limite, mantém sem destaque.
     """
     estilos = ["" for _ in row.index]
@@ -2469,10 +2470,14 @@ def cor_tx_sucesso_despesa_geral_por_linha(row):
         return estilos
 
     tx = row["Tx. Sucesso"]
+    limite = row["Limite %"] if "Limite %" in row.index else None
 
     if pd.notna(tx):
         idx = list(row.index).index("Tx. Sucesso")
-        estilos[idx] = f"color: {COR_VERDE}; font-weight:bold" if tx >= 1 else f"color: {COR_LARANJA}; font-weight:bold"
+        if limite is not None and pd.notna(limite):
+            estilos[idx] = f"color: {COR_VERDE}; font-weight:bold" if tx <= limite else f"color: {COR_LARANJA}; font-weight:bold"
+        else:
+            estilos[idx] = f"color: {COR_LARANJA}; font-weight:bold"
 
     return estilos
 
@@ -5078,10 +5083,10 @@ def cards_comparativo_periodo(df_periodo_tela, indicador):
             nota_atual = "Diferença em R$ entre o resultado % realizado e a meta do período."
             nota_anterior = "Referência do resultado financeiro no mesmo período do ano anterior."
         elif eh_despesa_geral(indicador):
-            col_principal = "Resultado R$" if "Resultado R$" in df_periodo_tela.columns else "Tx. Sucesso"
-            label_atual = "Resultado operacional atual"
-            label_anterior = "Resultado operacional anterior"
-            nota_atual = "Resultado em R$ do período, considerando receita, despesa e limite."
+            col_principal = "Tx. Sucesso" if "Tx. Sucesso" in df_periodo_tela.columns else "Resultado R$"
+            label_atual = "Despesa/Receita atual"
+            label_anterior = "Despesa/Receita anterior"
+            nota_atual = "Percentual da receita consumido pela despesa no período."
             nota_anterior = "Referência do mesmo período no ano anterior."
         else:
             col_principal = _primeira_coluna_existente(
@@ -5164,6 +5169,29 @@ def status_geral_indicador(df, indicador, ano):
                         ok = tx_atual >= meta_atual
                         return ("good" if ok else "warn"), ("Meta atingida" if ok else "Abaixo da meta"), f"Tx. Sucesso: {fmt_pct(tx_atual)} | Meta: {fmt_pct(meta_atual)}"
                     return "info", "Em acompanhamento", f"Tx. Sucesso: {fmt_pct(tx_atual)}"
+
+        if eh_despesa_geral(indicador):
+            if "Tx. Sucesso" in tabela.columns and "Limite %" in tabela.columns:
+                tabela_valida = tabela.copy()
+                if "Mês" in tabela_valida.columns:
+                    total_rows = tabela_valida[tabela_valida["Mês"].astype(str).str.upper() == "TOTAL"]
+                    if not total_rows.empty:
+                        linha = total_rows.iloc[-1]
+                    else:
+                        linha = tabela_valida.dropna(subset=["Tx. Sucesso"]).tail(1).iloc[0] if not tabela_valida.dropna(subset=["Tx. Sucesso"]).empty else None
+                else:
+                    linha = tabela_valida.dropna(subset=["Tx. Sucesso"]).tail(1).iloc[0] if not tabela_valida.dropna(subset=["Tx. Sucesso"]).empty else None
+
+                if linha is not None:
+                    tx = pd.to_numeric(pd.Series([linha.get("Tx. Sucesso")]), errors="coerce").iloc[0]
+                    limite = pd.to_numeric(pd.Series([linha.get("Limite %")]), errors="coerce").iloc[0]
+                    if pd.notna(tx) and pd.notna(limite):
+                        ok = tx <= limite
+                        return (
+                            "good" if ok else "warn",
+                            "Dentro do limite" if ok else "Acima do limite",
+                            f"Despesa/Receita: {fmt_pct(tx)} | Limite: {fmt_pct(limite)}",
+                        )
 
         if col_valor and col_meta and col_valor in tabela.columns and col_meta in tabela.columns:
             realizado = pd.to_numeric(tabela[col_valor], errors="coerce").fillna(0).sum()
@@ -8001,7 +8029,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9.8 — correção comparativo moto")
+    st.caption("v5.0 etapa 9.9 — despesa geral tx corrigida")
 
 
 
