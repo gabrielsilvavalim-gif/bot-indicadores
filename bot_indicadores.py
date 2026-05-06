@@ -134,22 +134,21 @@ def verificar_senha_acesso():
             }
 
             .block-container {
-                padding-top: 2rem !important;
+                padding-top: 3rem !important;
                 padding-bottom: 2rem !important;
                 max-width: 100% !important;
+                background:
+                    radial-gradient(circle at top left, rgba(242,101,34,0.07), transparent 24%),
+                    radial-gradient(circle at bottom right, rgba(0,163,80,0.07), transparent 26%),
+                    linear-gradient(135deg, #FFFFFF 0%, #FAFAFA 100%);
             }
 
             .login-bg {
-                min-height: 82vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 24px;
-                background:
-                    radial-gradient(circle at top left, rgba(242,101,34,0.14), transparent 31%),
-                    radial-gradient(circle at bottom right, rgba(0,163,80,0.12), transparent 34%),
-                    linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
-                border-radius: 22px;
+                min-height: auto;
+                display: block;
+                padding: 0;
+                background: transparent;
+                border-radius: 0;
             }
 
                         .login-logo-wrap {
@@ -309,15 +308,20 @@ def verificar_senha_acesso():
         st.stop()
 
     # ---- Estrutura visual da tela de login ----
-    st.markdown('<div class="login-bg">', unsafe_allow_html=True)
-    col_esq, col_centro, col_dir = st.columns([1.2, 1.0, 1.2])
+    # Importante: não usar uma DIV HTML envolvendo componentes Streamlit.
+    # Isso evita o espaço grande e as linhas duplicadas acima da logo.
+    col_esq, col_centro, col_dir = st.columns([1.35, 1.0, 1.35])
 
     with col_centro:
         st.markdown(
             """
-            <div style="margin: 0 auto 16px auto; width: 100%; max-width: 520px;">
-                <div style="height: 6px; border-radius: 999px; background: linear-gradient(90deg, #F26522, #00A350);"></div>
-            </div>
+            <div style="
+                height: 5px;
+                width: 100%;
+                border-radius: 999px;
+                background: linear-gradient(90deg, #F26522, #00A350);
+                margin: 8px 0 18px 0;
+            "></div>
             """,
             unsafe_allow_html=True,
         )
@@ -326,7 +330,7 @@ def verificar_senha_acesso():
         logo_login_arquivo = globals().get("LOGO_ARQUIVO", "MazolaCertificado.ico")
         if os.path.exists(logo_login_arquivo):
             try:
-                col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 1.2, 1])
+                col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 1.15, 1])
                 with col_logo_2:
                     st.image(logo_login_arquivo, use_container_width=True)
                 logo_renderizado = True
@@ -371,8 +375,6 @@ def verificar_senha_acesso():
             """,
             unsafe_allow_html=True,
         )
-
-    st.markdown('</div>', unsafe_allow_html=True)
 
     if entrar:
         usuario_digitado_limpo = str(usuario_digitado).strip()
