@@ -93,39 +93,29 @@ def verificar_senha_acesso():
     """
     Libera o acesso ao painel usando usuários configurados no Streamlit Secrets.
 
-    Formato recomendado no Secrets (use senhas FORTES, com 12+ caracteres):
+    Mantém:
+    - bcrypt;
+    - bloqueio por tentativas;
+    - timeout de sessão;
+    - comparação segura de senha.
 
-    [usuarios]
-    Mazola = "$2b$12$KIXhash_bcrypt_aqui"   # recomendado: hash bcrypt
-    valim = "senha_em_texto_puro_legado"     # também funciona, mas menos seguro
-
-    [gcp_service_account]
-    ...
-
-    Funcionalidades de segurança:
-    - Bloqueio de 30 minutos após 3 tentativas erradas (bloqueio por tempo, não por sessão)
-    - Sessão expira após 60 minutos sem atividade
-    - Comparação timing-safe (resistente a ataques de timing)
-    - Suporte a hashes bcrypt (resistente a força bruta)
+    Esta versão altera apenas o visual da página de login.
     """
     usuarios = st.secrets.get("usuarios", {})
 
     if not usuarios:
         st.error("Nenhum usuário foi encontrado no Secrets do Streamlit.")
-        st.info('No Secrets, adicione o bloco [usuarios]. Exemplo: Mazola = "1234" e valim = "camelbak123-"')
+        st.info('No Secrets, adicione o bloco [usuarios]. Exemplo: ADMIN = "38818171" e MAZOLA = "49929282"')
         st.stop()
 
     # ---- Verifica se já está autenticado e se a sessão ainda é válida ----
     if st.session_state.get("acesso_liberado", False):
         ultimo_acesso = st.session_state.get("ultimo_acesso", 0)
         if time.time() - ultimo_acesso > LIMITE_SESSAO_MINUTOS * 60:
-            # Sessão expirada — derruba o usuário
             for chave in ["acesso_liberado", "usuario_logado", "ultimo_acesso"]:
                 st.session_state.pop(chave, None)
             st.warning("⏰ Sua sessão expirou por inatividade. Faça login novamente.")
-            # cai para a tela de login abaixo
         else:
-            # Sessão válida — atualiza timestamp de atividade
             st.session_state["ultimo_acesso"] = time.time()
             return True
 
@@ -135,32 +125,268 @@ def verificar_senha_acesso():
     if "bloqueado_ate" not in st.session_state:
         st.session_state["bloqueado_ate"] = 0
 
+    # ---- CSS da tela de login ----
+    st.markdown(
+        """
+        <style>
+            [data-testid="stSidebar"] {
+                display: none;
+            }
+
+            .block-container {
+                padding-top: 2rem !important;
+                padding-bottom: 2rem !important;
+                max-width: 100% !important;
+            }
+
+            .login-bg {
+                min-height: 82vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+                background:
+                    radial-gradient(circle at top left, rgba(242,101,34,0.14), transparent 31%),
+                    radial-gradient(circle at bottom right, rgba(0,163,80,0.12), transparent 34%),
+                    linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
+                border-radius: 22px;
+            }
+
+            .login-shell {
+                width: min(520px, 100%);
+                position: relative;
+            }
+
+            .login-card {
+                background: rgba(255,255,255,0.98);
+                border: 1px solid #E5E7EB;
+                border-radius: 24px;
+                padding: 32px 34px 28px 34px;
+                box-shadow: 0 20px 55px rgba(17,24,39,0.12);
+                overflow: hidden;
+                position: relative;
+            }
+
+            .login-card::before {
+                content: "";
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 6px;
+                background: linear-gradient(90deg, #F26522, #00A350);
+                border-radius: 24px 24px 0 0;
+            }
+
+            .login-logo-wrap {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 12px;
+            }
+
+            .login-badge {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 7px 12px;
+                border-radius: 999px;
+                background: rgba(242,101,34,0.09);
+                color: #F26522;
+                font-size: 12px;
+                font-weight: 850;
+                margin: 0 auto 12px auto;
+                border: 1px solid rgba(242,101,34,0.18);
+            }
+
+            .login-title {
+                text-align: center;
+                font-size: 34px;
+                color: #111827;
+                font-weight: 950;
+                margin: 4px 0 8px 0;
+                line-height: 1.08;
+            }
+
+            .login-subtitle {
+                text-align: center;
+                font-size: 14.5px;
+                color: #6B7280;
+                font-weight: 600;
+                line-height: 1.45;
+                margin-bottom: 22px;
+            }
+
+            .login-security {
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                margin-top: 16px;
+                padding: 11px 12px;
+                border-radius: 14px;
+                background: #F9FAFB;
+                border: 1px solid #E5E7EB;
+                color: #6B7280;
+                font-size: 12px;
+                font-weight: 650;
+                line-height: 1.35;
+            }
+
+            div[data-testid="stForm"] {
+                border: none !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                background: transparent !important;
+            }
+
+            div[data-testid="stTextInput"] label p {
+                font-weight: 800 !important;
+                font-size: 12px !important;
+                color: #374151 !important;
+            }
+
+            div[data-testid="stTextInput"] input {
+                border-radius: 13px !important;
+                border: 1px solid #D1D5DB !important;
+                background: #FFFFFF !important;
+                min-height: 45px !important;
+                font-size: 14px !important;
+                font-weight: 600 !important;
+                padding-left: 12px !important;
+            }
+
+            div[data-testid="stTextInput"] input:focus {
+                border-color: #F26522 !important;
+                box-shadow: 0 0 0 3px rgba(242,101,34,0.16) !important;
+            }
+
+            div[data-testid="stFormSubmitButton"] button {
+                background: linear-gradient(90deg, #F26522, #F47B3E) !important;
+                color: #FFFFFF !important;
+                border: none !important;
+                border-radius: 14px !important;
+                min-height: 46px !important;
+                font-weight: 900 !important;
+                font-size: 15px !important;
+                box-shadow: 0 10px 22px rgba(242,101,34,0.24) !important;
+                transition: all .15s ease !important;
+            }
+
+            div[data-testid="stFormSubmitButton"] button:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 13px 26px rgba(242,101,34,0.30) !important;
+                filter: brightness(1.02);
+            }
+
+            .login-footer {
+                text-align: center;
+                color: #9CA3AF;
+                font-size: 11px;
+                margin-top: 12px;
+                font-weight: 600;
+            }
+
+            .login-blocked-card {
+                width: min(520px, 100%);
+                background: #FFFFFF;
+                border: 1px solid #E5E7EB;
+                border-radius: 22px;
+                padding: 34px 36px;
+                box-shadow: 0 18px 48px rgba(17,24,39,0.10);
+                text-align: center;
+            }
+
+            .login-alert {
+                background: rgba(242,101,34,0.10);
+                color: #9A3412;
+                border-left: 5px solid #F26522;
+                border-radius: 14px;
+                padding: 13px 14px;
+                font-size: 14px;
+                font-weight: 700;
+                text-align: left;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # ---- Verifica se está bloqueado por tempo ----
     if time.time() < st.session_state["bloqueado_ate"]:
         minutos_restantes = int((st.session_state["bloqueado_ate"] - time.time()) / 60) + 1
-        st.error(
-            f"🚫 Acesso bloqueado por excesso de tentativas. "
-            f"Tente novamente em {minutos_restantes} minutos."
+        st.markdown(
+            f"""
+            <div class="login-bg">
+                <div class="login-blocked-card">
+                    <div style="font-size: 44px;">🚫</div>
+                    <div class="login-title">Acesso temporariamente bloqueado</div>
+                    <div class="login-subtitle">
+                        Houve excesso de tentativas de login.
+                    </div>
+                    <div class="login-alert">
+                        Tente novamente em aproximadamente {minutos_restantes} minuto(s).
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
         st.stop()
 
-    # ---- Tela de login ----
+    # ---- Estrutura visual da tela de login ----
+    st.markdown('<div class="login-bg"><div class="login-shell"><div class="login-card">', unsafe_allow_html=True)
+
+    logo_renderizado = False
+    if os.path.exists(LOGO_ARQUIVO):
+        try:
+            col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 1.25, 1])
+            with col_logo_2:
+                st.image(LOGO_ARQUIVO, use_container_width=True)
+            logo_renderizado = True
+        except Exception:
+            logo_renderizado = False
+
+    if not logo_renderizado:
+        st.markdown(
+            """
+            <div class="login-logo-wrap">
+                <div style="font-size: 46px;">♻️</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     st.markdown(
         """
-        <div style="max-width: 520px; margin: 80px auto 20px auto; text-align: center;">
-            <h1>🔒 Acesso restrito</h1>
-            <p style="color: #666; font-size: 16px;">
-                Digite seu usuário e senha para acessar o painel de indicadores.
-            </p>
+        <div style="text-align:center;">
+            <div class="login-badge">🔐 Ambiente seguro</div>
+        </div>
+        <div class="login-title">Acesso ao Painel</div>
+        <div class="login-subtitle">
+            Informe suas credenciais para acessar o painel gerencial de indicadores.
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
     with st.form("form_login_acesso"):
-        usuario_digitado = st.text_input("Usuário")
-        senha_digitada = st.text_input("Senha", type="password")
-        entrar = st.form_submit_button("Entrar", use_container_width=True)
+        usuario_digitado = st.text_input("Usuário", placeholder="Digite seu usuário")
+        senha_digitada = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+        entrar = st.form_submit_button("Entrar no painel", use_container_width=True)
+
+    st.markdown(
+        """
+        <div class="login-security">
+            <span>🛡️</span>
+            <span>Acesso restrito a usuários autorizados. Após tentativas incorretas, o login é temporariamente bloqueado.</span>
+        </div>
+        <div class="login-footer">Mazola Ambiental • Painel de Indicadores</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('</div></div></div>', unsafe_allow_html=True)
 
     if entrar:
         usuario_digitado_limpo = str(usuario_digitado).strip()
@@ -192,18 +418,13 @@ def verificar_senha_acesso():
         else:
             st.session_state["tentativas_login"] += 1
 
-            # Bloqueia após 3 tentativas erradas
             if st.session_state["tentativas_login"] >= LIMITE_TENTATIVAS:
                 st.session_state["bloqueado_ate"] = time.time() + TEMPO_BLOQUEIO_MINUTOS * 60
-                st.error(
-                    f"🚫 Bloqueado por {TEMPO_BLOQUEIO_MINUTOS} minutos por excesso de tentativas."
-                )
+                st.error(f"🚫 Bloqueado por {TEMPO_BLOQUEIO_MINUTOS} minutos por excesso de tentativas.")
                 st.stop()
 
             restantes = max(0, LIMITE_TENTATIVAS - st.session_state["tentativas_login"])
-            st.error(
-                f"❌ Usuário ou senha incorretos. Tentativas restantes: {restantes}"
-            )
+            st.error(f"❌ Usuário ou senha incorretos. Tentativas restantes: {restantes}")
 
     return False
 
