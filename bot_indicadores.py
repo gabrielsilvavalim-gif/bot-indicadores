@@ -1525,22 +1525,25 @@ def meta_ponderada_resultado_financeiro(grupo):
     Meta do Resultado Financeiro.
 
     Regra corrigida:
-    - usa a META da base quando houver valor preenchido;
-    - se a base não trouxer meta no mês/período, retorna None;
-    - assim o app não mostra 5,0% artificialmente em meses sem meta.
+    - tenta usar a META da base quando houver valor preenchido;
+    - se a base não trouxer meta preenchida, usa a meta padrão de 5%;
+    - isso evita a coluna Meta % aparecer como None no Resultado Financeiro.
     """
-    if grupo is None or grupo.empty or "META" not in grupo.columns:
-        return None
+    if grupo is None or grupo.empty:
+        return META_RESULTADO_FINANCEIRO_PADRAO
+
+    if "META" not in grupo.columns:
+        return META_RESULTADO_FINANCEIRO_PADRAO
 
     meta_raw = pd.to_numeric(grupo.get("META"), errors="coerce")
     meta_raw = meta_raw.dropna()
     meta_raw = meta_raw[meta_raw != 0]
 
     if meta_raw.empty:
-        return None
+        return META_RESULTADO_FINANCEIRO_PADRAO
 
     meta_pct = ajustar_percentual_meta(meta_raw)
-    return meta_pct.mean() if len(meta_pct) else None
+    return meta_pct.mean() if len(meta_pct) else META_RESULTADO_FINANCEIRO_PADRAO
 
 def resumo_resultado_financeiro_por_grupo(grupo):
     if grupo is None or grupo.empty:
@@ -1589,24 +1592,24 @@ def consolidar_resultado_financeiro(df):
     TIPO DE META = %
 
     Fórmulas:
-    META % = usa a meta informada na base, quando existir
+    META % = usa a meta da base quando existir; se não existir, usa 5,0%
     Resultado % = 1 - (Despesa / Receita)
     Resultado R$ = (Receita x Resultado %) - (Receita x Meta %)
 
     Observação:
-    Se a base não trouxer meta para o mês/período, a meta fica vazia.
-    Isso evita exibir 5,0% artificialmente em meses sem meta.
+    O Resultado Financeiro precisa de uma meta para calcular o Resultado R$.
+    Quando a base não trouxer meta preenchida, o app usa a meta padrão de 5,0%.
     """
     d = df.copy()
 
-    # Meta do Resultado Financeiro agora vem da base.
-    # Se o mês não tiver meta preenchida, fica vazio para evitar informação artificial.
+    # Meta do Resultado Financeiro:
+    # usa a meta da base quando houver valor; se não houver, aplica a meta padrão de 5%.
     if "META" in d.columns:
         meta_raw = pd.to_numeric(d.get("META"), errors="coerce")
         d["META_PERCENTUAL_CALC"] = ajustar_percentual_meta(meta_raw)
-        d.loc[meta_raw.fillna(0) == 0, "META_PERCENTUAL_CALC"] = pd.NA
+        d.loc[meta_raw.fillna(0) == 0, "META_PERCENTUAL_CALC"] = META_RESULTADO_FINANCEIRO_PADRAO
     else:
-        d["META_PERCENTUAL_CALC"] = pd.NA
+        d["META_PERCENTUAL_CALC"] = META_RESULTADO_FINANCEIRO_PADRAO
 
     # Despesa: coluna J:J / VALOR REF 01
     d["DESPESA_CALC"] = serie_numerica_por_coluna(
@@ -7978,7 +7981,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9.4 — ajustes moto e metas RF")
+    st.caption("v5.0 etapa 9.5 — meta resultado financeiro corrigida")
 
 
 
