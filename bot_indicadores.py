@@ -5567,14 +5567,13 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         return aplicar_tema_plotly_mazola(fig)
 
     if indicador and eh_despesa_geral(indicador):
-        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Despesa"].notna())].copy()
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Tx. Sucesso"].notna())].copy()
         if dados.empty:
             return None
 
         ultimo_mes = dados["Mês"].iloc[-1]
-        titulo_final = titulo or f"Despesa Geral x Limite sobre Receita — até {ultimo_mes}/{ano}"
+        titulo_final = titulo or f"Despesa/Receita x Meta Limite — até {ultimo_mes}/{ano}"
 
-        limite_rs = dados["Receita"] * dados["Limite %"]
         cor_barras = [
             COR_VERDE if pd.notna(tx) and pd.notna(limite) and tx <= limite else COR_LARANJA
             for tx, limite in zip(dados["Tx. Sucesso"], dados["Limite %"])
@@ -5583,35 +5582,45 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         fig = go.Figure()
         fig.add_bar(
             x=mes_ano_label(dados["Mês"], ano),
-            y=dados["Despesa"],
-            name="Despesa",
+            y=dados["Tx. Sucesso"],
+            name="Tx. Sucesso",
             marker_color=cor_barras,
             marker_cornerradius=4,
-            text=[fmt_brl(v) for v in dados["Despesa"]],
-            textposition="outside",
-            textfont=dict(size=11),
-            hovertemplate="<b>%{x}</b><br>Despesa: R$ %{y:,.0f}<extra></extra>",
+            text=[fmt_pct(v) for v in dados["Tx. Sucesso"]],
+            textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(size=12, color="white"),
+            cliponaxis=False,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Tx. Sucesso: %{y:.1%}<br>"
+                "Despesa/Receita<extra></extra>"
+            ),
         )
         fig.add_scatter(
             x=mes_ano_label(dados["Mês"], ano),
-            y=limite_rs,
-            name="Limite R$",
-            mode="lines+markers",
+            y=dados["Limite %"],
+            name="Meta Limite",
+            mode="lines+markers+text",
             line=dict(color=COR_AZUL, width=3, dash="dot"),
             marker=dict(size=7),
-            hovertemplate="<b>%{x}</b><br>Limite R$: R$ %{y:,.0f}<extra></extra>",
+            text=[fmt_pct(v) if pd.notna(v) else "" for v in dados["Limite %"]],
+            textposition="top center",
+            textfont=dict(size=10, color=COR_AZUL),
+            cliponaxis=False,
+            hovertemplate="<b>%{x}</b><br>Meta Limite: %{y:.1%}<extra></extra>",
         )
         fig.update_layout(
             title=titulo_final,
-            height=420,
-            margin=dict(t=60, b=20, l=20, r=20),
-            legend=dict(orientation="h", y=-0.18),
-            yaxis_title="R$",
-            bargap=0.22,
+            height=430,
+            margin=dict(t=85, b=35, l=20, r=20),
+            legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
+            yaxis_title="%",
+            bargap=0.24,
             uniformtext_minsize=8,
-            uniformtext_mode="hide",
+            uniformtext_mode="show",
         )
-        fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
+        fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA", tickformat=".0%")
         return aplicar_tema_plotly_mazola(fig)
 
     if indicador and eh_despesa_hora_extra(indicador):
@@ -8029,7 +8038,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9.9 — despesa geral tx corrigida")
+    st.caption("v5.0 etapa 10.0 — gráfico despesa geral percentual")
 
 
 
@@ -9873,28 +9882,44 @@ with tab3:
                 )
 
                 fig_filiais = go.Figure()
-                limite_rs_filiais = comp_filiais["Receita"] * comp_filiais["Limite %"]
                 cores = [
                     COR_VERDE if pd.notna(tx) and pd.notna(limite) and tx <= limite else COR_LARANJA
                     for tx, limite in zip(comp_filiais["Tx. Sucesso"], comp_filiais["Limite %"])
                 ]
                 fig_filiais.add_bar(
                     x=comp_filiais["FILIAL"],
-                    y=comp_filiais["Despesa"],
-                    name="Despesa",
+                    y=comp_filiais["Tx. Sucesso"],
+                    name="Tx. Sucesso",
                     marker_color=cores,
                     marker_cornerradius=4,
-                    text=[fmt_brl(v) for v in comp_filiais["Despesa"]],
-                    textposition="outside",
+                    text=[fmt_pct(v) for v in comp_filiais["Tx. Sucesso"]],
+                    textposition="inside",
+                    insidetextanchor="middle",
+                    textfont=dict(size=12, color="white"),
+                    cliponaxis=False,
                 )
                 fig_filiais.add_scatter(
                     x=comp_filiais["FILIAL"],
-                    y=limite_rs_filiais,
-                    name="Limite R$",
-                    mode="lines+markers",
+                    y=comp_filiais["Limite %"],
+                    name="Meta Limite",
+                    mode="lines+markers+text",
                     line=dict(color=COR_AZUL, width=3, dash="dot"),
+                    marker=dict(size=7),
+                    text=[fmt_pct(v) for v in comp_filiais["Limite %"]],
+                    textposition="top center",
+                    textfont=dict(size=10, color=COR_AZUL),
+                    cliponaxis=False,
                 )
-                fig_filiais.update_layout(height=420, margin=dict(t=30, b=20, l=20, r=20), legend=dict(orientation="h", y=-0.15))
+                fig_filiais.update_layout(
+                    height=430,
+                    margin=dict(t=85, b=35, l=20, r=20),
+                    legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center"),
+                    yaxis_title="%",
+                    yaxis_tickformat=".0%",
+                    bargap=0.24,
+                    uniformtext_minsize=8,
+                    uniformtext_mode="show",
+                )
                 st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais_despesa_geral")
 
             else:
