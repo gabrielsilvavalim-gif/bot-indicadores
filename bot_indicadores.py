@@ -5071,6 +5071,18 @@ def cards_comparativo_periodo(df_periodo_tela, indicador):
             label_anterior = "Resultado no mesmo período anterior"
             nota_atual = "Comparativo da taxa/resultado de qualidade."
             nota_anterior = "Referência do mesmo período no ano anterior."
+        elif eh_resultado_financeiro(indicador):
+            col_principal = "Resultado R$" if "Resultado R$" in df_periodo_tela.columns else "Resultado %"
+            label_atual = "Resultado financeiro atual"
+            label_anterior = "Resultado financeiro anterior"
+            nota_atual = "Diferença em R$ entre o resultado % realizado e a meta do período."
+            nota_anterior = "Referência do resultado financeiro no mesmo período do ano anterior."
+        elif eh_despesa_geral(indicador):
+            col_principal = "Resultado R$" if "Resultado R$" in df_periodo_tela.columns else "Tx. Sucesso"
+            label_atual = "Resultado operacional atual"
+            label_anterior = "Resultado operacional anterior"
+            nota_atual = "Resultado em R$ do período, considerando receita, despesa e limite."
+            nota_anterior = "Referência do mesmo período no ano anterior."
         else:
             col_principal = _primeira_coluna_existente(
                 df_periodo_tela,
@@ -7989,7 +8001,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9.6 — meta RF pela coluna H")
+    st.caption("v5.0 etapa 9.7 — cards RF identificados")
 
 
 
@@ -9296,6 +9308,10 @@ with tab3:
 
         if eh_moto_margem(indicador):
             titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado de Faturamento, Compra, Margem Bruta e Tx. Sucesso contra o mesmo período do ano anterior.")
+        elif eh_resultado_financeiro(indicador):
+            titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado do Resultado Financeiro em R$, Receita, Despesa, Resultado % e Meta % contra o mesmo período do ano anterior.")
+        elif eh_despesa_geral(indicador):
+            titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado do resultado operacional, receita, despesa e taxa de sucesso contra o mesmo período do ano anterior.")
         else:
             titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado do período atual contra o mesmo período do ano anterior.")
         df_periodo_tela = comparar_mesmo_periodo(df, indicador)
