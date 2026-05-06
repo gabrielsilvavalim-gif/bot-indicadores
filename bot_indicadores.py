@@ -4779,11 +4779,111 @@ def _mes_base_projecao(df, ano, data_geracao_planilha):
     return int(agora_br().month) if "agora_br" in globals() else int(datetime.now().month)
 
 
+
+def _safe_numero(valor, padrao=None):
+    """Converte valor em float com segurança."""
+    try:
+        if valor is None or pd.isna(valor):
+            return padrao
+        return float(valor)
+    except Exception:
+        return padrao
+
+
+def _safe_div(numerador, denominador):
+    numerador = _safe_numero(numerador, None)
+    denominador = _safe_numero(denominador, None)
+    if numerador is None or denominador in [None, 0]:
+        return None
+    return numerador / denominador
+
+
+def tipo_estrutura_projecao(indicador):
+    """
+    Identifica a estrutura correta da aba Projeção.
+    Isso evita usar os mesmos cards para indicadores que têm fórmulas diferentes.
+    """
+    if eh_moto_margem(indicador):
+        return "moto_margem"
+    if eh_despesa_geral(indicador):
+        return "despesa_geral"
+    if eh_resultado_financeiro(indicador):
+        return "resultado_financeiro"
+    if eh_qualidade(indicador):
+        return "qualidade"
+    if eh_tecfil(indicador):
+        return "tecfil"
+    if eh_despesa_com_limite(indicador) or eh_despesa(indicador):
+        return "despesa_limite"
+    return "valor_meta"
+
+
+def _projetar_por_dia_util(valor_mes, dias_decorridos, dias_restantes):
+    """Projeta um valor mensal pelo ritmo médio por dia útil."""
+    valor_mes = _safe_numero(valor_mes, 0) or 0
+    dias_decorridos = _safe_numero(dias_decorridos, 0) or 0
+    dias_restantes = _safe_numero(dias_restantes, 0) or 0
+
+    if dias_decorridos <= 0:
+        return None, None
+
+    media = valor_mes / dias_decorridos
+    projecao = valor_mes + (media * dias_restantes)
+    return media, projecao
+
+
+def _media_ano_por_coluna(mensal, coluna, ano, mes, dias_decorridos_mes):
+    """Calcula média diária anual até o mês base para uma coluna mensal."""
+    try:
+        if mensal is None or mensal.empty or coluna not in mensal.columns:
+            return None
+
+        base = mensal[(mensal["ANO"] == ano) & (mensal["MÊS"] <= mes)].copy()
+        if base.empty:
+            return None
+
+        valor = pd.to_numeric(base[coluna], errors="coerce").fillna(0).sum()
+
+        dias = 0
+        for m in range(1, mes + 1):
+            if m < mes:
+                dias += _dias_uteis_mes_seguro(ano, m) or 0
+            else:
+                dias += dias_decorridos_mes or 0
+
+        if dias <= 0:
+            return None
+        return valor / dias
+    except Exception:
+        return None
+
+
+def _coluna_numerica_ou_zero(df, coluna):
+    if df is None or df.empty or coluna is None or coluna not in df.columns:
+        return pd.Series([0] * (len(df) if df is not None else 0), index=(df.index if df is not None else None), dtype="float64")
+    return pd.to_numeric(df[coluna], errors="coerce").fillna(0)
+
+
+def _media_meta_percentual(grupo, coluna):
+    if grupo is None or grupo.empty or coluna is None or coluna not in grupo.columns:
+        return None
+    s = pd.to_numeric(grupo[coluna], errors="coerce").dropna()
+    s = s[s != 0]
+    if s.empty:
+        return None
+    return float(s.mean())
+
+
 def _agrupar_mensal_para_projecao(df, indicador):
     """
-    Cria uma tabela mensal simples e robusta direto do dataframe filtrado.
-    Essa função evita o problema da aba Projeção ficar em branco quando
-    obter_tabela_mensal_ano() não retorna as colunas esperadas.
+    Cria uma base mensal própria para a aba Projeção.
+    A estrutura muda conforme o indicador:
+    - Faturamento e despesas simples: realizado/meta em R$.
+    - Pneus Moto: faturamento, compra, margem e taxa.
+    - Despesa Geral: despesa, receita, limite % e limite R$.
+    - Resultado Financeiro: despesa, receita, resultado % e meta %.
+    - Qualidade: quantidade total, quantidade sucesso/crítica e resultado %.
+    - Tecfil: Realizado R$, Meta R$, Realizado KG e Meta KG.
     """
     if df is None or df.empty:
         return pd.DataFrame()
@@ -4799,75 +4899,115 @@ def _agrupar_mensal_para_projecao(df, indicador):
         else:
             return pd.DataFrame()
 
-    col_real = _coluna_existente(
-        d,
-        [
-            "REALIZADO_CALC",
-            "VALOR REF 01",
-            "FATURAMENTO_MOTO_CALC",
-            "RECEITA_CALC",
-            "DESPESA_CALC",
-            "REAL_RS",
-            "Realizado",
-            "Faturamento",
-            "Receita",
-            "Despesa",
-        ],
-    )
+    estrutura = tipo_estrutura_projecao(indicador)
 
-    col_meta = _coluna_existente(
-        d,
-        [
-            "META_CALC",
-            "META",
-            "LIMITE_RS_CALC",
-            "META_RS",
-            "Meta",
-            "Limite R$",
-        ],
-    )
+    # Colunas base padronizadas para cada estrutura.
+    if estrutura == "moto_margem":
+        d["_FATURAMENTO_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["FATURAMENTO_MOTO_CALC", "REALIZADO_CALC", "VALOR REF 01", "FATURAMENTO"]))
+        d["_COMPRA_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["COMPRA_CALC", "VALOR REF 02", "COMPRA", "COMPRA R$"]))
+        d["_MARGEM_PROJ"] = d["_FATURAMENTO_PROJ"] - d["_COMPRA_PROJ"]
+        d["_META_PCT_PROJ"] = pd.to_numeric(d.get("META_PERCENTUAL_CALC", d.get("META_CALC", d.get("META"))), errors="coerce")
 
-    if col_real is None:
-        return pd.DataFrame()
+        mensal = d.groupby(["ANO", "MÊS"], as_index=False).agg(
+            FATURAMENTO_PROJ=("_FATURAMENTO_PROJ", "sum"),
+            COMPRA_PROJ=("_COMPRA_PROJ", "sum"),
+            MARGEM_PROJ=("_MARGEM_PROJ", "sum"),
+            META_PCT_PROJ=("_META_PCT_PROJ", "mean"),
+        )
+        mensal["TAXA_PROJ"] = mensal["MARGEM_PROJ"] / mensal["FATURAMENTO_PROJ"].replace(0, pd.NA)
+        mensal["REALIZADO_PROJ"] = mensal["FATURAMENTO_PROJ"]
+        mensal["META_PROJ"] = mensal["META_PCT_PROJ"]
 
-    d["_REAL_PROJ"] = pd.to_numeric(d[col_real], errors="coerce").fillna(0)
+    elif estrutura == "despesa_geral":
+        d["_DESPESA_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["DESPESA_CALC", "REALIZADO_CALC", "VALOR REF 01", "DESPESA"]))
+        d["_RECEITA_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["RECEITA_CALC", "VALOR REF 02", "RECEITA", "FATURAMENTO"]))
+        d["_LIMITE_PCT_PROJ"] = pd.to_numeric(d.get("LIMITE_PERCENTUAL_CALC", d.get("META_CALC", d.get("META"))), errors="coerce")
 
-    if col_meta is not None:
-        d["_META_PROJ"] = pd.to_numeric(d[col_meta], errors="coerce")
+        mensal = d.groupby(["ANO", "MÊS"], as_index=False).agg(
+            DESPESA_PROJ=("_DESPESA_PROJ", "sum"),
+            RECEITA_PROJ=("_RECEITA_PROJ", "sum"),
+            LIMITE_PCT_PROJ=("_LIMITE_PCT_PROJ", "mean"),
+        )
+        mensal["LIMITE_RS_PROJ"] = mensal["RECEITA_PROJ"] * mensal["LIMITE_PCT_PROJ"]
+        mensal["TAXA_PROJ"] = mensal["DESPESA_PROJ"] / mensal["RECEITA_PROJ"].replace(0, pd.NA)
+        mensal["RESULTADO_RS_PROJ"] = mensal["LIMITE_RS_PROJ"] - mensal["DESPESA_PROJ"]
+        mensal["REALIZADO_PROJ"] = mensal["DESPESA_PROJ"]
+        mensal["META_PROJ"] = mensal["LIMITE_RS_PROJ"]
+
+    elif estrutura == "resultado_financeiro":
+        d["_DESPESA_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["DESPESA_CALC", "VALOR REF 01", "DESPESA"]))
+        d["_RECEITA_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["RECEITA_CALC", "VALOR REF 02", "RECEITA", "FATURAMENTO"]))
+        d["_META_PCT_PROJ"] = pd.to_numeric(d.get("META_PERCENTUAL_CALC", d.get("META_CALC", d.get("META"))), errors="coerce")
+
+        mensal = d.groupby(["ANO", "MÊS"], as_index=False).agg(
+            DESPESA_PROJ=("_DESPESA_PROJ", "sum"),
+            RECEITA_PROJ=("_RECEITA_PROJ", "sum"),
+            META_PCT_PROJ=("_META_PCT_PROJ", "mean"),
+        )
+        mensal["RESULTADO_PCT_PROJ"] = 1 - (mensal["DESPESA_PROJ"] / mensal["RECEITA_PROJ"].replace(0, pd.NA))
+        mensal["RESULTADO_RS_PROJ"] = (mensal["RECEITA_PROJ"] * mensal["RESULTADO_PCT_PROJ"]) - (mensal["RECEITA_PROJ"] * mensal["META_PCT_PROJ"])
+        mensal["REALIZADO_PROJ"] = mensal["RESULTADO_RS_PROJ"]
+        mensal["META_PROJ"] = mensal["META_PCT_PROJ"]
+
+    elif estrutura == "qualidade":
+        d["_QTD_TOTAL_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["QTD_TOTAL_CALC", "VALOR REF 01", "QTD. COLETAS", "QTD COLETAS"]))
+        d["_QTD_SUCESSO_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["QTD_SUCESSO_CALC", "VALOR REF 02", "QTD. COL. OTIMO+BOM", "QTD. COLETAS NORMAIS", "QTD. COL. CRITICO"]))
+        d["_META_QUALIDADE_PROJ"] = pd.to_numeric(d.get("META_QUALIDADE_CALC", d.get("META_CALC", d.get("META"))), errors="coerce")
+
+        mensal = d.groupby(["ANO", "MÊS"], as_index=False).agg(
+            QTD_TOTAL_PROJ=("_QTD_TOTAL_PROJ", "sum"),
+            QTD_SUCESSO_PROJ=("_QTD_SUCESSO_PROJ", "sum"),
+            META_QUALIDADE_PROJ=("_META_QUALIDADE_PROJ", "mean"),
+        )
+        mensal["RESULTADO_PCT_PROJ"] = mensal["QTD_SUCESSO_PROJ"] / mensal["QTD_TOTAL_PROJ"].replace(0, pd.NA)
+        mensal["REALIZADO_PROJ"] = mensal["RESULTADO_PCT_PROJ"]
+        mensal["META_PROJ"] = mensal["META_QUALIDADE_PROJ"]
+
+    elif estrutura == "tecfil":
+        d["_REAL_RS_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["REAL_RS", "REALIZADO_RS", "REALIZADO R$", "VALOR REF 01", "REALIZADO_CALC"]))
+        d["_META_RS_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["META_RS", "META R$", "META_CALC", "META"]))
+        d["_REAL_KG_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["REAL_KG", "REALIZADO_KG", "REALIZADO KG"]))
+        d["_META_KG_PROJ"] = _coluna_numerica_ou_zero(d, _coluna_existente(d, ["META_KG", "META KG"]))
+
+        mensal = d.groupby(["ANO", "MÊS"], as_index=False).agg(
+            REAL_RS_PROJ=("_REAL_RS_PROJ", "sum"),
+            META_RS_PROJ=("_META_RS_PROJ", "sum"),
+            REAL_KG_PROJ=("_REAL_KG_PROJ", "sum"),
+            META_KG_PROJ=("_META_KG_PROJ", "sum"),
+        )
+        mensal["REALIZADO_PROJ"] = mensal["REAL_RS_PROJ"]
+        mensal["META_PROJ"] = mensal["META_RS_PROJ"]
+
     else:
-        d["_META_PROJ"] = pd.NA
+        col_real = _coluna_existente(d, ["REALIZADO_CALC", "VALOR REF 01", "FATURAMENTO_MOTO_CALC", "RECEITA_CALC", "DESPESA_CALC", "REAL_RS", "Realizado", "Faturamento", "Receita", "Despesa"])
+        col_meta = _coluna_existente(d, ["META_CALC", "META", "LIMITE_RS_CALC", "META_RS", "Meta", "Limite R$"])
 
-    mensal = (
-        d.groupby(["ANO", "MÊS"], as_index=False)
-        .agg(
+        if col_real is None:
+            return pd.DataFrame()
+
+        d["_REAL_PROJ"] = pd.to_numeric(d[col_real], errors="coerce").fillna(0)
+        d["_META_PROJ"] = pd.to_numeric(d[col_meta], errors="coerce") if col_meta is not None else pd.NA
+
+        mensal = d.groupby(["ANO", "MÊS"], as_index=False).agg(
             REALIZADO_PROJ=("_REAL_PROJ", "sum"),
             META_PROJ=("_META_PROJ", "sum"),
         )
-        .sort_values(["ANO", "MÊS"])
-        .reset_index(drop=True)
-    )
 
+    mensal = mensal.sort_values(["ANO", "MÊS"]).reset_index(drop=True)
     mensal["MÊS_NOME"] = mensal["MÊS"].map(MESES_MAPA) + "/" + mensal["ANO"].astype(str)
-
-    return mensal
+    return mensal.replace([float("inf"), float("-inf")], pd.NA)
 
 
 def calcular_projecao_mes(df, indicador, data_geracao_planilha):
     """
-    Calcula a projeção mensal com base em dias úteis.
-
-    Regra:
-    - Pega o mês da data de geração da base.
-    - Soma o realizado do mês.
-    - Divide o realizado pelos dias úteis já decorridos no mês.
-    - Projeta o fechamento multiplicando a média diária pelo total de dias úteis do mês.
-    - Também calcula uma projeção alternativa pela média diária do ano.
+    Calcula a projeção mensal com cards ajustados por tipo de indicador.
+    A projeção usa dias úteis e respeita estruturas diferentes como:
+    faturamento, despesa, despesa geral, resultado financeiro, pneus moto, qualidade e Tecfil.
     """
     if df is None or df.empty:
         return {}
 
     d = df.copy()
-
     if "ANO" not in d.columns or "MÊS" not in d.columns:
         if "REFERÊNCIA" in d.columns:
             d["REFERÊNCIA"] = pd.to_datetime(d["REFERÊNCIA"], errors="coerce")
@@ -4882,50 +5022,12 @@ def calcular_projecao_mes(df, indicador, data_geracao_planilha):
         return {}
 
     ano = int(anos[-1])
-    data_base = _parse_data_base_segura(data_geracao_planilha)
     mes = _mes_base_projecao(d, ano, data_geracao_planilha)
     mes_nome = MESES_MAPA.get(mes, str(mes))
-
-    mensal = _agrupar_mensal_para_projecao(d, indicador)
-
-    if mensal.empty:
-        return {
-            "ano": ano,
-            "mes": mes,
-            "mes_nome": mes_nome,
-            "valor_mes": 0,
-            "meta_mes": None,
-            "dias_total": _dias_uteis_mes_seguro(ano, mes),
-            "dias_decorridos": None,
-            "dias_restantes": None,
-            "media_atual": None,
-            "media_ano": None,
-            "projecao": None,
-            "projecao_media_ano": None,
-            "media_necessaria": None,
-            "gap_projetado": None,
-            "data_base": data_geracao_planilha,
-            "col_valor": "REALIZADO_PROJ",
-            "col_meta": "META_PROJ",
-        }
-
-    linha_mes = mensal[(mensal["ANO"] == ano) & (mensal["MÊS"] == mes)].copy()
-
-    # Se a base está em maio/2026, mas ainda não existe linha de maio,
-    # mantém mês de maio e usa valor 0. Isso evita buscar mês anterior e distorcer o contexto.
-    if linha_mes.empty:
-        valor_mes = 0
-        meta_mes = None
-    else:
-        valor_mes = pd.to_numeric(linha_mes["REALIZADO_PROJ"], errors="coerce").fillna(0).sum()
-        meta_tmp = pd.to_numeric(linha_mes["META_PROJ"], errors="coerce").dropna()
-        meta_mes = meta_tmp.sum() if not meta_tmp.empty else None
-        if meta_mes == 0:
-            # Se a meta vier totalmente zerada, trata como sem meta para não gerar leitura falsa.
-            meta_mes = None
+    data_base = _parse_data_base_segura(data_geracao_planilha)
+    estrutura = tipo_estrutura_projecao(indicador)
 
     dias_total = _dias_uteis_mes_seguro(ano, mes)
-
     if data_base is not None and int(data_base.year) == int(ano) and int(data_base.month) == int(mes):
         dias_decorridos = _dias_uteis_ate_data_no_mes(data_base)
     else:
@@ -4937,75 +5039,219 @@ def calcular_projecao_mes(df, indicador, data_geracao_planilha):
         dias_decorridos = max(min(dias_decorridos or 0, dias_total), 0)
         dias_restantes = max(dias_total - dias_decorridos, 0)
 
-    media_atual = None
-    if dias_decorridos not in [None, 0]:
-        media_atual = valor_mes / dias_decorridos
+    mensal = _agrupar_mensal_para_projecao(d, indicador)
+    linha_mes = mensal[(mensal["ANO"] == ano) & (mensal["MÊS"] == mes)].copy() if not mensal.empty else pd.DataFrame()
 
-    projecao = None
-    if media_atual is not None and dias_restantes is not None:
-        # Realizado já ocorrido + ritmo atual aplicado aos dias úteis restantes.
-        projecao = valor_mes + (media_atual * dias_restantes)
+    def soma_mes(col):
+        if linha_mes.empty or col not in linha_mes.columns:
+            return 0
+        return pd.to_numeric(linha_mes[col], errors="coerce").fillna(0).sum()
 
-    # Média diária do ano até a data-base.
-    mensal_ano = mensal[mensal["ANO"] == ano].copy()
-    mensal_ano_ate_mes = mensal_ano[mensal_ano["MÊS"] <= mes].copy()
+    def media_mes(col):
+        if linha_mes.empty or col not in linha_mes.columns:
+            return None
+        s = pd.to_numeric(linha_mes[col], errors="coerce").dropna()
+        s = s[s != 0]
+        if s.empty:
+            return None
+        return float(s.mean())
 
-    realizado_ano_ate_mes = pd.to_numeric(
-        mensal_ano_ate_mes["REALIZADO_PROJ"],
-        errors="coerce"
-    ).fillna(0).sum()
-
-    dias_uteis_ano_decorridos = 0
-    try:
-        for m in range(1, mes + 1):
-            if m < mes:
-                dias_uteis_ano_decorridos += _dias_uteis_mes_seguro(ano, m) or 0
-            else:
-                dias_uteis_ano_decorridos += dias_decorridos or 0
-    except Exception:
-        dias_uteis_ano_decorridos = 0
-
-    media_ano = None
-    if dias_uteis_ano_decorridos > 0:
-        media_ano = realizado_ano_ate_mes / dias_uteis_ano_decorridos
-
-    projecao_media_ano = None
-    if media_ano is not None and dias_restantes is not None:
-        projecao_media_ano = valor_mes + (media_ano * dias_restantes)
-
-    media_necessaria = None
-    gap_projetado = None
-
-    if meta_mes is not None and pd.notna(meta_mes):
-        if dias_restantes is not None and dias_restantes > 0:
-            media_necessaria = max((meta_mes - valor_mes) / dias_restantes, 0)
-        else:
-            media_necessaria = 0 if valor_mes >= meta_mes else None
-
-        if projecao is not None:
-            gap_projetado = projecao - meta_mes
-
-    return {
+    info = {
         "ano": ano,
         "mes": mes,
         "mes_nome": mes_nome,
-        "col_valor": "REALIZADO_PROJ",
-        "label_valor": "Realizado",
-        "col_meta": "META_PROJ",
-        "label_meta": "Meta",
-        "valor_mes": valor_mes,
-        "meta_mes": meta_mes,
+        "estrutura": estrutura,
         "dias_total": dias_total,
         "dias_decorridos": dias_decorridos,
         "dias_restantes": dias_restantes,
-        "media_atual": media_atual,
-        "media_ano": media_ano,
-        "projecao": projecao,
-        "projecao_media_ano": projecao_media_ano,
-        "media_necessaria": media_necessaria,
-        "gap_projetado": gap_projetado,
         "data_base": data_geracao_planilha,
+        "col_valor": "REALIZADO_PROJ",
+        "col_meta": "META_PROJ",
+        "label_valor": "Realizado",
+        "label_meta": "Meta",
     }
+
+    # Projeção padrão: faturamento e despesas simples.
+    if estrutura in ["valor_meta", "despesa_limite", "tecfil"]:
+        valor_mes = soma_mes("REALIZADO_PROJ")
+        meta_mes = soma_mes("META_PROJ") if not linha_mes.empty and "META_PROJ" in linha_mes.columns else None
+        if meta_mes == 0:
+            meta_mes = None
+
+        media_atual, projecao = _projetar_por_dia_util(valor_mes, dias_decorridos, dias_restantes)
+        media_ano = _media_ano_por_coluna(mensal, "REALIZADO_PROJ", ano, mes, dias_decorridos)
+        projecao_media_ano = valor_mes + ((media_ano or 0) * (dias_restantes or 0)) if media_ano is not None else None
+
+        if meta_mes is not None and pd.notna(meta_mes):
+            if estrutura == "despesa_limite":
+                gap_projetado = meta_mes - projecao if projecao is not None else None
+                media_necessaria = max((meta_mes - valor_mes) / dias_restantes, 0) if dias_restantes and valor_mes < meta_mes else 0
+            else:
+                gap_projetado = projecao - meta_mes if projecao is not None else None
+                media_necessaria = max((meta_mes - valor_mes) / dias_restantes, 0) if dias_restantes else None
+        else:
+            gap_projetado = None
+            media_necessaria = None
+
+        info.update({
+            "valor_mes": valor_mes,
+            "meta_mes": meta_mes,
+            "media_atual": media_atual,
+            "media_ano": media_ano,
+            "projecao": projecao,
+            "projecao_media_ano": projecao_media_ano,
+            "media_necessaria": media_necessaria,
+            "gap_projetado": gap_projetado,
+            "melhor_quando_maior": estrutura != "despesa_limite",
+        })
+
+        if estrutura == "tecfil":
+            info.update({
+                "real_kg_mes": soma_mes("REAL_KG_PROJ"),
+                "meta_kg_mes": soma_mes("META_KG_PROJ"),
+                "media_kg_atual": _projetar_por_dia_util(soma_mes("REAL_KG_PROJ"), dias_decorridos, dias_restantes)[0],
+                "projecao_kg": _projetar_por_dia_util(soma_mes("REAL_KG_PROJ"), dias_decorridos, dias_restantes)[1],
+            })
+
+    elif estrutura == "moto_margem":
+        faturamento_mes = soma_mes("FATURAMENTO_PROJ")
+        compra_mes = soma_mes("COMPRA_PROJ")
+        margem_mes = faturamento_mes - compra_mes
+        meta_pct = media_mes("META_PCT_PROJ")
+
+        media_fat, proj_fat = _projetar_por_dia_util(faturamento_mes, dias_decorridos, dias_restantes)
+        media_compra, proj_compra = _projetar_por_dia_util(compra_mes, dias_decorridos, dias_restantes)
+        media_margem, proj_margem = _projetar_por_dia_util(margem_mes, dias_decorridos, dias_restantes)
+        tx_mes = _safe_div(margem_mes, faturamento_mes)
+        tx_proj = _safe_div(proj_margem, proj_fat)
+        meta_margem_rs = (proj_fat * meta_pct) if proj_fat is not None and meta_pct is not None else None
+        gap_proj = (proj_margem - meta_margem_rs) if proj_margem is not None and meta_margem_rs is not None else None
+
+        info.update({
+            "col_valor": "FATURAMENTO_PROJ",
+            "col_meta": "META_PCT_PROJ",
+            "valor_mes": faturamento_mes,
+            "meta_mes": meta_pct,
+            "faturamento_mes": faturamento_mes,
+            "compra_mes": compra_mes,
+            "margem_mes": margem_mes,
+            "tx_mes": tx_mes,
+            "media_atual": media_fat,
+            "media_compra_atual": media_compra,
+            "media_margem_atual": media_margem,
+            "projecao": proj_fat,
+            "projecao_compra": proj_compra,
+            "projecao_margem": proj_margem,
+            "taxa_projetada": tx_proj,
+            "meta_margem_rs": meta_margem_rs,
+            "gap_projetado": gap_proj,
+            "media_necessaria": None,
+            "media_ano": _media_ano_por_coluna(mensal, "FATURAMENTO_PROJ", ano, mes, dias_decorridos),
+            "projecao_media_ano": None,
+            "melhor_quando_maior": True,
+        })
+
+    elif estrutura == "despesa_geral":
+        despesa_mes = soma_mes("DESPESA_PROJ")
+        receita_mes = soma_mes("RECEITA_PROJ")
+        limite_pct = media_mes("LIMITE_PCT_PROJ")
+        tx_mes = _safe_div(despesa_mes, receita_mes)
+
+        media_despesa, proj_despesa = _projetar_por_dia_util(despesa_mes, dias_decorridos, dias_restantes)
+        media_receita, proj_receita = _projetar_por_dia_util(receita_mes, dias_decorridos, dias_restantes)
+        limite_rs_proj = (proj_receita * limite_pct) if proj_receita is not None and limite_pct is not None else None
+        tx_proj = _safe_div(proj_despesa, proj_receita)
+        resultado_proj = (limite_rs_proj - proj_despesa) if limite_rs_proj is not None and proj_despesa is not None else None
+
+        info.update({
+            "col_valor": "DESPESA_PROJ",
+            "col_meta": "LIMITE_PCT_PROJ",
+            "valor_mes": despesa_mes,
+            "meta_mes": limite_pct,
+            "despesa_mes": despesa_mes,
+            "receita_mes": receita_mes,
+            "tx_mes": tx_mes,
+            "media_atual": media_despesa,
+            "media_receita_atual": media_receita,
+            "projecao": proj_despesa,
+            "projecao_receita": proj_receita,
+            "taxa_projetada": tx_proj,
+            "limite_rs_projetado": limite_rs_proj,
+            "gap_projetado": resultado_proj,
+            "media_necessaria": None,
+            "media_ano": _media_ano_por_coluna(mensal, "DESPESA_PROJ", ano, mes, dias_decorridos),
+            "projecao_media_ano": None,
+            "melhor_quando_maior": False,
+        })
+
+    elif estrutura == "resultado_financeiro":
+        despesa_mes = soma_mes("DESPESA_PROJ")
+        receita_mes = soma_mes("RECEITA_PROJ")
+        meta_pct = media_mes("META_PCT_PROJ")
+        resultado_pct_mes = 1 - _safe_div(despesa_mes, receita_mes) if receita_mes else None
+
+        media_despesa, proj_despesa = _projetar_por_dia_util(despesa_mes, dias_decorridos, dias_restantes)
+        media_receita, proj_receita = _projetar_por_dia_util(receita_mes, dias_decorridos, dias_restantes)
+        resultado_pct_proj = 1 - _safe_div(proj_despesa, proj_receita) if proj_receita else None
+        resultado_rs_proj = ((proj_receita * resultado_pct_proj) - (proj_receita * meta_pct)) if proj_receita is not None and resultado_pct_proj is not None and meta_pct is not None else None
+
+        info.update({
+            "col_valor": "RESULTADO_PCT_PROJ",
+            "col_meta": "META_PCT_PROJ",
+            "valor_mes": resultado_pct_mes,
+            "meta_mes": meta_pct,
+            "despesa_mes": despesa_mes,
+            "receita_mes": receita_mes,
+            "media_atual": None,
+            "media_despesa_atual": media_despesa,
+            "media_receita_atual": media_receita,
+            "projecao": resultado_pct_proj,
+            "projecao_despesa": proj_despesa,
+            "projecao_receita": proj_receita,
+            "resultado_rs_projetado": resultado_rs_proj,
+            "gap_projetado": resultado_rs_proj,
+            "media_necessaria": None,
+            "media_ano": None,
+            "projecao_media_ano": None,
+            "melhor_quando_maior": True,
+        })
+
+    elif estrutura == "qualidade":
+        qtd_total_mes = soma_mes("QTD_TOTAL_PROJ")
+        qtd_sucesso_mes = soma_mes("QTD_SUCESSO_PROJ")
+        meta = media_mes("META_QUALIDADE_PROJ")
+        resultado_mes = _safe_div(qtd_sucesso_mes, qtd_total_mes)
+        media_total, proj_total = _projetar_por_dia_util(qtd_total_mes, dias_decorridos, dias_restantes)
+        media_sucesso, proj_sucesso = _projetar_por_dia_util(qtd_sucesso_mes, dias_decorridos, dias_restantes)
+        resultado_proj = _safe_div(proj_sucesso, proj_total)
+
+        melhor_maior = modelo_qualidade(indicador) != "parametro_coleta_critico"
+        if meta is not None and resultado_proj is not None:
+            gap = resultado_proj - meta if melhor_maior else meta - resultado_proj
+        else:
+            gap = None
+
+        info.update({
+            "col_valor": "RESULTADO_PCT_PROJ",
+            "col_meta": "META_QUALIDADE_PROJ",
+            "valor_mes": resultado_mes,
+            "meta_mes": meta,
+            "qtd_total_mes": qtd_total_mes,
+            "qtd_sucesso_mes": qtd_sucesso_mes,
+            "media_atual": None,
+            "media_total_atual": media_total,
+            "media_sucesso_atual": media_sucesso,
+            "projecao": resultado_proj,
+            "projecao_total": proj_total,
+            "projecao_sucesso": proj_sucesso,
+            "gap_projetado": gap,
+            "media_necessaria": None,
+            "media_ano": None,
+            "projecao_media_ano": None,
+            "melhor_quando_maior": melhor_maior,
+        })
+
+    return info.replace([float("inf"), float("-inf")], pd.NA) if hasattr(info, "replace") else info
 
 def card_ouro(label, value, note="", status="info"):
     st.markdown(
@@ -5020,10 +5266,232 @@ def card_ouro(label, value, note="", status="info"):
     )
 
 
+
+def _status_projecao(info):
+    """Define status visual da projeção respeitando se maior ou menor é melhor."""
+    gap = info.get("gap_projetado")
+    proj = info.get("projecao")
+    meta = info.get("meta_mes")
+    melhor_maior = info.get("melhor_quando_maior", True)
+
+    if proj is None or pd.isna(proj):
+        return "warn"
+
+    if meta is None or pd.isna(meta):
+        return "info"
+
+    if gap is None or pd.isna(gap):
+        return "info"
+
+    # Nos tipos onde menor é melhor, a função de cálculo já devolve gap favorável como positivo.
+    return "good" if gap >= 0 else "warn"
+
+
+def _valor_card_projecao(valor, tipo="brl"):
+    if valor is None or pd.isna(valor):
+        return "-"
+    if tipo == "pct":
+        return fmt_pct(valor)
+    if tipo == "num":
+        return fmt_num(valor)
+    return fmt_brl(valor)
+
+
+def _cards_projecao_por_estrutura(info, indicador):
+    """Monta os cards corretos para cada estrutura de indicador."""
+    estrutura = info.get("estrutura", "valor_meta")
+    status_proj = _status_projecao(info)
+
+    if estrutura == "moto_margem":
+        return [
+            ("Faturamento no mês", _valor_card_projecao(info.get("faturamento_mes"), "brl"), "Receita acumulada no mês selecionado.", "info"),
+            ("Compra no mês", _valor_card_projecao(info.get("compra_mes"), "brl"), "Custo/compra acumulado no mês.", "info"),
+            ("Margem atual", _valor_card_projecao(info.get("margem_mes"), "brl"), f"Taxa atual: {_valor_card_projecao(info.get('tx_mes'), 'pct')}.", "info"),
+            ("Faturamento projetado", _valor_card_projecao(info.get("projecao"), "brl"), "Ritmo atual aplicado aos dias úteis restantes.", "info"),
+            ("Margem projetada", _valor_card_projecao(info.get("projecao_margem"), "brl"), f"Meta de margem estimada: {_valor_card_projecao(info.get('meta_margem_rs'), 'brl')}.", status_proj),
+            ("Taxa projetada", _valor_card_projecao(info.get("taxa_projetada"), "pct"), f"Meta: {_valor_card_projecao(info.get('meta_mes'), 'pct')}.", status_proj),
+            ("Gap projetado", _valor_card_projecao(info.get("gap_projetado"), "brl"), "Diferença da margem projetada contra a meta estimada.", status_proj),
+            ("Média diária faturamento", _valor_card_projecao(info.get("media_atual"), "brl"), f"Base: {fmt_num(info.get('dias_decorridos'))} dias úteis decorridos.", "info"),
+            ("Dias úteis restantes", fmt_num(info.get("dias_restantes")), "Segunda a sexta, sem descontar feriados.", "info"),
+        ]
+
+    if estrutura == "despesa_geral":
+        return [
+            ("Despesa no mês", _valor_card_projecao(info.get("despesa_mes"), "brl"), "Despesa acumulada no mês.", "info"),
+            ("Receita no mês", _valor_card_projecao(info.get("receita_mes"), "brl"), "Receita acumulada usada como base.", "info"),
+            ("Tx. sucesso atual", _valor_card_projecao(info.get("tx_mes"), "pct"), "Despesa / Receita do mês.", "info"),
+            ("Despesa projetada", _valor_card_projecao(info.get("projecao"), "brl"), "Ritmo atual aplicado aos dias úteis restantes.", status_proj),
+            ("Receita projetada", _valor_card_projecao(info.get("projecao_receita"), "brl"), "Projeção da receita pelo ritmo atual.", "info"),
+            ("Tx. sucesso projetada", _valor_card_projecao(info.get("taxa_projetada"), "pct"), f"Limite: {_valor_card_projecao(info.get('meta_mes'), 'pct')}.", status_proj),
+            ("Limite R$ projetado", _valor_card_projecao(info.get("limite_rs_projetado"), "brl"), "Receita projetada x limite percentual.", "info"),
+            ("Saldo projetado", _valor_card_projecao(info.get("gap_projetado"), "brl"), "Limite R$ projetado - despesa projetada.", status_proj),
+            ("Dias úteis restantes", fmt_num(info.get("dias_restantes")), "Segunda a sexta, sem descontar feriados.", "info"),
+        ]
+
+    if estrutura == "resultado_financeiro":
+        return [
+            ("Receita no mês", _valor_card_projecao(info.get("receita_mes"), "brl"), "Receita acumulada no mês.", "info"),
+            ("Despesa no mês", _valor_card_projecao(info.get("despesa_mes"), "brl"), "Despesa acumulada no mês.", "info"),
+            ("Resultado % atual", _valor_card_projecao(info.get("valor_mes"), "pct"), f"Meta: {_valor_card_projecao(info.get('meta_mes'), 'pct')}.", "info"),
+            ("Receita projetada", _valor_card_projecao(info.get("projecao_receita"), "brl"), "Projeção pelo ritmo de dias úteis.", "info"),
+            ("Despesa projetada", _valor_card_projecao(info.get("projecao_despesa"), "brl"), "Projeção pelo ritmo de dias úteis.", "info"),
+            ("Resultado % projetado", _valor_card_projecao(info.get("projecao"), "pct"), f"Meta: {_valor_card_projecao(info.get('meta_mes'), 'pct')}.", status_proj),
+            ("Resultado R$ projetado", _valor_card_projecao(info.get("resultado_rs_projetado"), "brl"), "Diferença entre resultado projetado e meta financeira.", status_proj),
+            ("Média diária receita", _valor_card_projecao(info.get("media_receita_atual"), "brl"), f"Base: {fmt_num(info.get('dias_decorridos'))} dias úteis.", "info"),
+            ("Dias úteis restantes", fmt_num(info.get("dias_restantes")), "Segunda a sexta, sem descontar feriados.", "info"),
+        ]
+
+    if estrutura == "qualidade":
+        rot = rotulos_qualidade(indicador) if "rotulos_qualidade" in globals() else {"qtd_total": "Qtd. total", "qtd_sucesso": "Qtd. sucesso", "resultado": "Resultado %", "meta": "Meta"}
+        return [
+            (rot.get("qtd_total", "Qtd. total"), _valor_card_projecao(info.get("qtd_total_mes"), "num"), "Quantidade total acumulada no mês.", "info"),
+            (rot.get("qtd_sucesso", "Qtd. sucesso"), _valor_card_projecao(info.get("qtd_sucesso_mes"), "num"), "Quantidade usada no numerador do indicador.", "info"),
+            ("Resultado atual", _valor_card_projecao(info.get("valor_mes"), "pct"), f"{rot.get('resultado', 'Resultado %')} no mês.", "info"),
+            ("Qtd. total projetada", _valor_card_projecao(info.get("projecao_total"), "num"), "Ritmo atual aplicado aos dias úteis restantes.", "info"),
+            ("Qtd. referência projetada", _valor_card_projecao(info.get("projecao_sucesso"), "num"), "Quantidade projetada para o numerador.", "info"),
+            ("Resultado projetado", _valor_card_projecao(info.get("projecao"), "pct"), f"{rot.get('meta', 'Meta')}: {_valor_card_projecao(info.get('meta_mes'), 'pct')}.", status_proj),
+            ("Gap projetado", _valor_card_projecao(info.get("gap_projetado"), "pct"), "Diferença projetada contra a meta/limite.", status_proj),
+            ("Média diária total", _valor_card_projecao(info.get("media_total_atual"), "num"), f"Base: {fmt_num(info.get('dias_decorridos'))} dias úteis.", "info"),
+            ("Dias úteis restantes", fmt_num(info.get("dias_restantes")), "Segunda a sexta, sem descontar feriados.", "info"),
+        ]
+
+    if estrutura == "tecfil":
+        return [
+            ("Realizado R$ no mês", _valor_card_projecao(info.get("valor_mes"), "brl"), "Valor acumulado no mês.", "info"),
+            ("Meta R$ do mês", _valor_card_projecao(info.get("meta_mes"), "brl"), "Meta financeira do mês.", "info"),
+            ("Gap R$ projetado", _valor_card_projecao(info.get("gap_projetado"), "brl"), "Projeção financeira contra a meta R$.", status_proj),
+            ("Realizado KG no mês", _valor_card_projecao(info.get("real_kg_mes"), "num"), "Volume acumulado no mês.", "info"),
+            ("Meta KG do mês", _valor_card_projecao(info.get("meta_kg_mes"), "num"), "Meta de volume do mês.", "info"),
+            ("Projeção KG", _valor_card_projecao(info.get("projecao_kg"), "num"), "Ritmo de KG aplicado aos dias úteis restantes.", "info"),
+            ("Projeção R$", _valor_card_projecao(info.get("projecao"), "brl"), "Ritmo atual aplicado aos dias úteis restantes.", status_proj),
+            ("Média diária R$", _valor_card_projecao(info.get("media_atual"), "brl"), f"Base: {fmt_num(info.get('dias_decorridos'))} dias úteis.", "info"),
+            ("Dias úteis restantes", fmt_num(info.get("dias_restantes")), "Segunda a sexta, sem descontar feriados.", "info"),
+        ]
+
+    # Estrutura padrão: Faturamento e despesas com limite.
+    estrutura = info.get("estrutura")
+    nome_real = "Despesa no mês" if estrutura == "despesa_limite" else "Realizado no mês"
+    nome_proj = "Despesa projetada" if estrutura == "despesa_limite" else "Projeção de fechamento"
+    nome_gap = "Saldo projetado" if estrutura == "despesa_limite" else "Gap projetado"
+    nome_meta = "Limite do mês" if estrutura == "despesa_limite" else "Meta do mês"
+
+    return [
+        (nome_real, _valor_card_projecao(info.get("valor_mes"), "brl"), f"Valor acumulado em {info.get('mes_nome', '-')}/{info.get('ano', '-') }.", "info"),
+        (nome_proj, _valor_card_projecao(info.get("projecao"), "brl"), "Realizado atual + média diária atual x dias úteis restantes.", status_proj),
+        (nome_gap, _valor_card_projecao(info.get("gap_projetado"), "brl"), "Diferença estimada contra a meta/limite do mês.", status_proj),
+        ("Média diária atual", _valor_card_projecao(info.get("media_atual"), "brl"), f"Base: {fmt_num(info.get('dias_decorridos'))} dias úteis decorridos.", "info"),
+        ("Média diária necessária", _valor_card_projecao(info.get("media_necessaria"), "brl"), f"Para buscar a meta/limite nos {fmt_num(info.get('dias_restantes'))} dias úteis restantes.", status_proj),
+        (nome_meta, _valor_card_projecao(info.get("meta_mes"), "brl"), f"Dias úteis do mês: {fmt_num(info.get('dias_total'))}.", "info"),
+        ("Média diária do ano", _valor_card_projecao(info.get("media_ano"), "brl"), "Média do ano até a data-base.", "info"),
+        ("Projeção pela média do ano", _valor_card_projecao(info.get("projecao_media_ano"), "brl"), "Alternativa usando o ritmo médio anual.", "info"),
+        ("Dias úteis restantes", fmt_num(info.get("dias_restantes")), "Segunda a sexta, sem descontar feriados.", "info"),
+    ]
+
+
+def _grafico_projecao_por_estrutura(info, indicador):
+    """Monta o gráfico correto da aba Projeção para cada estrutura."""
+    estrutura = info.get("estrutura", "valor_meta")
+    status_proj = _status_projecao(info)
+
+    if estrutura in ["moto_margem", "despesa_geral", "resultado_financeiro", "qualidade"]:
+        if estrutura == "moto_margem":
+            titulo = "Taxa de margem projetada x meta"
+            valores = [info.get("tx_mes"), info.get("taxa_projetada")]
+            nomes = ["Taxa atual", "Taxa projetada"]
+            meta = info.get("meta_mes")
+            col = "META_PCT_PROJ"
+        elif estrutura == "despesa_geral":
+            titulo = "Tx. sucesso projetada x limite"
+            valores = [info.get("tx_mes"), info.get("taxa_projetada")]
+            nomes = ["Tx. atual", "Tx. projetada"]
+            meta = info.get("meta_mes")
+            col = "LIMITE_PCT_PROJ"
+        elif estrutura == "resultado_financeiro":
+            titulo = "Resultado % projetado x meta"
+            valores = [info.get("valor_mes"), info.get("projecao")]
+            nomes = ["Resultado atual", "Resultado projetado"]
+            meta = info.get("meta_mes")
+            col = "META_PCT_PROJ"
+        else:
+            titulo = "Resultado projetado x meta/limite"
+            valores = [info.get("valor_mes"), info.get("projecao")]
+            nomes = ["Resultado atual", "Resultado projetado"]
+            meta = info.get("meta_mes")
+            col = "RESULTADO_PCT_PROJ"
+
+        graf = pd.DataFrame({"Indicador": nomes, "Valor": [v if v is not None and pd.notna(v) else 0 for v in valores]})
+        fig = go.Figure()
+        cores = [COR_AZUL, COR_VERDE if status_proj == "good" else COR_LARANJA]
+        fig.add_bar(
+            x=graf["Indicador"],
+            y=graf["Valor"],
+            name="Resultado",
+            marker_color=cores,
+            text=[_valor_card_projecao(v, "pct") for v in graf["Valor"]],
+            textposition="outside",
+            hovertemplate="<b>%{x}</b><br>Valor: %{text}<extra></extra>",
+        )
+        if meta is not None and pd.notna(meta):
+            fig.add_trace(go.Scatter(
+                x=graf["Indicador"],
+                y=[meta] * len(graf),
+                name="Meta/Limite",
+                mode="lines+markers",
+                line=dict(color=COR_VERDE, width=4, dash="dash"),
+                marker=dict(size=9, color=COR_VERDE),
+                text=[_valor_card_projecao(meta, "pct")] * len(graf),
+                hovertemplate="<b>Meta/Limite</b><br>%{text}<extra></extra>",
+            ))
+        fig.update_yaxes(tickformat=".0%")
+
+    else:
+        titulo = "Realizado x Projeção x Meta"
+        graf = pd.DataFrame({
+            "Indicador": ["Realizado atual", "Projeção ritmo atual", "Projeção média ano"],
+            "Valor": [
+                info.get("valor_mes") if info.get("valor_mes") is not None and pd.notna(info.get("valor_mes")) else 0,
+                info.get("projecao") if info.get("projecao") is not None and pd.notna(info.get("projecao")) else 0,
+                info.get("projecao_media_ano") if info.get("projecao_media_ano") is not None and pd.notna(info.get("projecao_media_ano")) else 0,
+            ],
+        })
+        fig = go.Figure()
+        cores = [COR_LARANJA, COR_VERDE if status_proj == "good" else COR_LARANJA, COR_AZUL]
+        fig.add_bar(
+            x=graf["Indicador"],
+            y=graf["Valor"],
+            name="Valores projetados",
+            marker_color=cores,
+            text=[formatar_generico_por_coluna(v, info.get("col_valor")) for v in graf["Valor"]],
+            textposition="outside",
+            hovertemplate="<b>%{x}</b><br>Valor: %{text}<extra></extra>",
+        )
+        meta = info.get("meta_mes")
+        if meta is not None and pd.notna(meta):
+            fig.add_trace(go.Scatter(
+                x=graf["Indicador"],
+                y=[meta] * len(graf),
+                name="Meta/Limite",
+                mode="lines+markers",
+                line=dict(color=COR_VERDE, width=4, dash="dash"),
+                marker=dict(size=9, color=COR_VERDE),
+                text=[formatar_generico_por_coluna(meta, info.get("col_meta"))] * len(graf),
+                hovertemplate="<b>Meta/Limite</b><br>%{text}<extra></extra>",
+            ))
+
+    fig.update_layout(
+        title=titulo,
+        height=420,
+        margin=dict(t=70, b=30, l=20, r=20),
+        yaxis_title="Valor",
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return aplicar_tema_plotly_mazola(fig)
+
+
 def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
     """
-    Aba Projeção corrigida:
-    agora usa dias úteis e calcula a projeção mesmo quando a tabela mensal auxiliar falhar.
+    Aba Projeção com cards ajustados por tipo de indicador.
     """
     st.markdown(f"<h2 style='margin-bottom:6px;'>📌 Projeção — {indicador} | {filial}</h2>", unsafe_allow_html=True)
 
@@ -5032,7 +5500,6 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
         return
 
     info = calcular_projecao_mes(df, indicador, data_geracao_planilha)
-
     if not info:
         st.warning("Não foi possível calcular a projeção para este indicador.")
         return
@@ -5045,137 +5512,41 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
         data_geracao_planilha,
     )
 
-    titulo_secao("Ritmo de fechamento", "Projeção simples calculada pelo faturamento médio por dia útil.")
+    estrutura = info.get("estrutura", "valor_meta")
+    subtitulo = "Projeção calculada por dias úteis, respeitando a estrutura do indicador selecionado."
+    if estrutura in ["despesa_geral", "resultado_financeiro", "moto_margem", "qualidade"]:
+        subtitulo = "Este indicador possui estrutura própria; por isso os cards e o gráfico usam os campos corretos da fórmula."
 
-    valor_mes = info.get("valor_mes")
-    meta_mes = info.get("meta_mes")
-    projecao = info.get("projecao")
-    projecao_media_ano = info.get("projecao_media_ano")
-    gap_projetado = info.get("gap_projetado")
-    media_atual = info.get("media_atual")
-    media_ano = info.get("media_ano")
-    media_necessaria = info.get("media_necessaria")
-    col_valor = info.get("col_valor")
-    col_meta = info.get("col_meta")
-
-    status_proj = "info"
-    if gap_projetado is not None and pd.notna(gap_projetado):
-        status_proj = "good" if gap_projetado >= 0 else "warn"
+    titulo_secao("Ritmo de fechamento", subtitulo)
 
     renderizar_semaforo_projecao(info)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        card_ouro(
-            "Realizado no mês",
-            formatar_generico_por_coluna(valor_mes, col_valor),
-            f"Valor acumulado em {info.get('mes_nome', '-')}/{info.get('ano', '-')}.",
-            "info",
-        )
-    with col2:
-        card_ouro(
-            "Projeção de fechamento",
-            formatar_generico_por_coluna(projecao, col_valor),
-            "Realizado atual + média diária atual x dias úteis restantes.",
-            status_proj,
-        )
-    with col3:
-        card_ouro(
-            "Gap projetado",
-            formatar_generico_por_coluna(gap_projetado, col_valor),
-            "Diferença estimada contra a meta do mês.",
-            status_proj,
-        )
+    cards = _cards_projecao_por_estrutura(info, indicador)
+    for i in range(0, len(cards), 3):
+        cols = st.columns(3)
+        for col, card in zip(cols, cards[i:i + 3]):
+            label, value, note, status = card
+            with col:
+                card_ouro(label, value, note, status)
 
-    col4, col5, col6 = st.columns(3)
-    with col4:
-        card_ouro(
-            "Média diária atual",
-            formatar_generico_por_coluna(media_atual, col_valor),
-            f"Base: {fmt_num(info.get('dias_decorridos'))} dias úteis decorridos.",
-            "info",
-        )
-    with col5:
-        card_ouro(
-            "Média diária necessária",
-            formatar_generico_por_coluna(media_necessaria, col_valor),
-            f"Para buscar a meta nos {fmt_num(info.get('dias_restantes'))} dias úteis restantes.",
-            "good" if media_necessaria is not None and media_atual is not None and media_atual >= media_necessaria else "warn",
-        )
-    with col6:
-        card_ouro(
-            "Meta do mês",
-            formatar_generico_por_coluna(meta_mes, col_meta),
-            f"Dias úteis do mês: {fmt_num(info.get('dias_total'))}.",
-            "info",
-        )
-
-    col7, col8, col9 = st.columns(3)
-    with col7:
-        card_ouro(
-            "Média diária do ano",
-            formatar_generico_por_coluna(media_ano, col_valor),
-            "Média do ano até a data-base.",
-            "info",
-        )
-    with col8:
-        card_ouro(
-            "Projeção pela média do ano",
-            formatar_generico_por_coluna(projecao_media_ano, col_valor),
-            "Alternativa usando o ritmo médio anual.",
-            "info",
-        )
-    with col9:
-        card_ouro(
-            "Dias úteis restantes",
-            fmt_num(info.get("dias_restantes")),
-            "Quantidade aproximada, considerando segunda a sexta.",
-            "info",
-        )
-
-    if gap_projetado is not None and pd.notna(gap_projetado):
-        if gap_projetado >= 0:
+    gap = info.get("gap_projetado")
+    status_proj = _status_projecao(info)
+    if gap is not None and pd.notna(gap):
+        if status_proj == "good":
             alerta_executivo_dashboard(
-                "Tendência positiva",
-                f"Mantido o ritmo atual, a projeção indica fechamento acima da meta em <strong>{formatar_generico_por_coluna(gap_projetado, col_valor)}</strong>.",
+                "Tendência favorável",
+                "Mantido o ritmo atual, a projeção está favorável em relação à meta/limite do indicador.",
                 "good",
             )
         else:
             alerta_executivo_dashboard(
-                "Risco de não atingir a meta",
-                f"Mantido o ritmo atual, a projeção indica fechamento abaixo da meta em <strong>{formatar_generico_por_coluna(abs(gap_projetado), col_valor)}</strong>. O ponto de atenção é elevar a média diária nos dias úteis restantes.",
+                "Ponto de atenção",
+                "Mantido o ritmo atual, a projeção indica risco frente à meta/limite do indicador. Avalie o ritmo diário nos dias úteis restantes.",
                 "warn",
             )
 
-    # Gráfico simples e objetivo da projeção.
-    graf = pd.DataFrame({
-        "Indicador": ["Realizado atual", "Projeção ritmo atual", "Projeção média ano", "Meta"],
-        "Valor": [
-            valor_mes if valor_mes is not None and pd.notna(valor_mes) else 0,
-            projecao if projecao is not None and pd.notna(projecao) else 0,
-            projecao_media_ano if projecao_media_ano is not None and pd.notna(projecao_media_ano) else 0,
-            meta_mes if meta_mes is not None and pd.notna(meta_mes) else 0,
-        ],
-    })
-
-    fig = go.Figure()
-    cores = [COR_LARANJA, COR_VERDE if status_proj == "good" else COR_LARANJA, COR_AZUL, COR_CINZA]
-    fig.add_bar(
-        x=graf["Indicador"],
-        y=graf["Valor"],
-        marker_color=cores,
-        text=[formatar_generico_por_coluna(v, col_valor) for v in graf["Valor"]],
-        textposition="outside",
-        hovertemplate="<b>%{x}</b><br>Valor: %{text}<extra></extra>",
-    )
-    fig.update_layout(
-        title="Realizado x Projeção x Meta",
-        height=420,
-        margin=dict(t=70, b=30, l=20, r=20),
-        yaxis_title="Valor",
-        showlegend=False,
-    )
-    st.plotly_chart(aplicar_tema_plotly_mazola(fig), use_container_width=True, key="grafico_projecao_executiva_corrigida")
+    fig = _grafico_projecao_por_estrutura(info, indicador)
+    st.plotly_chart(fig, use_container_width=True, key=f"grafico_projecao_executiva_{normalizar_texto(indicador)}_{normalizar_texto(filial)}")
 
     titulo_secao("Tabela da projeção", "Base numérica usada no cálculo do ritmo.")
     st.markdown(
@@ -5183,328 +5554,20 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
         unsafe_allow_html=True,
     )
 
-    tabela = pd.DataFrame([
+    linhas = [
+        {"Item": "Estrutura do indicador", "Resultado": info.get("estrutura", "-")},
         {"Item": "Base atualizada em", "Resultado": info.get("data_base", "-")},
-        {"Item": "Mês base", "Resultado": f"{info.get('mes_nome', '-')}/{info.get('ano', '-')}" },
+        {"Item": "Mês base", "Resultado": f"{info.get('mes_nome', '-')}/{info.get('ano', '-')}"},
         {"Item": "Dias úteis no mês", "Resultado": fmt_num(info.get("dias_total"))},
         {"Item": "Dias úteis decorridos", "Resultado": fmt_num(info.get("dias_decorridos"))},
         {"Item": "Dias úteis restantes", "Resultado": fmt_num(info.get("dias_restantes"))},
-        {"Item": "Realizado no mês", "Resultado": formatar_generico_por_coluna(valor_mes, col_valor)},
-        {"Item": "Meta do mês", "Resultado": formatar_generico_por_coluna(meta_mes, col_meta)},
-        {"Item": "Média diária atual", "Resultado": formatar_generico_por_coluna(media_atual, col_valor)},
-        {"Item": "Média diária do ano", "Resultado": formatar_generico_por_coluna(media_ano, col_valor)},
-        {"Item": "Média diária necessária", "Resultado": formatar_generico_por_coluna(media_necessaria, col_valor)},
-        {"Item": "Projeção de fechamento", "Resultado": formatar_generico_por_coluna(projecao, col_valor)},
-        {"Item": "Projeção pela média do ano", "Resultado": formatar_generico_por_coluna(projecao_media_ano, col_valor)},
-        {"Item": "Gap projetado", "Resultado": formatar_generico_por_coluna(gap_projetado, col_valor)},
-    ])
+    ]
+
+    for label, value, note, status in cards:
+        linhas.append({"Item": label, "Resultado": value})
+
+    tabela = pd.DataFrame(linhas)
     st.dataframe(tabela, use_container_width=True, hide_index=True)
-
-
-
-def montar_ranking_atingimento(df_filiais, indicador, ano, mes_limite):
-    """
-    Ranking justo por % de atingimento de meta.
-    Ao lado, mostra faturamento/realizado, meta e gap.
-    """
-    if df_filiais is None or df_filiais.empty:
-        return pd.DataFrame()
-
-    base = df_filiais[(df_filiais["ANO"] == ano) & (df_filiais["MÊS"] <= mes_limite)].copy()
-    if base.empty:
-        return pd.DataFrame()
-
-    comp = comparativo_filiais(base, ano, indicador)
-    if comp is None or comp.empty:
-        return pd.DataFrame()
-
-    out = comp.copy()
-
-    if "Atingimento" not in out.columns:
-        if "Realizado" in out.columns and "Meta" in out.columns:
-            out["Atingimento"] = out["Realizado"] / out["Meta"].replace(0, pd.NA)
-        else:
-            out["Atingimento"] = pd.NA
-
-    if "Realizado" not in out.columns:
-        if "Faturamento" in out.columns:
-            out["Realizado"] = out["Faturamento"]
-        elif "Realizado R$" in out.columns:
-            out["Realizado"] = out["Realizado R$"]
-        elif "Receita" in out.columns:
-            out["Realizado"] = out["Receita"]
-        else:
-            out["Realizado"] = pd.NA
-
-    if "Meta" not in out.columns:
-        if "Meta R$" in out.columns:
-            out["Meta"] = out["Meta R$"]
-        elif "Meta Margem (R$)" in out.columns:
-            out["Meta"] = out["Meta Margem (R$)"]
-        else:
-            out["Meta"] = pd.NA
-
-    if "Gap" not in out.columns:
-        out["Gap"] = out["Realizado"] - out["Meta"]
-
-    # Para despesas com limite, menor uso do limite é melhor.
-    if eh_despesa_com_limite(indicador):
-        out = out.sort_values("Atingimento", ascending=True, na_position="last")
-    else:
-        out = out.sort_values("Atingimento", ascending=False, na_position="last")
-
-    out = out.reset_index(drop=True)
-    out.insert(0, "Ranking", [f"{i}º" for i in range(1, len(out) + 1)])
-
-    cols = ["Ranking", "FILIAL", "Atingimento", "Realizado", "Meta", "Gap"]
-    return out[[c for c in cols if c in out.columns]]
-
-
-def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, df_filiais=None):
-    """
-    Aba Análise:
-    informações executivas de alto impacto.
-    Diferente da aba Projeção: aqui o foco é comparação, ranking e pontos importantes.
-    """
-    st.markdown(f"<h2 style='margin-bottom:6px;'>🧠 Análise Executiva — {indicador} | {filial}</h2>", unsafe_allow_html=True)
-
-    if df is None or df.empty:
-        st.warning("Não há dados suficientes para gerar a análise executiva.")
-        return
-
-    anos = sorted(df["ANO"].dropna().unique())
-    if not anos:
-        st.warning("Não há ano válido para análise.")
-        return
-
-    ano_atual = int(anos[-1])
-    mes_atual = mes_base_por_data(df, ano_atual, data_geracao_planilha)
-    mes_nome = MESES_MAPA.get(mes_atual, str(mes_atual))
-    periodo_label = f"Jan a {mes_nome}"
-
-    contexto_dashboard(indicador, filial, ano_atual, periodo_label, data_geracao_planilha)
-
-    titulo_secao("Top insights", "Três informações de leitura rápida para decisão executiva.")
-    renderizar_top_insights(df, indicador, filial, data_geracao_planilha, df_filiais)
-
-    titulo_secao("Informações que merecem atenção", "Leitura executiva do desempenho, com foco em comparação e priorização.")
-
-    try:
-        periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_atual)
-    except Exception:
-        periodo_cmp = pd.DataFrame()
-
-    if periodo_cmp is not None and not periodo_cmp.empty and len(periodo_cmp) >= 2:
-        linha_atual = periodo_cmp.iloc[1]
-        linha_ant = periodo_cmp.iloc[0]
-        col_var = next((c for c in periodo_cmp.columns if normalizar_texto(c).startswith("VARIACAO")), None)
-        col_valor = next((c for c in ["Realizado", "Faturamento", "Realizado R$", "Receita", "Resultado R$", "Resultado %", "Tx. Sucesso"] if c in periodo_cmp.columns), None)
-
-        valor_atual = linha_atual.get(col_valor) if col_valor else None
-        valor_ant = linha_ant.get(col_valor) if col_valor else None
-        variacao = linha_atual.get(col_var) if col_var else None
-
-        status = "good" if pd.notna(variacao) and variacao >= 0 else "warn"
-        titulo = "Crescimento contra o mesmo período" if status == "good" else "Queda contra o mesmo período"
-
-        alerta_executivo_dashboard(
-            titulo,
-            f"Em <strong>{periodo_label}/{ano_atual}</strong>, o valor principal está em <strong>{formatar_generico_por_coluna(valor_atual, col_valor)}</strong>. "
-            f"No mesmo período do ano anterior, estava em <strong>{formatar_generico_por_coluna(valor_ant, col_valor)}</strong>. "
-            f"A variação é <strong>{fmt_var_pct_seguro(variacao) if variacao is not None else '—'}</strong>.",
-            status,
-        )
-    else:
-        alerta_executivo_dashboard(
-            "Comparativo anual indisponível",
-            "Não há dados suficientes para comparar o mesmo período com o ano anterior.",
-            "warn",
-        )
-
-    # Melhor e pior mês do ano pelo valor principal
-    try:
-        tabela = obter_tabela_mensal_ano(df, indicador, ano_atual)
-        coluna, label, modo = valor_principal_para_analise(tabela, indicador)
-        base_meses = tabela[(tabela["MÊS"] <= mes_atual)].copy() if "MÊS" in tabela.columns else tabela.copy()
-
-        if coluna and coluna in base_meses.columns and not base_meses.empty:
-            serie = pd.to_numeric(base_meses[coluna], errors="coerce")
-            base_meses = base_meses.assign(_valor=serie)
-            base_validos = base_meses[base_meses["_valor"].notna()].copy()
-
-            if not base_validos.empty:
-                melhor = base_validos.sort_values("_valor", ascending=False).iloc[0]
-                pior = base_validos.sort_values("_valor", ascending=True).iloc[0]
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    card_ouro(
-                        "Melhor mês do período",
-                        f"{melhor.get('Mês', '-')}",
-                        f"{label}: {formatar_generico_por_coluna(melhor.get('_valor'), coluna)}",
-                        "good",
-                    )
-                with col2:
-                    card_ouro(
-                        "Pior mês do período",
-                        f"{pior.get('Mês', '-')}",
-                        f"{label}: {formatar_generico_por_coluna(pior.get('_valor'), coluna)}",
-                        "warn",
-                    )
-    except Exception:
-        pass
-
-    # Ranking por atingimento de meta
-    if filial == "Geral":
-        titulo_secao("Ranking de unidades por atingimento da meta", "Ranking justo por percentual de meta; ao lado ficam os valores de realizado, meta e gap.")
-        st.markdown('<div class="table-note-v5">Ordenação principal por % de atingimento, para não favorecer apenas unidades com maior volume absoluto.</div>', unsafe_allow_html=True)
-
-        ranking = montar_ranking_atingimento(df_filiais, indicador, ano_atual, mes_atual)
-
-        if ranking is not None and not ranking.empty:
-            st.dataframe(
-                ranking.style
-                .format({
-                    "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Gap": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                })
-                .map(cor_atingimento, subset=["Atingimento"])
-                .map(lambda v: cor_gap_valor(v, False), subset=["Gap"]),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            try:
-                top = ranking.iloc[0]
-                alerta_executivo_dashboard(
-                    "Unidade destaque",
-                    f"A unidade com melhor atingimento no período é <strong>{top.get('FILIAL', '-')}</strong>, com <strong>{fmt_pct(top.get('Atingimento'))}</strong> de atingimento da meta.",
-                    "good",
-                )
-            except Exception:
-                pass
-        else:
-            st.info("Não há dados suficientes para montar o ranking por unidade.")
-
-    titulo_secao("Resumo de apoio", "Tabela objetiva com os principais dados da leitura executiva.")
-    st.markdown('<div class="table-note-v5">Resumo compacto dos dados usados na análise automática.</div>', unsafe_allow_html=True)
-    apoio = pd.DataFrame([
-        {"Item": "Período analisado", "Resultado": f"{periodo_label}/{ano_atual}"},
-        {"Item": "Base atualizada em", "Resultado": data_geracao_planilha},
-        {"Item": "Foco da análise", "Resultado": "comparação anual, melhor/pior mês e ranking por atingimento"},
-    ])
-    st.dataframe(apoio, use_container_width=True, hide_index=True)
-
-
-
-
-
-
-
-def _primeira_coluna_existente(df_obj, candidatos):
-    if df_obj is None or df_obj.empty:
-        return None
-    for col in candidatos:
-        if col in df_obj.columns:
-            return col
-    return None
-
-
-def _formatar_compare(valor, coluna):
-    if valor is None or pd.isna(valor):
-        return "—"
-    nome = normalizar_texto(coluna)
-    if "%" in str(coluna) or "TX" in nome or "ATING" in nome or "RESULTADO %" in nome or "VARIACAO" in nome:
-        return fmt_pct(valor)
-    if "KG" in nome or "QTD" in nome:
-        return fmt_num(valor)
-    return fmt_brl(valor)
-
-
-def cards_comparativo_periodo(df_periodo_tela, indicador):
-    """
-    Cards resumidos para a seção 'Mesmo período x ano anterior'.
-    Detecta a estrutura do indicador e deixa explícito o que está sendo comparado.
-    """
-    try:
-        if df_periodo_tela is None or df_periodo_tela.empty or len(df_periodo_tela) < 2:
-            return
-
-        atual = df_periodo_tela.iloc[-1]
-        anterior = df_periodo_tela.iloc[-2]
-
-        if eh_moto_margem(indicador):
-            col_principal = "Faturamento" if "Faturamento" in df_periodo_tela.columns else "Realizado"
-            label_atual = "Faturamento atual do período"
-            label_anterior = "Faturamento no mesmo período anterior"
-            nota_atual = "Comparação acumulada do faturamento."
-            nota_anterior = "Referência de faturamento do ano anterior."
-        elif eh_tecfil(indicador):
-            col_principal = "Realizado R$" if "Realizado R$" in df_periodo_tela.columns else "Realizado"
-            label_atual = "Realizado atual do período"
-            label_anterior = "Realizado no mesmo período anterior"
-            nota_atual = "Comparativo principal em R$."
-            nota_anterior = "Referência do mesmo período no ano anterior."
-        elif eh_qualidade(indicador):
-            col_principal = "Resultado %" if "Resultado %" in df_periodo_tela.columns else "Atingimento"
-            label_atual = "Resultado atual do período"
-            label_anterior = "Resultado no mesmo período anterior"
-            nota_atual = "Comparativo da taxa/resultado de qualidade."
-            nota_anterior = "Referência do mesmo período no ano anterior."
-        elif eh_resultado_financeiro(indicador):
-            col_principal = "Resultado R$" if "Resultado R$" in df_periodo_tela.columns else "Resultado %"
-            label_atual = "Resultado financeiro atual"
-            label_anterior = "Resultado financeiro anterior"
-            nota_atual = "Diferença em R$ entre o resultado % realizado e a meta do período."
-            nota_anterior = "Referência do resultado financeiro no mesmo período do ano anterior."
-        elif eh_despesa_geral(indicador):
-            col_principal = "Tx. Sucesso" if "Tx. Sucesso" in df_periodo_tela.columns else "Resultado R$"
-            label_atual = "Despesa/Receita atual"
-            label_anterior = "Despesa/Receita anterior"
-            nota_atual = "Percentual da receita consumido pela despesa no período."
-            nota_anterior = "Referência do mesmo período no ano anterior."
-        else:
-            col_principal = _primeira_coluna_existente(
-                df_periodo_tela,
-                ["Realizado", "Faturamento", "Realizado R$", "Receita", "Resultado R$", "Resultado %", "Tx. Sucesso"]
-            )
-            label_atual = "Valor atual do período"
-            label_anterior = "Mesmo período anterior"
-            nota_atual = "Resultado principal do período atual."
-            nota_anterior = "Referência do mesmo período no ano anterior."
-
-        principal_txt = _formatar_compare(atual.get(col_principal), col_principal) if col_principal else "—"
-        anterior_txt = _formatar_compare(anterior.get(col_principal), col_principal) if col_principal else "—"
-
-        st.markdown(
-            f"""
-            <div class="compare-card-grid compare-card-grid-two">
-                <div class="compare-mini-card">
-                    <div class="compare-label">{label_atual}</div>
-                    <div class="compare-value">{principal_txt}</div>
-                    <div class="compare-note">{nota_atual}</div>
-                </div>
-                <div class="compare-mini-card">
-                    <div class="compare-label">{label_anterior}</div>
-                    <div class="compare-value">{anterior_txt}</div>
-                    <div class="compare-note">{nota_anterior}</div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    except Exception:
-        pass
-
-
-def titulo_comparativo_filiais(indicador, ano_base_filial):
-    if eh_tecfil(indicador):
-        return "Comparativo entre unidades"
-    return "Comparativo entre filiais"
-
-
 
 
 def status_geral_indicador(df, indicador, ano):
@@ -5615,65 +5678,96 @@ def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_conte
     )
 
 
+
 def renderizar_semaforo_projecao(info):
     """
-    Semáforo da projeção com leitura mais clara.
+    Semáforo da projeção com leitura ajustada por estrutura de indicador.
     """
-    gap = info.get("gap_projetado")
-    media_atual = info.get("media_atual")
-    media_ano = info.get("media_ano")
-    media_necessaria = info.get("media_necessaria")
-    col_valor = info.get("col_valor")
-    dias_restantes = info.get("dias_restantes")
+    estrutura = info.get("estrutura", "valor_meta")
+    status = _status_projecao(info)
     projecao = info.get("projecao")
-    meta_mes = info.get("meta_mes")
+    meta = info.get("meta_mes")
+    dias_restantes = info.get("dias_restantes")
 
     if projecao is None or pd.isna(projecao):
-        status = "warn"
         icon = "🟠"
         titulo = "Projeção em acompanhamento"
         texto = (
-            "Ainda não há dias úteis suficientes com faturamento no mês para calcular uma tendência confiável. "
+            "Ainda não há dados suficientes no mês para calcular uma tendência confiável. "
             "Assim que houver realizado no mês, a projeção será atualizada automaticamente."
         )
+        status = "warn"
 
-    elif meta_mes is None or pd.isna(meta_mes):
-        status = "info"
+    elif meta is None or pd.isna(meta):
         icon = "🔵"
         titulo = "Projeção calculada sem meta"
+        if estrutura in ["resultado_financeiro", "qualidade"]:
+            valor_txt = _valor_card_projecao(projecao, "pct")
+        else:
+            valor_txt = _valor_card_projecao(projecao, "brl")
         texto = (
-            f"A projeção de fechamento pelo ritmo atual é de "
-            f"{formatar_generico_por_coluna(projecao, col_valor)}. "
-            "A meta do mês não foi localizada na base, por isso o gap projetado não foi calculado."
+            f"A projeção foi calculada em {valor_txt}, mas a meta/limite do mês não foi localizada na base. "
+            "Por isso, o gap projetado fica em acompanhamento."
         )
+        status = "info"
 
-    elif gap is not None and pd.notna(gap) and gap >= 0:
-        status = "good"
+    elif status == "good":
         icon = "🟢"
-        titulo = "Tendência de bater a meta"
-        texto = (
-            f"Mantido o ritmo atual por dia útil, a projeção indica fechamento acima da meta em "
-            f"{formatar_generico_por_coluna(gap, col_valor)}."
-        )
+        titulo = "Tendência favorável"
+        if estrutura == "despesa_geral":
+            texto = (
+                f"A taxa projetada está em {_valor_card_projecao(info.get('taxa_projetada'), 'pct')} contra limite de "
+                f"{_valor_card_projecao(info.get('meta_mes'), 'pct')}. O saldo projetado é de "
+                f"{_valor_card_projecao(info.get('gap_projetado'), 'brl')}."
+            )
+        elif estrutura == "despesa_limite":
+            texto = (
+                f"A projeção indica fechamento dentro do limite, com saldo estimado de "
+                f"{_valor_card_projecao(info.get('gap_projetado'), 'brl')}."
+            )
+        elif estrutura == "moto_margem":
+            texto = (
+                f"A taxa projetada está em {_valor_card_projecao(info.get('taxa_projetada'), 'pct')} contra meta de "
+                f"{_valor_card_projecao(info.get('meta_mes'), 'pct')}."
+            )
+        elif estrutura in ["resultado_financeiro", "qualidade"]:
+            texto = (
+                f"O resultado projetado está em {_valor_card_projecao(info.get('projecao'), 'pct')} contra meta/limite de "
+                f"{_valor_card_projecao(info.get('meta_mes'), 'pct')}."
+            )
+        else:
+            texto = (
+                f"Mantido o ritmo atual por dia útil, a projeção indica fechamento favorável frente à meta. "
+                f"Dias úteis restantes: {fmt_num(dias_restantes)}."
+            )
 
     else:
-        status = "warn"
         icon = "🟠"
-        titulo = "Atenção: precisa acelerar"
-
-        falta_ritmo = ""
-        if media_atual not in [None, 0] and media_necessaria is not None and pd.notna(media_necessaria):
-            try:
-                dif = (media_necessaria / media_atual) - 1
-                falta_ritmo = f" A média diária necessária está {fmt_pct(dif)} acima da média atual."
-            except Exception:
-                falta_ritmo = ""
-
-        texto = (
-            f"Mantido o ritmo atual, a projeção indica fechamento abaixo da meta em "
-            f"{formatar_generico_por_coluna(abs(gap), col_valor)}."
-            f"{falta_ritmo} Dias úteis restantes: {fmt_num(dias_restantes)}."
-        )
+        titulo = "Ponto de atenção"
+        if estrutura == "despesa_geral":
+            texto = (
+                f"A taxa projetada está em {_valor_card_projecao(info.get('taxa_projetada'), 'pct')} contra limite de "
+                f"{_valor_card_projecao(info.get('meta_mes'), 'pct')}. Avalie o ritmo da despesa nos próximos dias úteis."
+            )
+        elif estrutura == "despesa_limite":
+            texto = (
+                f"A despesa projetada pode ultrapassar o limite. Dias úteis restantes: {fmt_num(dias_restantes)}."
+            )
+        elif estrutura == "moto_margem":
+            texto = (
+                f"A taxa projetada está em {_valor_card_projecao(info.get('taxa_projetada'), 'pct')} contra meta de "
+                f"{_valor_card_projecao(info.get('meta_mes'), 'pct')}. Avalie margem, compra e faturamento."
+            )
+        elif estrutura in ["resultado_financeiro", "qualidade"]:
+            texto = (
+                f"O resultado projetado está em {_valor_card_projecao(info.get('projecao'), 'pct')} contra meta/limite de "
+                f"{_valor_card_projecao(info.get('meta_mes'), 'pct')}."
+            )
+        else:
+            texto = (
+                f"Mantido o ritmo atual, há risco frente à meta do mês. "
+                f"Dias úteis restantes: {fmt_num(dias_restantes)}."
+            )
 
     st.markdown(
         f"""
@@ -7832,12 +7926,14 @@ div[data-baseweb="tab-list"] {
     top:0;
     width:100%;
     height:4px;
-    background:#F26522;
+    background:linear-gradient(90deg, #00A350 0%, #F26522 100%);
 }
 
-.gold-card.good::before { background:#00A350; }
-.gold-card.warn::before { background:#F26522; }
-.gold-card.info::before { background:#0078D4; }
+.gold-card.good::before,
+.gold-card.warn::before,
+.gold-card.info::before {
+    background:linear-gradient(90deg, #00A350 0%, #F26522 100%);
+}
 
 .gold-label {
     font-size:12px;
