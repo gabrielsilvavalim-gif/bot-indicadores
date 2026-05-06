@@ -1524,13 +1524,23 @@ def meta_ponderada_resultado_financeiro(grupo):
     """
     Meta do Resultado Financeiro.
 
-    Conforme o modelo da planilha, a meta do Resultado Financeiro deve ser 5,0%.
-    Portanto, a meta não deve variar por ano nem puxar percentuais antigos da base.
+    Regra corrigida:
+    - usa a META da base quando houver valor preenchido;
+    - se a base não trouxer meta no mês/período, retorna None;
+    - assim o app não mostra 5,0% artificialmente em meses sem meta.
     """
-    if grupo is None or grupo.empty:
+    if grupo is None or grupo.empty or "META" not in grupo.columns:
         return None
 
-    return META_RESULTADO_FINANCEIRO_PADRAO
+    meta_raw = pd.to_numeric(grupo.get("META"), errors="coerce")
+    meta_raw = meta_raw.dropna()
+    meta_raw = meta_raw[meta_raw != 0]
+
+    if meta_raw.empty:
+        return None
+
+    meta_pct = ajustar_percentual_meta(meta_raw)
+    return meta_pct.mean() if len(meta_pct) else None
 
 def resumo_resultado_financeiro_por_grupo(grupo):
     if grupo is None or grupo.empty:
@@ -1579,18 +1589,24 @@ def consolidar_resultado_financeiro(df):
     TIPO DE META = %
 
     Fórmulas:
-    META % = 5,0%
+    META % = usa a meta informada na base, quando existir
     Resultado % = 1 - (Despesa / Receita)
     Resultado R$ = (Receita x Resultado %) - (Receita x Meta %)
 
     Observação:
-    A meta do Resultado Financeiro não deve puxar 14%, 13%, etc. de anos anteriores.
-    Para esse modelo, a meta correta é 5,0% em todos os anos.
+    Se a base não trouxer meta para o mês/período, a meta fica vazia.
+    Isso evita exibir 5,0% artificialmente em meses sem meta.
     """
     d = df.copy()
 
-    # Meta fixa correta do modelo Resultado Financeiro
-    d["META_PERCENTUAL_CALC"] = META_RESULTADO_FINANCEIRO_PADRAO
+    # Meta do Resultado Financeiro agora vem da base.
+    # Se o mês não tiver meta preenchida, fica vazio para evitar informação artificial.
+    if "META" in d.columns:
+        meta_raw = pd.to_numeric(d.get("META"), errors="coerce")
+        d["META_PERCENTUAL_CALC"] = ajustar_percentual_meta(meta_raw)
+        d.loc[meta_raw.fillna(0) == 0, "META_PERCENTUAL_CALC"] = pd.NA
+    else:
+        d["META_PERCENTUAL_CALC"] = pd.NA
 
     # Despesa: coluna J:J / VALOR REF 01
     d["DESPESA_CALC"] = serie_numerica_por_coluna(
@@ -3495,8 +3511,6 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
                 "Compra": resumo_ant["Compra"],
                 "Margem Bruta": resumo_ant["Margem Bruta"],
                 "Meta %": resumo_ant["Meta %"],
-                "Meta Margem (R$)": resumo_ant["Meta Margem (R$)"],
-                "Gap (R$)": resumo_ant["Gap (R$)"],
                 "Tx. Sucesso": resumo_ant["Tx. Sucesso"],
                 "Variação Faturamento": None,
                 "Variação Margem": None,
@@ -3514,8 +3528,6 @@ def comparar_mesmo_periodo(d, indicador, ano_referencia=None):
                 "Compra": resumo_atual["Compra"],
                 "Margem Bruta": resumo_atual["Margem Bruta"],
                 "Meta %": resumo_atual["Meta %"],
-                "Meta Margem (R$)": resumo_atual["Meta Margem (R$)"],
-                "Gap (R$)": resumo_atual["Gap (R$)"],
                 "Tx. Sucesso": resumo_atual["Tx. Sucesso"],
                 "Variação Faturamento": var_faturamento,
                 "Variação Margem": var_margem,
@@ -5021,12 +5033,7 @@ def _formatar_compare(valor, coluna):
 def cards_comparativo_periodo(df_periodo_tela, indicador):
     """
     Cards resumidos para a seção 'Mesmo período x ano anterior'.
-    A função detecta a estrutura do indicador:
-    - Faturamento/Despesa simples: Realizado, Meta, Atingimento/Gap
-    - Moto: Faturamento, Margem, Tx. Sucesso
-    - Tecfil: Realizado R$, Meta R$, % Dif. R$
-    - Qualidade: Qtd. Coletas, Qtd. Sucesso, Resultado %
-    - Resultado Financeiro/Despesa Geral: Receita/Despesa/Resultado conforme disponível
+    Detecta a estrutura do indicador e deixa explícito o que está sendo comparado.
     """
     try:
         if df_periodo_tela is None or df_periodo_tela.empty or len(df_periodo_tela) < 2:
@@ -5035,38 +5042,49 @@ def cards_comparativo_periodo(df_periodo_tela, indicador):
         atual = df_periodo_tela.iloc[-1]
         anterior = df_periodo_tela.iloc[-2]
 
-        col_principal = _primeira_coluna_existente(
-            df_periodo_tela,
-            ["Realizado", "Faturamento", "Realizado R$", "Receita", "Resultado R$", "Resultado %", "Tx. Sucesso", "Resultado %"]
-        )
-        col_meta = _primeira_coluna_existente(
-            df_periodo_tela,
-            ["Meta", "Meta R$", "Meta %", "Limite %", "Meta Margem (R$)"]
-        )
-        col_var = _primeira_coluna_existente(
-            df_periodo_tela,
-            ["Variação", "Variação R$", "Variação Faturamento", "Variação Resultado", "Variação Receita", "Variação %"]
-        )
+        if eh_moto_margem(indicador):
+            col_principal = "Faturamento" if "Faturamento" in df_periodo_tela.columns else "Realizado"
+            label_atual = "Faturamento atual do período"
+            label_anterior = "Faturamento no mesmo período anterior"
+            nota_atual = "Comparação acumulada do faturamento."
+            nota_anterior = "Referência de faturamento do ano anterior."
+        elif eh_tecfil(indicador):
+            col_principal = "Realizado R$" if "Realizado R$" in df_periodo_tela.columns else "Realizado"
+            label_atual = "Realizado atual do período"
+            label_anterior = "Realizado no mesmo período anterior"
+            nota_atual = "Comparativo principal em R$."
+            nota_anterior = "Referência do mesmo período no ano anterior."
+        elif eh_qualidade(indicador):
+            col_principal = "Resultado %" if "Resultado %" in df_periodo_tela.columns else "Atingimento"
+            label_atual = "Resultado atual do período"
+            label_anterior = "Resultado no mesmo período anterior"
+            nota_atual = "Comparativo da taxa/resultado de qualidade."
+            nota_anterior = "Referência do mesmo período no ano anterior."
+        else:
+            col_principal = _primeira_coluna_existente(
+                df_periodo_tela,
+                ["Realizado", "Faturamento", "Realizado R$", "Receita", "Resultado R$", "Resultado %", "Tx. Sucesso"]
+            )
+            label_atual = "Valor atual do período"
+            label_anterior = "Mesmo período anterior"
+            nota_atual = "Resultado principal do período atual."
+            nota_anterior = "Referência do mesmo período no ano anterior."
 
         principal_txt = _formatar_compare(atual.get(col_principal), col_principal) if col_principal else "—"
         anterior_txt = _formatar_compare(anterior.get(col_principal), col_principal) if col_principal else "—"
-        meta_txt = _formatar_compare(atual.get(col_meta), col_meta) if col_meta else "—"
-        var_valor = atual.get(col_var) if col_var else None
-        var_txt = fmt_var_pct_seguro(var_valor) if var_valor is not None and pd.notna(var_valor) else "—"
-        status_var = "good" if var_valor is not None and pd.notna(var_valor) and var_valor >= 0 else "warn"
 
         st.markdown(
             f"""
             <div class="compare-card-grid compare-card-grid-two">
                 <div class="compare-mini-card">
-                    <div class="compare-label">Valor atual do período</div>
+                    <div class="compare-label">{label_atual}</div>
                     <div class="compare-value">{principal_txt}</div>
-                    <div class="compare-note">Resultado principal do período atual.</div>
+                    <div class="compare-note">{nota_atual}</div>
                 </div>
                 <div class="compare-mini-card">
-                    <div class="compare-label">Mesmo período anterior</div>
+                    <div class="compare-label">{label_anterior}</div>
                     <div class="compare-value">{anterior_txt}</div>
-                    <div class="compare-note">Referência do mesmo período no ano anterior.</div>
+                    <div class="compare-note">{nota_anterior}</div>
                 </div>
             </div>
             """,
@@ -5112,9 +5130,22 @@ def status_geral_indicador(df, indicador, ano):
                     ok = res >= meta
                 return ("good" if ok else "warn"), ("Dentro da referência" if ok else "Ponto de atenção"), f"Resultado atual: {fmt_pct(res)} | Referência: {fmt_pct(meta)}"
 
+        if eh_moto_margem(indicador):
+            if "Tx. Sucesso" in tabela.columns:
+                tx_serie = pd.to_numeric(tabela["Tx. Sucesso"], errors="coerce").dropna()
+                meta_serie = pd.to_numeric(tabela["Meta %"], errors="coerce").dropna() if "Meta %" in tabela.columns else pd.Series(dtype="float64")
+                if not tx_serie.empty:
+                    tx_atual = tx_serie.iloc[-1]
+                    if not meta_serie.empty:
+                        meta_atual = meta_serie.iloc[-1]
+                        ok = tx_atual >= meta_atual
+                        return ("good" if ok else "warn"), ("Meta atingida" if ok else "Abaixo da meta"), f"Tx. Sucesso: {fmt_pct(tx_atual)} | Meta: {fmt_pct(meta_atual)}"
+                    return "info", "Em acompanhamento", f"Tx. Sucesso: {fmt_pct(tx_atual)}"
+
         if col_valor and col_meta and col_valor in tabela.columns and col_meta in tabela.columns:
             realizado = pd.to_numeric(tabela[col_valor], errors="coerce").fillna(0).sum()
-            meta = pd.to_numeric(tabela[col_meta], errors="coerce").fillna(0).sum()
+            meta = pd.to_numeric(tabela[col_meta], errors="coerce").dropna()
+            meta = meta[meta != 0].sum() if not meta.empty else 0
             if meta:
                 ating = realizado / meta
                 if eh_despesa_com_limite(indicador):
@@ -7947,7 +7978,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9.3 — abas administrativas protegidas")
+    st.caption("v5.0 etapa 9.4 — ajustes moto e metas RF")
 
 
 
@@ -8121,7 +8152,7 @@ with tab0:
         with c4:
             kpi_metric("Tx. Sucesso", fmt_pct(resumo_ano_moto["Tx. Sucesso"]))
         with c5:
-            kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
+            kpi_metric(f"YTD Fat. {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -8268,7 +8299,7 @@ with tab0:
         with c4:
             kpi_metric("Realizado R$ Ano", fmt_brl(resumo_ano_tecfil["Realizado R$"]))
         with c5:
-            kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
+            kpi_metric(f"YTD Fat. {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -8322,7 +8353,7 @@ with tab0:
         with c4:
             kpi_metric("Resultado %", fmt_pct(resumo_ano_rf["Resultado %"]))
         with c5:
-            kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
+            kpi_metric(f"YTD Fat. {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -8373,7 +8404,7 @@ with tab0:
         with c4:
             kpi_metric("Tx. Sucesso", fmt_pct(resumo_ano_geral["Tx. Sucesso"]))
         with c5:
-            kpi_metric(f"YTD {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
+            kpi_metric(f"YTD Fat. {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -9252,7 +9283,10 @@ with tab3:
             hide_index=True,
         )
 
-        titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado do período atual contra o mesmo período do ano anterior.")
+        if eh_moto_margem(indicador):
+            titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado de Faturamento, Compra, Margem Bruta e Tx. Sucesso contra o mesmo período do ano anterior.")
+        else:
+            titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado do período atual contra o mesmo período do ano anterior.")
         df_periodo_tela = comparar_mesmo_periodo(df, indicador)
         cards_comparativo_periodo(df_periodo_tela, indicador)
 
@@ -9477,7 +9511,10 @@ with tab3:
                 hide_index=True,
             )
 
-        titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado do período atual contra o mesmo período do ano anterior.")
+        if eh_moto_margem(indicador):
+            titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado de Faturamento, Compra, Margem Bruta e Tx. Sucesso contra o mesmo período do ano anterior.")
+        else:
+            titulo_secao("Mesmo período x ano anterior", "Comparativo acumulado do período atual contra o mesmo período do ano anterior.")
         df_periodo_tela = comparar_mesmo_periodo(df, indicador)
         cards_comparativo_periodo(df_periodo_tela, indicador)
 
