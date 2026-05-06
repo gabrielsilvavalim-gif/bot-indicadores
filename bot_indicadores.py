@@ -5755,25 +5755,48 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
         return aplicar_tema_plotly_mazola(fig)
 
-    dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
-    if dados.empty:
-        return None
+    # Bloco genérico do gráfico.
+    # Correção: Despesa Manutenção agora usa a tabela:
+    # Mês | Limite | Despesa | Result. R$ | Result. % | Acumulado
+    # Portanto, nesse caso não existe mais a coluna "Realizado".
+    if indicador and eh_despesa_manutencao(indicador) and "Despesa" in df_completa.columns and "Limite" in df_completa.columns:
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Despesa"].notna())].copy()
+        if dados.empty:
+            return None
 
-    ultimo_mes = dados["Mês"].iloc[-1]
+        dados = dados.rename(columns={"Despesa": "Realizado", "Limite": "Meta"})
+        ultimo_mes = dados["Mês"].iloc[-1]
 
-    if indicador and eh_despesa_manutencao(indicador):
         titulo_final = titulo or f"Despesa x Limite — até {ultimo_mes}/{ano}"
         nome_realizado = "Despesa"
         nome_meta = "Limite"
+
         cor_barras = [
             COR_VERDE if pd.notna(r) and pd.notna(m) and r <= m else COR_LARANJA
             for r, m in zip(dados["Realizado"], dados["Meta"])
         ]
+
     else:
-        titulo_final = titulo or f"Realizado x Meta — até {ultimo_mes}/{ano}"
-        nome_realizado = "Realizado"
-        nome_meta = "Meta"
-        cor_barras = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(dados["Realizado"], dados["Meta"])]
+        if "Realizado" not in df_completa.columns:
+            return None
+
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
+        if dados.empty:
+            return None
+
+        ultimo_mes = dados["Mês"].iloc[-1]
+
+        titulo_final = titulo or f"{rotulo_realizado(indicador)} x {rotulo_meta(indicador)} — até {ultimo_mes}/{ano}"
+        nome_realizado = rotulo_realizado(indicador)
+        nome_meta = rotulo_meta(indicador)
+
+        if indicador and eh_despesa_manutencao(indicador):
+            cor_barras = [
+                COR_VERDE if pd.notna(r) and pd.notna(m) and r <= m else COR_LARANJA
+                for r, m in zip(dados["Realizado"], dados["Meta"])
+            ]
+        else:
+            cor_barras = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(dados["Realizado"], dados["Meta"])]
 
     texto_barras = []
     for realizado_valor, meta_valor in zip(dados["Realizado"], dados["Meta"]):
@@ -5989,7 +6012,7 @@ def insight_meta_texto(atingimento=None, gap=None, indicador=None):
         falta = fmt_brl(abs(gap)) if gap is not None and pd.notna(gap) else "-"
         return "Atenção à meta", f"O indicador está em {ating_fmt} da meta. Falta aproximadamente {falta} para atingir o objetivo.", "warn"
     except Exception:
-        return "Status do período", "Resumo executivo indisponível para este indicador.", "warn"
+        return "Status do período", "Resumo indisponível para este indicador.", "warn"
 
 
 def insight_variacao_texto(delta=None, nome="YTD"):
@@ -7024,7 +7047,7 @@ Pergunta/solicitação: {pergunta}
 {periodo_txt}
 
 Estruture sua resposta com:
-1. Resumo executivo
+1. Resumo
 2. Pontos de atenção
 3. Tendências identificadas
 4. Sugestões práticas de melhoria
@@ -8121,7 +8144,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.3 — acumulado trimestre semestre")
+    st.caption("v5.0 etapa 10.5 — correção gráfico manutenção final")
 
 
 
@@ -8239,7 +8262,7 @@ st.markdown(
 if eh_admin():
     tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Visão Geral",
-        "📅 Por Ano",
+        "📅 Períodos",
         "📈 MoM",
         "🔁 YoY",
         "📌 Projeção",
@@ -8249,7 +8272,7 @@ if eh_admin():
 else:
     tab0, tab1, tab2, tab3 = st.tabs([
         "📊 Visão Geral",
-        "📅 Por Ano",
+        "📅 Períodos",
         "📈 MoM",
         "🔁 YoY"
     ])
@@ -8609,7 +8632,7 @@ with tab0:
 
     periodo_contexto = periodo_contexto_por_data_ou_dados(base_kpi, ano_kpi, data_geracao_planilha)
     renderizar_capa_premium(indicador, filial, ano_kpi, periodo_contexto, data_geracao_planilha, df)
-    titulo_secao("Resumo executivo", "Principais indicadores consolidados do período selecionado.")
+    titulo_secao("Resumo", "Principais indicadores consolidados do período selecionado.")
 
     if eh_moto_margem(indicador):
         resumo_ano_moto = resumo_moto_por_grupo(base_kpi)
@@ -9046,10 +9069,10 @@ with tab0:
 
 
 # =========================
-# ABA POR ANO
+# ABA PERÍODOS
 # =========================
 with tab1:
-    titulo_secao("Por Ano", f"{indicador} — {filial}: acompanhamento mensal com tabela detalhada e gráfico interativo.")
+    titulo_secao("Períodos", f"{indicador} — {filial}: acompanhamento mensal, trimestral e semestral com tabela detalhada e gráfico interativo.")
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos) - 1)
