@@ -219,19 +219,64 @@ def verificar_senha_acesso():
                 color: #374151 !important;
             }
 
-            div[data-testid="stTextInput"] input {
-                border-radius: 13px !important;
-                border: 1px solid #D1D5DB !important;
+            /* Campo externo do input: remove sombra/dupla borda do Streamlit */
+            div[data-testid="stTextInput"] [data-baseweb="input"] {
+                border: 1.4px solid #D1D5DB !important;
+                border-radius: 14px !important;
                 background: #FFFFFF !important;
+                box-shadow: none !important;
+                outline: none !important;
+                transition: border-color .12s ease !important;
+            }
+
+            div[data-testid="stTextInput"] [data-baseweb="input"]:focus-within {
+                border: 1.4px solid #F26522 !important;
+                box-shadow: none !important;
+                outline: none !important;
+            }
+
+            div[data-testid="stTextInput"] [data-baseweb="input"] > div {
+                background: transparent !important;
+                box-shadow: none !important;
+                outline: none !important;
+                border: none !important;
+            }
+
+            div[data-testid="stTextInput"] input {
+                border: none !important;
+                border-radius: 14px !important;
+                background: transparent !important;
                 min-height: 45px !important;
                 font-size: 14px !important;
                 font-weight: 600 !important;
                 padding-left: 12px !important;
+                box-shadow: none !important;
+                outline: none !important;
+                background-image: none !important;
+                -webkit-appearance: none !important;
             }
 
-            div[data-testid="stTextInput"] input:focus {
-                border-color: #F26522 !important;
-                box-shadow: 0 0 0 3px rgba(242,101,34,0.16) !important;
+            div[data-testid="stTextInput"] input:focus,
+            div[data-testid="stTextInput"] input:active,
+            div[data-testid="stTextInput"] input:focus-visible {
+                border: none !important;
+                box-shadow: none !important;
+                outline: none !important;
+                background-image: none !important;
+            }
+
+            /* Remove a mensagem "Press Enter to submit form" */
+            div[data-testid="InputInstructions"] {
+                display: none !important;
+            }
+
+
+            div[data-testid="stTextInput"] {
+                margin-bottom: 12px !important;
+            }
+
+            div[data-testid="stTextInput"] label {
+                margin-bottom: 4px !important;
             }
 
             div[data-testid="stFormSubmitButton"] button {
