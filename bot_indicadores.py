@@ -535,7 +535,7 @@ QUALQUER = "__ANY__"
 LOGO_ARQUIVO = "MazolaCertificado.ico"
 TZ_BR = ZoneInfo("America/Sao_Paulo")
 LIMITE_DESPESA_GERAL_PADRAO = 0.71  # 71% - limite válido a partir de 2026 para Despesa Geral
-META_RESULTADO_FINANCEIRO_PADRAO = 0.05  # 5% - meta padrão do Resultado Financeiro
+META_RESULTADO_FINANCEIRO_PADRAO = None  # Resultado Financeiro: meta vem da coluna H da base
 
 try:
     client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
@@ -1524,26 +1524,30 @@ def meta_ponderada_resultado_financeiro(grupo):
     """
     Meta do Resultado Financeiro.
 
-    Regra corrigida:
-    - tenta usar a META da base quando houver valor preenchido;
-    - se a base não trouxer meta preenchida, usa a meta padrão de 5%;
-    - isso evita a coluna Meta % aparecer como None no Resultado Financeiro.
+    Regra correta:
+    a meta deve ser buscada na coluna H da base, respeitando os filtros:
+    - coluna A = filial selecionada
+    - coluna B = ECONOMICO
+    - coluna C = RESULTADO FINANCEIRO
+    - coluna D = vazia
+    - coluna E = vazia
+    - coluna F = mês/referência
+    - coluna H = meta
+
+    Observação:
+    Não existe mais meta padrão fixa de 5%.
+    Se a coluna H estiver vazia no mês/período, a meta fica vazia.
     """
     if grupo is None or grupo.empty:
-        return META_RESULTADO_FINANCEIRO_PADRAO
+        return None
 
-    if "META" not in grupo.columns:
-        return META_RESULTADO_FINANCEIRO_PADRAO
+    if "META_PERCENTUAL_CALC" in grupo.columns:
+        meta_raw = pd.to_numeric(grupo["META_PERCENTUAL_CALC"], errors="coerce").dropna()
+        meta_raw = meta_raw[meta_raw != 0]
+        if not meta_raw.empty:
+            return meta_raw.mean()
 
-    meta_raw = pd.to_numeric(grupo.get("META"), errors="coerce")
-    meta_raw = meta_raw.dropna()
-    meta_raw = meta_raw[meta_raw != 0]
-
-    if meta_raw.empty:
-        return META_RESULTADO_FINANCEIRO_PADRAO
-
-    meta_pct = ajustar_percentual_meta(meta_raw)
-    return meta_pct.mean() if len(meta_pct) else META_RESULTADO_FINANCEIRO_PADRAO
+    return None
 
 def resumo_resultado_financeiro_por_grupo(grupo):
     if grupo is None or grupo.empty:
@@ -1592,24 +1596,28 @@ def consolidar_resultado_financeiro(df):
     TIPO DE META = %
 
     Fórmulas:
-    META % = usa a meta da base quando existir; se não existir, usa 5,0%
+    META % = coluna H da base, após os filtros de filial, econômico, resultado financeiro e mês
     Resultado % = 1 - (Despesa / Receita)
     Resultado R$ = (Receita x Resultado %) - (Receita x Meta %)
 
     Observação:
-    O Resultado Financeiro precisa de uma meta para calcular o Resultado R$.
-    Quando a base não trouxer meta preenchida, o app usa a meta padrão de 5,0%.
+    Não há meta padrão fixa.
+    Se a coluna H estiver vazia para o mês/filial, a meta fica vazia.
     """
     d = df.copy()
 
     # Meta do Resultado Financeiro:
-    # usa a meta da base quando houver valor; se não houver, aplica a meta padrão de 5%.
-    if "META" in d.columns:
-        meta_raw = pd.to_numeric(d.get("META"), errors="coerce")
+    # REGRA CORRETA: buscar a meta na coluna H da base.
+    # Como aplicar_filtro_base já filtrou:
+    # A = filial, B = ECONOMICO, C = RESULTADO FINANCEIRO, D/E vazias e F = mês,
+    # aqui usamos a coluna H como fonte da meta.
+    col_meta_h = coluna_por_indice(d, 8)  # H
+    if col_meta_h is not None:
+        meta_raw = pd.to_numeric(d[col_meta_h], errors="coerce")
         d["META_PERCENTUAL_CALC"] = ajustar_percentual_meta(meta_raw)
-        d.loc[meta_raw.fillna(0) == 0, "META_PERCENTUAL_CALC"] = META_RESULTADO_FINANCEIRO_PADRAO
+        d.loc[meta_raw.fillna(0) == 0, "META_PERCENTUAL_CALC"] = pd.NA
     else:
-        d["META_PERCENTUAL_CALC"] = META_RESULTADO_FINANCEIRO_PADRAO
+        d["META_PERCENTUAL_CALC"] = pd.NA
 
     # Despesa: coluna J:J / VALOR REF 01
     d["DESPESA_CALC"] = serie_numerica_por_coluna(
@@ -7981,7 +7989,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9.5 — meta resultado financeiro corrigida")
+    st.caption("v5.0 etapa 9.6 — meta RF pela coluna H")
 
 
 
