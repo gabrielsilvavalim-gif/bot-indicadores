@@ -8121,7 +8121,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.1 — tabela despesa manutenção")
+    st.caption("v5.0 etapa 10.3 — acumulado trimestre semestre")
 
 
 
@@ -8256,6 +8256,345 @@ else:
     tab4 = None
     tab5 = None
     tab6 = None
+
+
+
+# =========================
+# RESUMOS ACUMULADOS — TRIMESTRE / SEMESTRE
+# =========================
+def _mes_numero_por_nome(valor):
+    """Converte nome abreviado do mês em número."""
+    if valor is None or pd.isna(valor):
+        return None
+
+    txt = normalizar_texto(str(valor)).replace(".", "").strip()
+
+    mapa = {
+        "JAN": 1, "JANEIRO": 1,
+        "FEV": 2, "FEVEREIRO": 2,
+        "MAR": 3, "MARCO": 3, "MARÇO": 3,
+        "ABR": 4, "ABRIL": 4,
+        "MAI": 5, "MAIO": 5,
+        "JUN": 6, "JUNHO": 6,
+        "JUL": 7, "JULHO": 7,
+        "AGO": 8, "AGOSTO": 8,
+        "SET": 9, "SETEMBRO": 9,
+        "OUT": 10, "OUTUBRO": 10,
+        "NOV": 11, "NOVEMBRO": 11,
+        "DEZ": 12, "DEZEMBRO": 12,
+    }
+
+    return mapa.get(txt)
+
+
+def _periodo_por_mes(mes, modo):
+    if mes is None or pd.isna(mes):
+        return None
+
+    mes = int(mes)
+
+    if modo == "Trimestre":
+        tri = ((mes - 1) // 3) + 1
+        inicio = ((tri - 1) * 3) + 1
+        fim = tri * 3
+        return f"{tri}º Trim ({MESES_MAPA[inicio]} a {MESES_MAPA[fim]})"
+
+    if modo == "Semestre":
+        sem = 1 if mes <= 6 else 2
+        return "1º Sem (Jan a Jun)" if sem == 1 else "2º Sem (Jul a Dez)"
+
+    return MESES_MAPA.get(mes, str(mes))
+
+
+def _somar_coluna(df, coluna):
+    if df is None or df.empty or coluna not in df.columns:
+        return None
+    serie = pd.to_numeric(df[coluna], errors="coerce")
+    if serie.dropna().empty:
+        return None
+    return serie.fillna(0).sum()
+
+
+def _media_coluna(df, coluna):
+    if df is None or df.empty or coluna not in df.columns:
+        return None
+    serie = pd.to_numeric(df[coluna], errors="coerce").dropna()
+    if serie.empty:
+        return None
+    return serie.mean()
+
+
+def montar_resumo_periodo(df_mensal, indicador, modo):
+    """
+    Monta resumo acumulado por Trimestre ou Semestre sem alterar as fórmulas-base.
+    """
+    if df_mensal is None or df_mensal.empty or modo not in ["Trimestre", "Semestre"]:
+        return pd.DataFrame()
+
+    if "Mês" not in df_mensal.columns:
+        return pd.DataFrame()
+
+    base = df_mensal.copy()
+    base = base[~base["Mês"].astype(str).str.upper().isin(["TOTAL", "MÉDIA", "MEDIA"])].copy()
+    base["_MES_NUM"] = base["Mês"].apply(_mes_numero_por_nome)
+    base = base[base["_MES_NUM"].notna()].copy()
+
+    if base.empty:
+        return pd.DataFrame()
+
+    base["_PERIODO"] = base["_MES_NUM"].apply(lambda m: _periodo_por_mes(m, modo))
+
+    rows = []
+    acumulado = 0
+
+    for periodo, sub in base.groupby("_PERIODO", sort=False):
+        row = {"Mês": periodo}
+
+        if eh_moto_margem(indicador):
+            faturamento = _somar_coluna(sub, "Faturamento")
+            compra = _somar_coluna(sub, "Compra")
+            margem = (faturamento or 0) - (compra or 0) if faturamento is not None or compra is not None else None
+
+            meta_col = "Meta" if "Meta" in sub.columns else "Meta %"
+            meta_pond = None
+            if faturamento and faturamento > 0 and meta_col in sub.columns:
+                fat = pd.to_numeric(sub.get("Faturamento"), errors="coerce").fillna(0)
+                meta = pd.to_numeric(sub.get(meta_col), errors="coerce").fillna(0)
+                meta_pond = (fat * meta).sum() / fat.sum() if fat.sum() > 0 else None
+
+            tx = margem / faturamento if faturamento and faturamento > 0 else None
+            acumulado += margem if margem is not None and pd.notna(margem) else 0
+
+            row.update({
+                "Meta": meta_pond,
+                "Compra": compra,
+                "Faturamento": faturamento,
+                "Margem Bruta": margem,
+                "Tx. Sucesso": tx,
+                "Acumulado": acumulado,
+            })
+
+        elif eh_despesa_geral(indicador):
+            despesa = _somar_coluna(sub, "Despesa")
+            receita = _somar_coluna(sub, "Receita")
+
+            limite_pct = None
+            if receita and receita > 0 and "Limite %" in sub.columns:
+                rec = pd.to_numeric(sub.get("Receita"), errors="coerce").fillna(0)
+                lim = pd.to_numeric(sub.get("Limite %"), errors="coerce").fillna(0)
+                limite_pct = (rec * lim).sum() / rec.sum() if rec.sum() > 0 else None
+            else:
+                limite_pct = _media_coluna(sub, "Limite %")
+
+            limite_rs = receita * limite_pct if receita is not None and limite_pct is not None and pd.notna(limite_pct) else None
+            resultado_rs = limite_rs - despesa if limite_rs is not None and despesa is not None else None
+            tx = despesa / receita if receita and receita > 0 else None
+
+            acumulado += resultado_rs if resultado_rs is not None and pd.notna(resultado_rs) else 0
+
+            row.update({
+                "Limite %": limite_pct,
+                "Despesa": despesa,
+                "Receita": receita,
+                "Resultado R$": resultado_rs,
+                "Tx. Sucesso": tx,
+                "Acumulado": acumulado,
+            })
+
+        elif eh_resultado_financeiro(indicador):
+            despesa = _somar_coluna(sub, "Despesa")
+            receita = _somar_coluna(sub, "Receita")
+
+            meta_pct = None
+            if receita and receita > 0 and "Meta %" in sub.columns:
+                rec = pd.to_numeric(sub.get("Receita"), errors="coerce").fillna(0)
+                meta = pd.to_numeric(sub.get("Meta %"), errors="coerce").fillna(0)
+                meta_pct = (rec * meta).sum() / rec.sum() if rec.sum() > 0 else None
+            else:
+                meta_pct = _media_coluna(sub, "Meta %")
+
+            resultado_pct = 1 - (despesa / receita) if receita and receita > 0 else None
+            resultado_rs = receita * (resultado_pct - meta_pct) if receita is not None and resultado_pct is not None and meta_pct is not None and pd.notna(meta_pct) else None
+
+            acumulado += resultado_rs if resultado_rs is not None and pd.notna(resultado_rs) else 0
+
+            row.update({
+                "Meta %": meta_pct,
+                "Despesa": despesa,
+                "Receita": receita,
+                "Resultado R$": resultado_rs,
+                "Resultado %": resultado_pct,
+                "Acumulado": acumulado,
+            })
+
+        elif eh_despesa_manutencao(indicador):
+            limite = _somar_coluna(sub, "Limite")
+            despesa = _somar_coluna(sub, "Despesa")
+            resultado_rs = limite - despesa if limite is not None and despesa is not None else None
+            resultado_pct = 1 - (despesa / limite) if limite and limite > 0 else None
+
+            acumulado += resultado_rs if resultado_rs is not None and pd.notna(resultado_rs) else 0
+
+            row.update({
+                "Limite": limite,
+                "Despesa": despesa,
+                "Result. R$": resultado_rs,
+                "Result. %": resultado_pct,
+                "Acumulado": acumulado,
+            })
+
+        elif eh_despesa_hora_extra(indicador):
+            limite = _somar_coluna(sub, "Limite")
+            pago = _somar_coluna(sub, "Pago em Hora Extra")
+            salario = _somar_coluna(sub, "Salário")
+            he_folha = pago / salario if salario and salario > 0 else None
+            saldo = limite - pago if limite is not None and pago is not None else None
+            resultado_pct = pago / limite if limite and limite > 0 else None
+
+            row.update({
+                "Limite": limite,
+                "Pago em Hora Extra": pago,
+                "Salário": salario,
+                "HE da Folha": he_folha,
+                "Saldo do Limite": saldo,
+                "Resultado %": resultado_pct,
+            })
+
+        elif eh_tecfil(indicador):
+            meta_kg = _somar_coluna(sub, "Meta KG")
+            meta_rs = _somar_coluna(sub, "Meta R$")
+            real_kg = _somar_coluna(sub, "Realizado KG")
+            real_rs = _somar_coluna(sub, "Realizado R$")
+            dif_kg = real_kg - meta_kg if real_kg is not None and meta_kg is not None else None
+            dif_rs = real_rs - meta_rs if real_rs is not None and meta_rs is not None else None
+            pct_kg = dif_kg / meta_kg if meta_kg and meta_kg > 0 else None
+            pct_rs = dif_rs / meta_rs if meta_rs and meta_rs > 0 else None
+
+            row.update({
+                "Meta KG": meta_kg,
+                "Meta R$": meta_rs,
+                "Realizado KG": real_kg,
+                "Realizado R$": real_rs,
+                "% Dif. KG": pct_kg,
+                "% Dif. R$": pct_rs,
+                "Dif. KG": dif_kg,
+                "Dif. R$": dif_rs,
+            })
+
+        elif eh_qualidade(indicador):
+            meta = _media_coluna(sub, "Meta")
+            qtd = _somar_coluna(sub, "Qtd. Coletas")
+
+            qtd_sucesso_col = "Qtd. Sucesso"
+            for c in sub.columns:
+                if "Sucesso" in str(c) and c != "Tx. Sucesso":
+                    qtd_sucesso_col = c
+                    break
+
+            qtd_sucesso = _somar_coluna(sub, qtd_sucesso_col)
+            resultado_pct = qtd_sucesso / qtd if qtd and qtd > 0 and qtd_sucesso is not None else _media_coluna(sub, "Resultado %")
+
+            if modelo_qualidade(indicador) == "parametro_coleta_critico":
+                diferenca = _somar_coluna(sub, "Resultado")
+                row.update({
+                    "Meta": meta,
+                    "Qtd. Coletas": qtd,
+                    qtd_sucesso_col: qtd_sucesso,
+                    "Resultado": diferenca,
+                    "Resultado %": resultado_pct,
+                })
+            else:
+                diferenca = _somar_coluna(sub, "Diferença")
+                row.update({
+                    "Meta": meta,
+                    "Qtd. Coletas": qtd,
+                    qtd_sucesso_col: qtd_sucesso,
+                    "Diferença": diferenca,
+                    "Resultado %": resultado_pct,
+                })
+
+        else:
+            meta = _somar_coluna(sub, "Meta")
+            realizado = _somar_coluna(sub, "Realizado")
+            gap = realizado - meta if realizado is not None and meta is not None else None
+            ating = realizado / meta if meta and meta > 0 else None
+
+            acumulado += gap if gap is not None and pd.notna(gap) else 0
+
+            row.update({
+                "Meta": meta,
+                "Realizado": realizado,
+                "Gap (R$)": gap,
+                "Atingimento": ating,
+                "Acumulado": acumulado,
+            })
+
+        rows.append(row)
+
+    return pd.DataFrame(rows).replace([float("inf"), float("-inf")], pd.NA)
+
+
+def renderizar_tabela_periodo_acumulado(df_periodo, indicador, modo):
+    """Renderiza o resumo trimestral/semestral com formatação compatível."""
+    if df_periodo is None or df_periodo.empty:
+        st.info(f"Sem dados suficientes para montar o resumo por {modo.lower()}.")
+        return
+
+    st.markdown(f"#### Resumo acumulado por {modo.lower()}")
+    st.caption("Os valores são acumulados a partir da própria tabela mensal do ano selecionado, sem alterar as fórmulas-base do indicador.")
+
+    fmt = {
+        "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+        "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "",
+        "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+        "Result. R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+        "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "",
+        "Result. %": lambda v: fmt_pct(v) if pd.notna(v) else "",
+        "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "",
+        "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "",
+        "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "",
+        "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Acumulado": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+        "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "HE da Folha": lambda v: fmt_pct(v) if pd.notna(v) else "",
+        "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+        "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "",
+        "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Realizado KG": lambda v: fmt_num(v) if pd.notna(v) else "",
+        "Realizado R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "% Dif. KG": lambda v: fmt_pct(v) if pd.notna(v) else "",
+        "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "",
+        "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "",
+        "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "",
+        "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "",
+        "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "",
+        "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "",
+    }
+    fmt = {k: v for k, v in fmt.items() if k in df_periodo.columns}
+
+    styler = df_periodo.style.format(fmt)
+
+    try:
+        for col in ["Gap (R$)", "Resultado R$", "Result. R$", "Saldo do Limite", "Acumulado"]:
+            if col in df_periodo.columns:
+                styler = styler.map(lambda v: cor_gap_valor(v, False), subset=[col])
+
+        for col in ["Atingimento", "Resultado %", "Result. %", "Tx. Sucesso"]:
+            if col in df_periodo.columns:
+                styler = styler.map(lambda v: f"color: {COR_VERDE}; font-weight:bold" if pd.notna(v) and v >= 0 else (f"color: {COR_LARANJA}; font-weight:bold" if pd.notna(v) else ""), subset=[col])
+    except Exception:
+        pass
+
+    st.dataframe(styler, use_container_width=True, hide_index=True)
 
 
 # =========================
@@ -8616,11 +8955,15 @@ with tab0:
         if eh_despesa_hora_extra(indicador):
             dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Pago em Hora Extra"])
         else:
-            dados_chart = (
-            df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Pago em Hora Extra"])
-            if eh_despesa_hora_extra(indicador)
-            else df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Realizado"])
-        )
+            # Despesa Manutenção agora usa a estrutura:
+            # Mês | Limite | Despesa | Result. R$ | Result. % | Acumulado
+            # Portanto não existe mais a coluna "Realizado" nessa tabela.
+            if eh_despesa_manutencao(indicador):
+                dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Despesa"])
+            elif eh_despesa_hora_extra(indicador):
+                dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Pago em Hora Extra"])
+            else:
+                dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Realizado"])
 
         if not dados_chart.empty:
             ultimo_mes = dados_chart["Mês"].iloc[-1]
@@ -8710,10 +9053,26 @@ with tab1:
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos) - 1)
+
+    modo_periodo = st.radio(
+        "Tipo de visualização",
+        ["Mensal", "Trimestre", "Semestre"],
+        horizontal=True,
+        key=f"modo_periodo_por_ano_{indicador}_{filial}_{ano_selecionado}",
+        help="Use Trimestre ou Semestre para visualizar o acumulado do período selecionado. As fórmulas não mudam; os valores apenas são acumulados."
+    )
+
     if eh_moto_margem(indicador):
         df_completa = tabela_pneus_moto_ano(df, ano_selecionado)
     else:
         df_completa = tabela_completa_ano(df, ano_selecionado, indicador)
+
+    if modo_periodo in ["Trimestre", "Semestre"]:
+        df_periodo_acumulado = montar_resumo_periodo(df_completa, indicador, modo_periodo)
+        renderizar_tabela_periodo_acumulado(df_periodo_acumulado, indicador, modo_periodo)
+        st.divider()
+        st.markdown("#### Detalhamento mensal")
+        st.caption("Abaixo permanece a abertura mensal original para conferência dos valores que formam o acumulado.")
 
     if eh_moto_margem(indicador):
         def destacar_total_moto(row):
