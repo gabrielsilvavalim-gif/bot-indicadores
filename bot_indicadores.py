@@ -4675,84 +4675,326 @@ def formatar_generico_por_coluna(valor, coluna):
     return fmt_brl(valor)
 
 
+def _parse_data_base_segura(data_geracao_planilha):
+    """
+    Converte a data da base para datetime.
+    Usa parse_data_geracao() se ela já existir no seu código.
+    """
+    try:
+        if "parse_data_geracao" in globals():
+            dt = parse_data_geracao(data_geracao_planilha)
+            if dt is not None:
+                return dt
+    except Exception:
+        pass
+
+    try:
+        dt = pd.to_datetime(data_geracao_planilha, errors="coerce", dayfirst=True)
+        if pd.isna(dt):
+            return None
+        return dt.to_pydatetime()
+    except Exception:
+        return None
+
+def _dias_uteis_periodo(inicio, fim):
+    """
+    Conta dias úteis entre duas datas, considerando segunda a sexta.
+    Não desconta feriados, pois isso exigiria calendário específico.
+    """
+    try:
+        inicio = pd.to_datetime(inicio).date()
+        fim = pd.to_datetime(fim).date()
+        if fim < inicio:
+            return 0
+        return len(pd.bdate_range(inicio, fim))
+    except Exception:
+        return 0
+
+def _dias_uteis_mes_seguro(ano, mes):
+    try:
+        inicio = date(int(ano), int(mes), 1)
+        ultimo_dia = calendar.monthrange(int(ano), int(mes))[1]
+        fim = date(int(ano), int(mes), ultimo_dia)
+        return _dias_uteis_periodo(inicio, fim)
+    except Exception:
+        return None
+
+def _dias_uteis_ate_data_no_mes(data_base):
+    try:
+        data_base = pd.to_datetime(data_base).date()
+        inicio = date(data_base.year, data_base.month, 1)
+        return _dias_uteis_periodo(inicio, data_base)
+    except Exception:
+        return None
+
+def _coluna_existente(df, candidatos):
+    """
+    Retorna a primeira coluna existente em df dentro da lista de candidatos.
+    """
+    if df is None or df.empty:
+        return None
+
+    colunas_norm = {normalizar_texto(c): c for c in df.columns}
+
+    for c in candidatos:
+        if c in df.columns:
+            return c
+
+    for c in candidatos:
+        c_norm = normalizar_texto(c)
+        if c_norm in colunas_norm:
+            return colunas_norm[c_norm]
+
+    return None
+
+def _serie_num(df, coluna):
+    if df is None or df.empty or coluna is None or coluna not in df.columns:
+        return pd.Series(dtype="float64")
+    return pd.to_numeric(df[coluna], errors="coerce")
+
+def _mes_base_projecao(df, ano, data_geracao_planilha):
+    """
+    Define o mês-base da projeção:
+    1) Se a data da base for do ano analisado, usa o mês da data da base.
+    2) Caso contrário, usa o último mês com dado no dataframe.
+    """
+    data_base = _parse_data_base_segura(data_geracao_planilha)
+
+    if data_base is not None and int(data_base.year) == int(ano):
+        return int(data_base.month)
+
+    try:
+        meses = pd.to_numeric(df.loc[df["ANO"] == ano, "MÊS"], errors="coerce").dropna()
+        if not meses.empty:
+            return int(meses.max())
+    except Exception:
+        pass
+
+    return int(agora_br().month) if "agora_br" in globals() else int(datetime.now().month)
+
+def _agrupar_mensal_para_projecao(df, indicador):
+    """
+    Cria uma tabela mensal simples e robusta direto do dataframe filtrado.
+    Essa função evita o problema da aba Projeção ficar em branco quando
+    obter_tabela_mensal_ano() não retorna as colunas esperadas.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    d = df.copy()
+
+    if "ANO" not in d.columns or "MÊS" not in d.columns:
+        if "REFERÊNCIA" in d.columns:
+            d["REFERÊNCIA"] = pd.to_datetime(d["REFERÊNCIA"], errors="coerce")
+            d = d[d["REFERÊNCIA"].notna()].copy()
+            d["ANO"] = d["REFERÊNCIA"].dt.year
+            d["MÊS"] = d["REFERÊNCIA"].dt.month
+        else:
+            return pd.DataFrame()
+
+    col_real = _coluna_existente(
+        d,
+        [
+            "REALIZADO_CALC",
+            "VALOR REF 01",
+            "FATURAMENTO_MOTO_CALC",
+            "RECEITA_CALC",
+            "DESPESA_CALC",
+            "REAL_RS",
+            "Realizado",
+            "Faturamento",
+            "Receita",
+            "Despesa",
+        ],
+    )
+
+    col_meta = _coluna_existente(
+        d,
+        [
+            "META_CALC",
+            "META",
+            "LIMITE_RS_CALC",
+            "META_RS",
+            "Meta",
+            "Limite R$",
+        ],
+    )
+
+    if col_real is None:
+        return pd.DataFrame()
+
+    d["_REAL_PROJ"] = pd.to_numeric(d[col_real], errors="coerce").fillna(0)
+
+    if col_meta is not None:
+        d["_META_PROJ"] = pd.to_numeric(d[col_meta], errors="coerce")
+    else:
+        d["_META_PROJ"] = pd.NA
+
+    mensal = (
+        d.groupby(["ANO", "MÊS"], as_index=False)
+        .agg(
+            REALIZADO_PROJ=("_REAL_PROJ", "sum"),
+            META_PROJ=("_META_PROJ", "sum"),
+        )
+        .sort_values(["ANO", "MÊS"])
+        .reset_index(drop=True)
+    )
+
+    mensal["MÊS_NOME"] = mensal["MÊS"].map(MESES_MAPA) + "/" + mensal["ANO"].astype(str)
+
+    return mensal
+
 def calcular_projecao_mes(df, indicador, data_geracao_planilha):
     """
-    Calcula projeção mensal.
-    Diferente da aba Análise: aqui o foco é ritmo, fechamento projetado e gap projetado.
+    Calcula a projeção mensal com base em dias úteis.
+
+    Regra:
+    - Pega o mês da data de geração da base.
+    - Soma o realizado do mês.
+    - Divide o realizado pelos dias úteis já decorridos no mês.
+    - Projeta o fechamento multiplicando a média diária pelo total de dias úteis do mês.
+    - Também calcula uma projeção alternativa pela média diária do ano.
     """
-    anos = sorted(df["ANO"].dropna().unique()) if df is not None and not df.empty else []
+    if df is None or df.empty:
+        return {}
+
+    d = df.copy()
+
+    if "ANO" not in d.columns or "MÊS" not in d.columns:
+        if "REFERÊNCIA" in d.columns:
+            d["REFERÊNCIA"] = pd.to_datetime(d["REFERÊNCIA"], errors="coerce")
+            d = d[d["REFERÊNCIA"].notna()].copy()
+            d["ANO"] = d["REFERÊNCIA"].dt.year
+            d["MÊS"] = d["REFERÊNCIA"].dt.month
+        else:
+            return {}
+
+    anos = sorted(pd.to_numeric(d["ANO"], errors="coerce").dropna().astype(int).unique().tolist())
     if not anos:
         return {}
 
     ano = int(anos[-1])
-    mes = mes_base_por_data(df, ano, data_geracao_planilha)
+    data_base = _parse_data_base_segura(data_geracao_planilha)
+    mes = _mes_base_projecao(d, ano, data_geracao_planilha)
     mes_nome = MESES_MAPA.get(mes, str(mes))
-    tabela = obter_tabela_mensal_ano(df, indicador, ano)
 
-    if tabela.empty or "MÊS" not in tabela.columns:
-        return {"ano": ano, "mes": mes, "mes_nome": mes_nome}
+    mensal = _agrupar_mensal_para_projecao(d, indicador)
 
-    linha_mes = tabela[tabela["MÊS"] == mes].copy()
+    if mensal.empty:
+        return {
+            "ano": ano,
+            "mes": mes,
+            "mes_nome": mes_nome,
+            "valor_mes": 0,
+            "meta_mes": None,
+            "dias_total": _dias_uteis_mes_seguro(ano, mes),
+            "dias_decorridos": None,
+            "dias_restantes": None,
+            "media_atual": None,
+            "media_ano": None,
+            "projecao": None,
+            "projecao_media_ano": None,
+            "media_necessaria": None,
+            "gap_projetado": None,
+            "data_base": data_geracao_planilha,
+            "col_valor": "REALIZADO_PROJ",
+            "col_meta": "META_PROJ",
+        }
+
+    linha_mes = mensal[(mensal["ANO"] == ano) & (mensal["MÊS"] == mes)].copy()
+
+    # Se a base está em maio/2026, mas ainda não existe linha de maio,
+    # mantém mês de maio e usa valor 0. Isso evita buscar mês anterior e distorcer o contexto.
     if linha_mes.empty:
-        linha_mes = tabela[tabela["MÊS"] <= mes].tail(1).copy()
-
-    col_valor, label_valor = coluna_valor_principal_projecao(tabela, indicador)
-    col_meta, label_meta = coluna_meta_principal_projecao(tabela, indicador)
-
-    valor_mes = None
-    meta_mes = None
-
-    if col_valor and col_valor in linha_mes.columns:
-        valor_mes = pd.to_numeric(linha_mes[col_valor], errors="coerce").fillna(0).sum()
-
-    if col_meta and col_meta in linha_mes.columns:
-        meta_mes = pd.to_numeric(linha_mes[col_meta], errors="coerce").dropna()
-        meta_mes = meta_mes.sum() if not meta_mes.empty else None
-
-    data_base = parse_data_geracao(data_geracao_planilha)
-    dias_total = dias_uteis_mes(ano, mes)
-
-    if data_base is not None and data_base.year == ano and data_base.month == mes:
-        dias_decorridos = dias_uteis_ate_data(data_base)
+        valor_mes = 0
+        meta_mes = None
     else:
-        # Se a data da base não corresponde ao mês analisado, evita criar projeção falsa de "mês em aberto".
+        valor_mes = pd.to_numeric(linha_mes["REALIZADO_PROJ"], errors="coerce").fillna(0).sum()
+        meta_tmp = pd.to_numeric(linha_mes["META_PROJ"], errors="coerce").dropna()
+        meta_mes = meta_tmp.sum() if not meta_tmp.empty else None
+        if meta_mes == 0:
+            # Se a meta vier totalmente zerada, trata como sem meta para não gerar leitura falsa.
+            meta_mes = None
+
+    dias_total = _dias_uteis_mes_seguro(ano, mes)
+
+    if data_base is not None and int(data_base.year) == int(ano) and int(data_base.month) == int(mes):
+        dias_decorridos = _dias_uteis_ate_data_no_mes(data_base)
+    else:
         dias_decorridos = dias_total
 
-    dias_restantes = None
-    if dias_total is not None and dias_decorridos is not None:
+    if dias_total is None:
+        dias_restantes = None
+    else:
+        dias_decorridos = max(min(dias_decorridos or 0, dias_total), 0)
         dias_restantes = max(dias_total - dias_decorridos, 0)
 
     media_atual = None
-    if valor_mes is not None and dias_decorridos not in [None, 0]:
+    if dias_decorridos not in [None, 0]:
         media_atual = valor_mes / dias_decorridos
 
     projecao = None
-    if media_atual is not None and dias_total is not None:
-        projecao = media_atual * dias_total
+    if media_atual is not None and dias_restantes is not None:
+        # Realizado já ocorrido + ritmo atual aplicado aos dias úteis restantes.
+        projecao = valor_mes + (media_atual * dias_restantes)
+
+    # Média diária do ano até a data-base.
+    mensal_ano = mensal[mensal["ANO"] == ano].copy()
+    mensal_ano_ate_mes = mensal_ano[mensal_ano["MÊS"] <= mes].copy()
+
+    realizado_ano_ate_mes = pd.to_numeric(
+        mensal_ano_ate_mes["REALIZADO_PROJ"],
+        errors="coerce"
+    ).fillna(0).sum()
+
+    dias_uteis_ano_decorridos = 0
+    try:
+        for m in range(1, mes + 1):
+            if m < mes:
+                dias_uteis_ano_decorridos += _dias_uteis_mes_seguro(ano, m) or 0
+            else:
+                dias_uteis_ano_decorridos += dias_decorridos or 0
+    except Exception:
+        dias_uteis_ano_decorridos = 0
+
+    media_ano = None
+    if dias_uteis_ano_decorridos > 0:
+        media_ano = realizado_ano_ate_mes / dias_uteis_ano_decorridos
+
+    projecao_media_ano = None
+    if media_ano is not None and dias_restantes is not None:
+        projecao_media_ano = valor_mes + (media_ano * dias_restantes)
 
     media_necessaria = None
     gap_projetado = None
+
     if meta_mes is not None and pd.notna(meta_mes):
         if dias_restantes is not None and dias_restantes > 0:
-            media_necessaria = max((meta_mes - (valor_mes or 0)) / dias_restantes, 0)
-        gap_projetado = (projecao - meta_mes) if projecao is not None else None
+            media_necessaria = max((meta_mes - valor_mes) / dias_restantes, 0)
+        else:
+            media_necessaria = 0 if valor_mes >= meta_mes else None
+
+        if projecao is not None:
+            gap_projetado = projecao - meta_mes
 
     return {
         "ano": ano,
         "mes": mes,
         "mes_nome": mes_nome,
-        "col_valor": col_valor,
-        "label_valor": label_valor,
-        "col_meta": col_meta,
-        "label_meta": label_meta,
+        "col_valor": "REALIZADO_PROJ",
+        "label_valor": "Realizado",
+        "col_meta": "META_PROJ",
+        "label_meta": "Meta",
         "valor_mes": valor_mes,
         "meta_mes": meta_mes,
         "dias_total": dias_total,
         "dias_decorridos": dias_decorridos,
         "dias_restantes": dias_restantes,
         "media_atual": media_atual,
-        "media_necessaria": media_necessaria,
+        "media_ano": media_ano,
         "projecao": projecao,
+        "projecao_media_ano": projecao_media_ano,
+        "media_necessaria": media_necessaria,
         "gap_projetado": gap_projetado,
         "data_base": data_geracao_planilha,
     }
@@ -4773,9 +5015,8 @@ def card_ouro(label, value, note="", status="info"):
 
 def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
     """
-    Aba Projeção:
-    informação de ritmo e tendência de fechamento.
-    Não repete a aba Análise.
+    Aba Projeção corrigida:
+    agora usa dias úteis e calcula a projeção mesmo quando a tabela mensal auxiliar falhar.
     """
     st.markdown(f"<h2 style='margin-bottom:6px;'>📌 Projeção — {indicador} | {filial}</h2>", unsafe_allow_html=True)
 
@@ -4784,24 +5025,35 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
         return
 
     info = calcular_projecao_mes(df, indicador, data_geracao_planilha)
+
     if not info:
         st.warning("Não foi possível calcular a projeção para este indicador.")
         return
 
-    contexto_dashboard(indicador, filial, info.get("ano", "-"), f"{info.get('mes_nome', '-')}/{info.get('ano', '-')}", data_geracao_planilha)
+    contexto_dashboard(
+        indicador,
+        filial,
+        info.get("ano", "-"),
+        f"{info.get('mes_nome', '-')}/{info.get('ano', '-')}",
+        data_geracao_planilha,
+    )
 
-    titulo_secao("Ritmo de fechamento", "Leitura projetada com base no realizado do mês e nos dias úteis.")
+    titulo_secao("Ritmo de fechamento", "Projeção simples calculada pelo faturamento médio por dia útil.")
 
     valor_mes = info.get("valor_mes")
     meta_mes = info.get("meta_mes")
     projecao = info.get("projecao")
+    projecao_media_ano = info.get("projecao_media_ano")
     gap_projetado = info.get("gap_projetado")
     media_atual = info.get("media_atual")
+    media_ano = info.get("media_ano")
     media_necessaria = info.get("media_necessaria")
     col_valor = info.get("col_valor")
     col_meta = info.get("col_meta")
 
-    status_proj = "good" if gap_projetado is not None and pd.notna(gap_projetado) and gap_projetado >= 0 else "warn"
+    status_proj = "info"
+    if gap_projetado is not None and pd.notna(gap_projetado):
+        status_proj = "good" if gap_projetado >= 0 else "warn"
 
     renderizar_semaforo_projecao(info)
 
@@ -4817,7 +5069,7 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
         card_ouro(
             "Projeção de fechamento",
             formatar_generico_por_coluna(projecao, col_valor),
-            "Estimativa usando a média por dia útil.",
+            "Realizado atual + média diária atual x dias úteis restantes.",
             status_proj,
         )
     with col3:
@@ -4841,13 +5093,36 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
             "Média diária necessária",
             formatar_generico_por_coluna(media_necessaria, col_valor),
             f"Para buscar a meta nos {fmt_num(info.get('dias_restantes'))} dias úteis restantes.",
-            "warn" if media_necessaria and media_atual and media_necessaria > media_atual else "good",
+            "good" if media_necessaria is not None and media_atual is not None and media_atual >= media_necessaria else "warn",
         )
     with col6:
         card_ouro(
             "Meta do mês",
             formatar_generico_por_coluna(meta_mes, col_meta),
             f"Dias úteis do mês: {fmt_num(info.get('dias_total'))}.",
+            "info",
+        )
+
+    col7, col8, col9 = st.columns(3)
+    with col7:
+        card_ouro(
+            "Média diária do ano",
+            formatar_generico_por_coluna(media_ano, col_valor),
+            "Média do ano até a data-base.",
+            "info",
+        )
+    with col8:
+        card_ouro(
+            "Projeção pela média do ano",
+            formatar_generico_por_coluna(projecao_media_ano, col_valor),
+            "Alternativa usando o ritmo médio anual.",
+            "info",
+        )
+    with col9:
+        card_ouro(
+            "Dias úteis restantes",
+            fmt_num(info.get("dias_restantes")),
+            "Quantidade aproximada, considerando segunda a sexta.",
             "info",
         )
 
@@ -4861,37 +5136,46 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
         else:
             alerta_executivo_dashboard(
                 "Risco de não atingir a meta",
-                f"Mantido o ritmo atual, a projeção indica fechamento abaixo da meta em <strong>{formatar_generico_por_coluna(abs(gap_projetado), col_valor)}</strong>. O ponto de atenção é a média diária necessária até o fim do mês.",
+                f"Mantido o ritmo atual, a projeção indica fechamento abaixo da meta em <strong>{formatar_generico_por_coluna(abs(gap_projetado), col_valor)}</strong>. O ponto de atenção é elevar a média diária nos dias úteis restantes.",
                 "warn",
             )
 
-    # Gráfico simples e objetivo da projeção, diferente da aba Análise.
-    if valor_mes is not None or meta_mes is not None or projecao is not None:
-        graf = pd.DataFrame({
-            "Indicador": ["Realizado atual", "Projeção", "Meta"],
-            "Valor": [valor_mes or 0, projecao or 0, meta_mes or 0],
-        })
-        fig = go.Figure()
-        cores = [COR_LARANJA, COR_VERDE if status_proj == "good" else COR_LARANJA, COR_AZUL]
-        fig.add_bar(
-            x=graf["Indicador"],
-            y=graf["Valor"],
-            marker_color=cores,
-            text=[formatar_generico_por_coluna(v, col_valor) for v in graf["Valor"]],
-            textposition="outside",
-            hovertemplate="<b>%{x}</b><br>Valor: %{text}<extra></extra>",
-        )
-        fig.update_layout(
-            title="Realizado x Projeção x Meta",
-            height=420,
-            margin=dict(t=70, b=30, l=20, r=20),
-            yaxis_title="Valor",
-            showlegend=False,
-        )
-        st.plotly_chart(aplicar_tema_plotly_mazola(fig), use_container_width=True, key="grafico_projecao_executiva")
+    # Gráfico simples e objetivo da projeção.
+    graf = pd.DataFrame({
+        "Indicador": ["Realizado atual", "Projeção ritmo atual", "Projeção média ano", "Meta"],
+        "Valor": [
+            valor_mes if valor_mes is not None and pd.notna(valor_mes) else 0,
+            projecao if projecao is not None and pd.notna(projecao) else 0,
+            projecao_media_ano if projecao_media_ano is not None and pd.notna(projecao_media_ano) else 0,
+            meta_mes if meta_mes is not None and pd.notna(meta_mes) else 0,
+        ],
+    })
+
+    fig = go.Figure()
+    cores = [COR_LARANJA, COR_VERDE if status_proj == "good" else COR_LARANJA, COR_AZUL, COR_CINZA]
+    fig.add_bar(
+        x=graf["Indicador"],
+        y=graf["Valor"],
+        marker_color=cores,
+        text=[formatar_generico_por_coluna(v, col_valor) for v in graf["Valor"]],
+        textposition="outside",
+        hovertemplate="<b>%{x}</b><br>Valor: %{text}<extra></extra>",
+    )
+    fig.update_layout(
+        title="Realizado x Projeção x Meta",
+        height=420,
+        margin=dict(t=70, b=30, l=20, r=20),
+        yaxis_title="Valor",
+        showlegend=False,
+    )
+    st.plotly_chart(aplicar_tema_plotly_mazola(fig), use_container_width=True, key="grafico_projecao_executiva_corrigida")
 
     titulo_secao("Tabela da projeção", "Base numérica usada no cálculo do ritmo.")
-    st.markdown('<div class="table-note-v5">Use esta tabela para validar os números utilizados na projeção de fechamento.</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="table-note-v5">Use esta tabela para validar os números utilizados na projeção de fechamento.</div>',
+        unsafe_allow_html=True,
+    )
+
     tabela = pd.DataFrame([
         {"Item": "Base atualizada em", "Resultado": info.get("data_base", "-")},
         {"Item": "Mês base", "Resultado": f"{info.get('mes_nome', '-')}/{info.get('ano', '-')}" },
@@ -4901,8 +5185,10 @@ def renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha):
         {"Item": "Realizado no mês", "Resultado": formatar_generico_por_coluna(valor_mes, col_valor)},
         {"Item": "Meta do mês", "Resultado": formatar_generico_por_coluna(meta_mes, col_meta)},
         {"Item": "Média diária atual", "Resultado": formatar_generico_por_coluna(media_atual, col_valor)},
+        {"Item": "Média diária do ano", "Resultado": formatar_generico_por_coluna(media_ano, col_valor)},
         {"Item": "Média diária necessária", "Resultado": formatar_generico_por_coluna(media_necessaria, col_valor)},
         {"Item": "Projeção de fechamento", "Resultado": formatar_generico_por_coluna(projecao, col_valor)},
+        {"Item": "Projeção pela média do ano", "Resultado": formatar_generico_por_coluna(projecao_media_ano, col_valor)},
         {"Item": "Gap projetado", "Resultado": formatar_generico_por_coluna(gap_projetado, col_valor)},
     ])
     st.dataframe(tabela, use_container_width=True, hide_index=True)
@@ -5322,20 +5608,51 @@ def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_conte
 
 
 def renderizar_semaforo_projecao(info):
+    """
+    Semáforo da projeção com leitura mais clara.
+    """
     gap = info.get("gap_projetado")
     media_atual = info.get("media_atual")
+    media_ano = info.get("media_ano")
     media_necessaria = info.get("media_necessaria")
     col_valor = info.get("col_valor")
     dias_restantes = info.get("dias_restantes")
+    projecao = info.get("projecao")
+    meta_mes = info.get("meta_mes")
 
-    if gap is not None and pd.notna(gap) and gap >= 0:
+    if projecao is None or pd.isna(projecao):
+        status = "warn"
+        icon = "🟠"
+        titulo = "Projeção em acompanhamento"
+        texto = (
+            "Ainda não há dias úteis suficientes com faturamento no mês para calcular uma tendência confiável. "
+            "Assim que houver realizado no mês, a projeção será atualizada automaticamente."
+        )
+
+    elif meta_mes is None or pd.isna(meta_mes):
+        status = "info"
+        icon = "🔵"
+        titulo = "Projeção calculada sem meta"
+        texto = (
+            f"A projeção de fechamento pelo ritmo atual é de "
+            f"{formatar_generico_por_coluna(projecao, col_valor)}. "
+            "A meta do mês não foi localizada na base, por isso o gap projetado não foi calculado."
+        )
+
+    elif gap is not None and pd.notna(gap) and gap >= 0:
         status = "good"
         icon = "🟢"
         titulo = "Tendência de bater a meta"
-        texto = f"No ritmo atual, a projeção indica fechamento acima da meta em {formatar_generico_por_coluna(gap, col_valor)}."
-    elif gap is not None and pd.notna(gap):
+        texto = (
+            f"Mantido o ritmo atual por dia útil, a projeção indica fechamento acima da meta em "
+            f"{formatar_generico_por_coluna(gap, col_valor)}."
+        )
+
+    else:
         status = "warn"
         icon = "🟠"
+        titulo = "Atenção: precisa acelerar"
+
         falta_ritmo = ""
         if media_atual not in [None, 0] and media_necessaria is not None and pd.notna(media_necessaria):
             try:
@@ -5343,13 +5660,12 @@ def renderizar_semaforo_projecao(info):
                 falta_ritmo = f" A média diária necessária está {fmt_pct(dif)} acima da média atual."
             except Exception:
                 falta_ritmo = ""
-        titulo = "Atenção: precisa acelerar"
-        texto = f"No ritmo atual, a projeção indica fechamento abaixo da meta em {formatar_generico_por_coluna(abs(gap), col_valor)}.{falta_ritmo} Dias úteis restantes: {fmt_num(dias_restantes)}."
-    else:
-        status = "warn"
-        icon = "🟠"
-        titulo = "Projeção em acompanhamento"
-        texto = "Ainda não há informações suficientes para determinar a tendência de fechamento."
+
+        texto = (
+            f"Mantido o ritmo atual, a projeção indica fechamento abaixo da meta em "
+            f"{formatar_generico_por_coluna(abs(gap), col_valor)}."
+            f"{falta_ritmo} Dias úteis restantes: {fmt_num(dias_restantes)}."
+        )
 
     st.markdown(
         f"""
@@ -8144,7 +8460,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.5 — correção gráfico manutenção final")
+    st.caption("v6.0 — resumo executivo, alertas, ranking e exportação Excel")
 
 
 
@@ -8217,6 +8533,588 @@ if df.empty:
 
 
 
+
+
+# =========================
+# MELHORIAS VISUAIS / OPERACIONAIS / ANALÍTICAS v6.0
+# =========================
+def css_executivo_v6():
+    """CSS complementar para deixar o painel mais executivo, sem substituir o CSS original."""
+    st.markdown(
+        f"""
+        <style>
+            .mazola-kpi-card {{
+                background: #FFFFFF;
+                border: 1px solid #E5E7EB;
+                border-radius: 20px;
+                padding: 18px 18px 15px 18px;
+                min-height: 126px;
+                box-shadow: 0 12px 30px rgba(17,24,39,0.07);
+                position: relative;
+                overflow: hidden;
+            }}
+            .mazola-kpi-card:before {{
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                height: 5px;
+                width: 100%;
+                background: linear-gradient(90deg, {COR_LARANJA}, {COR_VERDE});
+            }}
+            .mazola-kpi-label {{
+                color: #6B7280;
+                font-size: 12px;
+                font-weight: 850;
+                text-transform: uppercase;
+                letter-spacing: .035em;
+                margin-bottom: 8px;
+            }}
+            .mazola-kpi-value {{
+                color: #111827;
+                font-size: 25px;
+                font-weight: 950;
+                line-height: 1.08;
+                margin-bottom: 8px;
+                word-break: break-word;
+            }}
+            .mazola-kpi-help {{
+                color: #6B7280;
+                font-size: 12px;
+                font-weight: 650;
+                line-height: 1.35;
+            }}
+            .mazola-section-title {{
+                margin: 26px 0 10px 0;
+                font-size: 20px;
+                color: #111827;
+                font-weight: 950;
+                letter-spacing: -0.02em;
+            }}
+            .mazola-section-subtitle {{
+                margin: -4px 0 16px 0;
+                font-size: 13px;
+                color: #6B7280;
+                font-weight: 650;
+            }}
+            .mazola-alert {{
+                border-radius: 16px;
+                padding: 14px 15px;
+                border: 1px solid #E5E7EB;
+                background: #FFFFFF;
+                box-shadow: 0 8px 22px rgba(17,24,39,0.05);
+                margin-bottom: 10px;
+                font-size: 13px;
+                font-weight: 650;
+                line-height: 1.45;
+            }}
+            .mazola-alert.good {{
+                border-left: 6px solid {COR_VERDE};
+                background: rgba(0,163,80,0.055);
+            }}
+            .mazola-alert.warn {{
+                border-left: 6px solid {COR_LARANJA};
+                background: rgba(242,101,34,0.070);
+            }}
+            .mazola-alert.bad {{
+                border-left: 6px solid {COR_VERMELHO};
+                background: rgba(209,52,56,0.060);
+            }}
+            .mazola-alert.neutral {{
+                border-left: 6px solid #9CA3AF;
+                background: #F9FAFB;
+            }}
+            .mazola-narrativa {{
+                background:
+                    radial-gradient(circle at top left, rgba(242,101,34,0.09), transparent 24%),
+                    radial-gradient(circle at bottom right, rgba(0,163,80,0.08), transparent 28%),
+                    linear-gradient(135deg, #FFFFFF 0%, #FAFAFA 100%);
+                border: 1px solid #E5E7EB;
+                border-radius: 22px;
+                padding: 18px 20px;
+                box-shadow: 0 14px 34px rgba(17,24,39,0.06);
+                color: #374151;
+                font-size: 14px;
+                font-weight: 650;
+                line-height: 1.55;
+            }}
+            .mazola-badge {{
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                border-radius: 999px;
+                padding: 6px 10px;
+                background: rgba(242,101,34,0.09);
+                border: 1px solid rgba(242,101,34,0.17);
+                color: {COR_LARANJA};
+                font-size: 12px;
+                font-weight: 850;
+                margin-bottom: 10px;
+            }}
+            div[data-testid="stDataFrame"] {{
+                border-radius: 16px !important;
+                overflow: hidden !important;
+            }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def aplicar_layout_plotly_mazola(fig, titulo=None, altura=420, legenda=True):
+    """Padroniza gráficos Plotly do app com visual Mazola."""
+    fig.update_layout(
+        title=dict(text=titulo or "", x=0.02, xanchor="left", font=dict(size=18, color="#111827")),
+        height=altura,
+        margin=dict(l=25, r=25, t=55 if titulo else 25, b=35),
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        font=dict(family="Arial, sans-serif", color="#374151", size=12),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0)"),
+        showlegend=legenda,
+        hoverlabel=dict(bgcolor="#FFFFFF", font_size=12, font_family="Arial"),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False, linecolor="#E5E7EB", tickfont=dict(color="#6B7280"))
+    fig.update_yaxes(showgrid=True, gridcolor="#F3F4F6", zeroline=False, linecolor="#E5E7EB", tickfont=dict(color="#6B7280"))
+    return fig
+
+
+def _valor_seguro(v, padrao=0):
+    try:
+        if v is None or pd.isna(v):
+            return padrao
+        return float(v)
+    except Exception:
+        return padrao
+
+
+def _fmt_variacao_pct(v):
+    if v is None or pd.isna(v):
+        return "—"
+    try:
+        return f"{float(v):+.1%}"
+    except Exception:
+        return "—"
+
+
+def card_executivo(label, valor, apoio="", tipo_status="neutral"):
+    """Card visual reutilizável para a aba Resumo."""
+    cor_status = {
+        "good": COR_VERDE,
+        "warn": COR_LARANJA,
+        "bad": COR_VERMELHO,
+        "neutral": "#111827",
+    }.get(tipo_status, "#111827")
+
+    st.markdown(
+        f"""
+        <div class="mazola-kpi-card">
+            <div class="mazola-kpi-label">{label}</div>
+            <div class="mazola-kpi-value" style="color:{cor_status};">{valor}</div>
+            <div class="mazola-kpi-help">{apoio}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def alerta_dashboard(titulo, mensagem, tipo="neutral"):
+    st.markdown(
+        f"""
+        <div class="mazola-alert {tipo}">
+            <strong>{titulo}</strong><br>
+            {mensagem}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def titulo_secao_v6(titulo, subtitulo=None):
+    st.markdown(f'<div class="mazola-section-title">{titulo}</div>', unsafe_allow_html=True)
+    if subtitulo:
+        st.markdown(f'<div class="mazola-section-subtitle">{subtitulo}</div>', unsafe_allow_html=True)
+
+
+def diagnostico_base_executivo(df_raw, df_filtrado=None, indicador=None, filial=None):
+    """Mostra diagnóstico gerencial da base carregada."""
+    try:
+        total_linhas = len(df_raw) if df_raw is not None else 0
+        total_filtrado = len(df_filtrado) if df_filtrado is not None else 0
+
+        anos = []
+        if df_raw is not None and "REFERÊNCIA" in df_raw.columns:
+            refs = pd.to_datetime(df_raw["REFERÊNCIA"], errors="coerce")
+            anos = sorted(refs.dropna().dt.year.unique().tolist())
+
+        filiais = []
+        if df_raw is not None and "FILIAL" in df_raw.columns:
+            filiais = sorted([str(x) for x in df_raw["FILIAL"].dropna().unique().tolist()])[:8]
+
+        data_base = obter_data_geracao_planilha(df_raw) if "obter_data_geracao_planilha" in globals() else "-"
+
+        with st.expander("🧪 Diagnóstico da base carregada", expanded=False):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Linhas na base", f"{total_linhas:,}".replace(",", "."))
+            c2.metric("Linhas filtradas", f"{total_filtrado:,}".replace(",", "."))
+            c3.metric("Anos disponíveis", ", ".join(map(str, anos)) if anos else "—")
+            c4.metric("Data da base", data_base)
+            st.caption(f"Filtro atual: Indicador = {indicador or '-'} | Filial = {filial or '-'}")
+            if filiais:
+                st.caption("Filiais encontradas na base: " + ", ".join(filiais))
+    except Exception as e:
+        st.warning("Não foi possível montar o diagnóstico da base.")
+        if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+            st.exception(e)
+
+
+def resumo_ano_filtrado_v6(df_base, indicador, ano):
+    """Resume o ano selecionado usando colunas já calculadas pelo pipeline do app."""
+    if df_base is None or df_base.empty or "ANO" not in df_base.columns:
+        return {}
+
+    base = df_base[df_base["ANO"] == ano].copy()
+    if base.empty:
+        return {}
+
+    meta = pd.to_numeric(base.get("META_CALC"), errors="coerce").fillna(0).sum()
+    realizado = pd.to_numeric(base.get("REALIZADO_CALC"), errors="coerce").fillna(0).sum()
+
+    if eh_despesa_com_limite(indicador):
+        gap = meta - realizado
+        atingimento = realizado / meta if meta else None
+    elif "RESULTADO_RS" in base.columns:
+        gap = pd.to_numeric(base["RESULTADO_RS"], errors="coerce").fillna(0).sum()
+        atingimento = realizado / meta if meta else None
+    else:
+        gap = realizado - meta
+        atingimento = realizado / meta if meta else None
+
+    meses_com_dado = int(base["MÊS"].nunique()) if "MÊS" in base.columns else 0
+
+    return {
+        "ano": ano,
+        "meta": meta,
+        "realizado": realizado,
+        "gap": gap,
+        "atingimento": atingimento,
+        "meses_com_dado": meses_com_dado,
+    }
+
+
+def variacao_mesmo_periodo_ano_anterior_v6(df_base, indicador, ano):
+    """Compara o ano selecionado com o mesmo número de meses do ano anterior."""
+    try:
+        if df_base is None or df_base.empty or "ANO" not in df_base.columns or "MÊS" not in df_base.columns:
+            return None
+
+        atual = df_base[df_base["ANO"] == ano].copy()
+        anterior = df_base[df_base["ANO"] == ano - 1].copy()
+
+        if atual.empty or anterior.empty:
+            return None
+
+        ultimo_mes = int(pd.to_numeric(atual["MÊS"], errors="coerce").dropna().max())
+        atual = atual[atual["MÊS"] <= ultimo_mes]
+        anterior = anterior[anterior["MÊS"] <= ultimo_mes]
+
+        col = "REALIZADO_CALC"
+        if (eh_despesa_geral(indicador) or eh_resultado_financeiro(indicador)) and "RESULTADO_RS" in df_base.columns:
+            col = "RESULTADO_RS"
+
+        val_atual = pd.to_numeric(atual.get(col), errors="coerce").fillna(0).sum()
+        val_anterior = pd.to_numeric(anterior.get(col), errors="coerce").fillna(0).sum()
+
+        if val_anterior == 0:
+            return None
+
+        return (val_atual - val_anterior) / abs(val_anterior)
+    except Exception:
+        return None
+
+
+def montar_ranking_filiais_executivo(df_raw, indicador, ano):
+    """Ranking por filial com realizado, meta, gap e atingimento."""
+    linhas = []
+    try:
+        if eh_tecfil(indicador):
+            lista = ["Tecfil Geral", "Tecfil SP", "Tecfil MS", "Tecfil ES", "Tecfil PR"]
+            for ind_tec in lista:
+                dfil = filtrar(df_raw, ind_tec, "Geral")
+                if dfil is None or dfil.empty:
+                    continue
+                res = resumo_ano_filtrado_v6(dfil, ind_tec, ano)
+                if not res:
+                    continue
+                linhas.append({
+                    "Filial": ind_tec,
+                    "Realizado": res.get("realizado"),
+                    "Meta/Limite": res.get("meta"),
+                    "Gap/Saldo": res.get("gap"),
+                    "% Resultado": res.get("atingimento"),
+                })
+        else:
+            for filial_real in FILIAIS_REAIS:
+                dfil = filtrar(df_raw, indicador, filial_real)
+                if dfil is None or dfil.empty:
+                    continue
+                res = resumo_ano_filtrado_v6(dfil, indicador, ano)
+                if not res:
+                    continue
+                linhas.append({
+                    "Filial": filial_real,
+                    "Realizado": res.get("realizado"),
+                    "Meta/Limite": res.get("meta"),
+                    "Gap/Saldo": res.get("gap"),
+                    "% Resultado": res.get("atingimento"),
+                })
+
+        ranking = pd.DataFrame(linhas)
+        if ranking.empty:
+            return ranking
+
+        if eh_despesa_com_limite(indicador):
+            ranking = ranking.sort_values("% Resultado", ascending=True)
+        else:
+            ranking = ranking.sort_values("% Resultado", ascending=False)
+
+        return ranking.reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
+
+def montar_alertas_executivos_v6(df_base, indicador, ano):
+    """Gera alertas automáticos para orientar a tomada de decisão."""
+    alertas = []
+    res = resumo_ano_filtrado_v6(df_base, indicador, ano)
+    if not res:
+        return alertas
+
+    meta = res.get("meta")
+    ating = res.get("atingimento")
+
+    if meta in [None, 0] or pd.isna(meta):
+        alertas.append(("Meta/Limite ausente", "Não há meta ou limite válido para este período. Confira a coluna META da base.", "warn"))
+
+    if ating is not None and pd.notna(ating):
+        if eh_despesa_com_limite(indicador):
+            if ating <= 1:
+                alertas.append(("Dentro do limite", f"O indicador está dentro do limite, com uso de {fmt_pct(ating)}.", "good"))
+            else:
+                alertas.append(("Acima do limite", f"O indicador ultrapassou o limite, com uso de {fmt_pct(ating)}.", "bad"))
+        else:
+            if ating >= 1:
+                alertas.append(("Meta atingida", f"O indicador está acima da meta, com atingimento de {fmt_pct(ating)}.", "good"))
+            elif ating >= 0.90:
+                alertas.append(("Próximo da meta", f"O indicador está próximo da meta, com atingimento de {fmt_pct(ating)}.", "warn"))
+            else:
+                alertas.append(("Abaixo da meta", f"O indicador está abaixo da meta, com atingimento de {fmt_pct(ating)}.", "bad"))
+
+    variacao = variacao_mesmo_periodo_ano_anterior_v6(df_base, indicador, ano)
+    if variacao is not None:
+        if variacao >= 0:
+            alertas.append(("Evolução anual positiva", f"No mesmo período do ano anterior, houve variação de {_fmt_variacao_pct(variacao)}.", "good"))
+        else:
+            alertas.append(("Queda contra o ano anterior", f"No mesmo período do ano anterior, houve variação de {_fmt_variacao_pct(variacao)}.", "warn"))
+
+    try:
+        base_ano = df_base[df_base["ANO"] == ano].copy()
+        if "MÊS" in base_ano.columns:
+            meses = sorted(pd.to_numeric(base_ano["MÊS"], errors="coerce").dropna().unique().tolist())
+            if meses:
+                mes_atual = int(max(meses))
+                if mes_atual < 12:
+                    alertas.append(("Ano em andamento", f"O ano possui dados até {MESES_MAPA.get(mes_atual, mes_atual)}. Avalie a projeção antes de tomar decisão final.", "neutral"))
+    except Exception:
+        pass
+
+    return alertas
+
+
+def narrativa_executiva_v6(df_base, indicador, filial, ano):
+    """Texto executivo automático para a aba Resumo."""
+    res = resumo_ano_filtrado_v6(df_base, indicador, ano)
+    if not res:
+        return "Não há dados suficientes para montar a leitura executiva do período selecionado."
+
+    meta = res.get("meta")
+    realizado = res.get("realizado")
+    gap = res.get("gap")
+    ating = res.get("atingimento")
+    meses = res.get("meses_com_dado")
+
+    nome_meta = rotulo_meta(indicador)
+    nome_real = rotulo_realizado(indicador)
+    nome_gap = rotulo_gap(indicador)
+    nome_pct = rotulo_percentual(indicador)
+
+    variacao = variacao_mesmo_periodo_ano_anterior_v6(df_base, indicador, ano)
+    variacao_txt = ""
+    if variacao is not None:
+        direcao = "crescimento" if variacao >= 0 else "queda"
+        variacao_txt = f" Em comparação com o mesmo período do ano anterior, houve {direcao} de {_fmt_variacao_pct(variacao)}."
+
+    status = ""
+    if ating is not None and pd.notna(ating):
+        if eh_despesa_com_limite(indicador):
+            status = "dentro do limite" if ating <= 1 else "acima do limite"
+        else:
+            status = "acima da meta" if ating >= 1 else "abaixo da meta"
+
+    return (
+        f"No ano de {ano}, o indicador <strong>{indicador}</strong> para <strong>{filial}</strong> "
+        f"apresenta {nome_real.lower()} de <strong>{fmt_brl(realizado)}</strong> contra "
+        f"{nome_meta.lower()} de <strong>{fmt_brl(meta)}</strong>. "
+        f"O {nome_gap.lower()} é de <strong>{fmt_brl(gap)}</strong> e o {nome_pct.lower()} está em "
+        f"<strong>{fmt_pct(ating) if ating is not None and pd.notna(ating) else '—'}</strong>. "
+        f"Com base nos dados disponíveis, o indicador está <strong>{status or 'sem status definido'}</strong>. "
+        f"A análise considera <strong>{meses}</strong> mês(es) com dados no ano selecionado."
+        f"{variacao_txt}"
+    )
+
+
+def grafico_evolucao_executiva_v6(df_base, indicador, ano):
+    """Gráfico de evolução mensal do realizado contra meta/limite."""
+    if df_base is None or df_base.empty or "ANO" not in df_base.columns:
+        return None
+
+    base = df_base[df_base["ANO"] == ano].copy()
+    if base.empty or "MÊS" not in base.columns:
+        return None
+
+    mensal = (
+        base.groupby("MÊS", as_index=False)
+        .agg({"REALIZADO_CALC": "sum", "META_CALC": "sum"})
+        .sort_values("MÊS")
+    )
+    mensal["Mês"] = mensal["MÊS"].map(MESES_MAPA)
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=mensal["Mês"],
+        y=mensal["REALIZADO_CALC"],
+        name=rotulo_realizado(indicador),
+        marker_color=COR_LARANJA,
+        text=[fmt_brl(v) for v in mensal["REALIZADO_CALC"]],
+        textposition="outside",
+        hovertemplate="%{x}<br>Realizado: %{text}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=mensal["Mês"],
+        y=mensal["META_CALC"],
+        name=rotulo_meta(indicador),
+        mode="lines+markers",
+        line=dict(color=COR_VERDE, width=3),
+        marker=dict(size=8),
+        hovertemplate="%{x}<br>Meta/Limite: R$ %{y:,.0f}<extra></extra>",
+    ))
+    return aplicar_layout_plotly_mazola(fig, "Evolução mensal do indicador", altura=430)
+
+
+def renderizar_resumo_executivo_melhorado(df_base, df_raw, indicador, filial, ano_selecionado=None):
+    """Nova tela executiva para usar no começo da aba Resumo."""
+    css_executivo_v6()
+
+    if df_base is None or df_base.empty:
+        st.warning("Não há dados para montar o resumo executivo.")
+        return
+
+    if ano_selecionado is None:
+        if "ANO" in df_base.columns and df_base["ANO"].notna().any():
+            ano_selecionado = int(pd.to_numeric(df_base["ANO"], errors="coerce").dropna().max())
+        else:
+            st.warning("Não foi possível identificar o ano selecionado.")
+            return
+
+    diagnostico_base_executivo(df_raw, df_base, indicador, filial)
+
+    st.markdown('<div class="mazola-badge">📊 Resumo executivo</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="mazola-narrativa">{narrativa_executiva_v6(df_base, indicador, filial, ano_selecionado)}</div>', unsafe_allow_html=True)
+
+    res = resumo_ano_filtrado_v6(df_base, indicador, ano_selecionado)
+    if not res:
+        st.info("Sem resumo disponível para o ano selecionado.")
+        return
+
+    meta = res.get("meta")
+    realizado = res.get("realizado")
+    gap = res.get("gap")
+    ating = res.get("atingimento")
+    variacao = variacao_mesmo_periodo_ano_anterior_v6(df_base, indicador, ano_selecionado)
+
+    if eh_despesa_com_limite(indicador):
+        status_gap = "good" if _valor_seguro(gap) >= 0 else "bad"
+        status_pct = "good" if ating is not None and pd.notna(ating) and ating <= 1 else "bad"
+    else:
+        status_gap = "good" if _valor_seguro(gap) >= 0 else "warn"
+        status_pct = "good" if ating is not None and pd.notna(ating) and ating >= 1 else "warn"
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        card_executivo(rotulo_meta(indicador), fmt_brl(meta), f"Ano {ano_selecionado}", "neutral")
+    with c2:
+        card_executivo(rotulo_realizado(indicador), fmt_brl(realizado), "Total acumulado", "neutral")
+    with c3:
+        card_executivo(rotulo_gap(indicador), fmt_brl(gap), "Diferença contra meta/limite", status_gap)
+    with c4:
+        card_executivo(rotulo_percentual(indicador), fmt_pct(ating) if ating is not None and pd.notna(ating) else "—", "Resultado percentual", status_pct)
+    with c5:
+        card_executivo("Vs ano anterior", _fmt_variacao_pct(variacao), "Mesmo período", "good" if variacao is not None and variacao >= 0 else "warn")
+
+    titulo_secao_v6("Alertas automáticos", "Leitura rápida dos pontos de atenção do indicador.")
+    alertas = montar_alertas_executivos_v6(df_base, indicador, ano_selecionado)
+    if alertas:
+        for titulo, mensagem, tipo in alertas[:5]:
+            alerta_dashboard(titulo, mensagem, tipo)
+    else:
+        st.info("Nenhum alerta automático foi identificado para o período.")
+
+    titulo_secao_v6("Tendência mensal", "Evolução do realizado contra a meta/limite.")
+    fig = grafico_evolucao_executiva_v6(df_base, indicador, ano_selecionado)
+    if fig is not None:
+        st.plotly_chart(fig, use_container_width=True, key=f"grafico_exec_v6_{indicador}_{filial}_{ano_selecionado}")
+    else:
+        st.info("Não foi possível montar o gráfico de tendência mensal.")
+
+    if filial == "Geral":
+        titulo_secao_v6("Ranking de filiais", "Comparativo acumulado por unidade no ano selecionado.")
+        ranking = montar_ranking_filiais_executivo(df_raw, indicador, ano_selecionado)
+        if ranking is not None and not ranking.empty:
+            st.dataframe(
+                ranking.style.format({
+                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Meta/Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Gap/Saldo": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "% Resultado": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Não há dados suficientes para montar ranking por filial.")
+
+
+def dataframe_para_excel_bytes(df_exportar, nome_aba="Dados"):
+    """Converte DataFrame em bytes de Excel para download."""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_exportar.to_excel(writer, index=False, sheet_name=nome_aba[:31])
+        try:
+            ws = writer.book[nome_aba[:31]]
+            for col in ws.columns:
+                max_len = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    try:
+                        max_len = max(max_len, len(str(cell.value)))
+                    except Exception:
+                        pass
+                ws.column_dimensions[col_letter].width = min(max_len + 2, 42)
+        except Exception:
+            pass
+    output.seek(0)
+    return output.getvalue()
+
 def label_aba_com_icone(arquivo_icone, texto, emoji_fallback="📊"):
     """
     Cria um rótulo de aba com imagem local.
@@ -8261,20 +9159,20 @@ st.markdown(
 
 if eh_admin():
     tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📊 Visão Geral",
+        "📊 Resumo",
         "📅 Períodos",
-        "📈 MoM",
-        "🔁 YoY",
+        "📈 Mês a Mês",
+        "🔁 Ano contra Ano",
         "📌 Projeção",
-        "🧠 Análise",
-        "📤 Opções"
+        "🧠 Insights IA",
+        "📤 Exportações"
     ])
 else:
     tab0, tab1, tab2, tab3 = st.tabs([
-        "📊 Visão Geral",
+        "📊 Resumo",
         "📅 Períodos",
-        "📈 MoM",
-        "🔁 YoY"
+        "📈 Mês a Mês",
+        "🔁 Ano contra Ano"
     ])
     tab4 = None
     tab5 = None
@@ -8621,10 +9519,36 @@ def renderizar_tabela_periodo_acumulado(df_periodo, indicador, modo):
 
 
 # =========================
-# ABA VISÃO GERAL
+# ABA RESUMO
 # =========================
 with tab0:
-    st.markdown(f"<h2 style='margin-bottom:6px;'>📊 Visão Geral — {indicador} | {filial}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='margin-bottom:6px;'>📊 Resumo — {indicador} | {filial}</h2>", unsafe_allow_html=True)
+
+    try:
+        anos_disponiveis_resumo = sorted(pd.to_numeric(df["ANO"], errors="coerce").dropna().astype(int).unique().tolist())
+        ano_padrao_resumo = max(anos_disponiveis_resumo) if anos_disponiveis_resumo else None
+
+        ano_resumo = st.selectbox(
+            "Ano do resumo",
+            anos_disponiveis_resumo,
+            index=anos_disponiveis_resumo.index(ano_padrao_resumo) if ano_padrao_resumo in anos_disponiveis_resumo else 0,
+            key="ano_resumo_executivo_v6",
+        )
+
+        renderizar_resumo_executivo_melhorado(
+            df_base=df,
+            df_raw=df_raw,
+            indicador=indicador,
+            filial=filial,
+            ano_selecionado=ano_resumo,
+        )
+
+        st.divider()
+    except Exception as e:
+        st.warning("Não foi possível carregar o novo Resumo Executivo.")
+        if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+            st.exception(e)
+
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
@@ -10482,7 +11406,27 @@ if eh_admin() and tab5 is not None:
 # =========================
 if eh_admin() and tab6 is not None:
     with tab6:
-        titulo_secao("Opções", f"{indicador} — {filial}: PDF, e-mail e administração da base.")
+        titulo_secao("Exportações", f"{indicador} — {filial}: PDF, Excel, e-mail e administração da base.")
+
+        with st.expander("📊 Baixar base filtrada em Excel", expanded=False):
+            st.caption("Exporta a base já filtrada conforme indicador e filial selecionados.")
+            if df is not None and not df.empty:
+                try:
+                    excel_bytes = dataframe_para_excel_bytes(df, "Base Filtrada")
+                    nome_excel = f"base_filtrada_{normalizar_texto(indicador).replace(' ', '_')}_{normalizar_texto(filial).replace(' ', '_')}.xlsx"
+                    st.download_button(
+                        label="📥 Baixar base filtrada em Excel",
+                        data=excel_bytes,
+                        file_name=nome_excel,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                    )
+                except Exception as e:
+                    st.warning("Não foi possível gerar o Excel da base filtrada.")
+                    if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+                        st.exception(e)
+            else:
+                st.info("Não há dados filtrados para exportar.")
 
         if eh_admin():
             with st.expander("🔐 Administração da base", expanded=False):
