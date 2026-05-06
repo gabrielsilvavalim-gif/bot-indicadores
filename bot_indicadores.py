@@ -5782,6 +5782,96 @@ def renderizar_semaforo_projecao(info):
         unsafe_allow_html=True,
     )
 
+
+
+# =========================
+# FUNÇÕES DE COMPATIBILIDADE — CORREÇÃO NAMEERROR
+# =========================
+def _primeira_coluna_existente(df, colunas):
+    """
+    Retorna o primeiro nome de coluna existente no DataFrame.
+    Evita NameError e também evita quebrar quando uma análise muda de estrutura.
+    """
+    try:
+        if df is None or df.empty:
+            return None
+        for col in colunas:
+            if col in df.columns:
+                return col
+        return None
+    except Exception:
+        return None
+
+
+def titulo_comparativo_filiais(indicador, ano_base_filial=None):
+    """
+    Título adaptado para o comparativo entre filiais na aba Ano contra Ano/YoY.
+    Esta função estava sendo chamada, mas não existia no arquivo final.
+    """
+    sufixo = f" — {ano_base_filial}" if ano_base_filial is not None else ""
+
+    try:
+        if eh_moto_margem(indicador):
+            return f"Comparativo entre filiais — margem de pneus moto{sufixo}"
+        if eh_despesa_geral(indicador):
+            return f"Comparativo entre filiais — despesa geral sobre receita{sufixo}"
+        if eh_resultado_financeiro(indicador):
+            return f"Comparativo entre filiais — resultado financeiro{sufixo}"
+        if eh_qualidade(indicador):
+            return f"Comparativo entre filiais — qualidade{sufixo}"
+        if eh_tecfil(indicador):
+            return f"Comparativo entre bases Tecfil{sufixo}"
+        if eh_despesa_com_limite(indicador) or eh_despesa(indicador):
+            return f"Comparativo entre filiais — despesas{sufixo}"
+    except Exception:
+        pass
+
+    return f"Comparativo entre filiais{sufixo}"
+
+
+def montar_ranking_atingimento(d, indicador, ano, mes_limite=None):
+    """
+    Monta ranking simples de filiais para os cards/insights.
+    Usa comparativo_filiais() quando possível e trata estruturas diferentes.
+    """
+    try:
+        if d is None or d.empty:
+            return pd.DataFrame()
+
+        base = d.copy()
+        if mes_limite is not None and "MÊS" in base.columns:
+            base = base[pd.to_numeric(base["MÊS"], errors="coerce") <= int(mes_limite)].copy()
+
+        ranking = comparativo_filiais(base, ano, indicador)
+        if ranking is None or ranking.empty:
+            return pd.DataFrame()
+
+        ranking = ranking.copy()
+
+        if "Atingimento" not in ranking.columns:
+            if "Resultado %" in ranking.columns:
+                ranking["Atingimento"] = ranking["Resultado %"]
+            elif "Tx. Sucesso" in ranking.columns:
+                ranking["Atingimento"] = ranking["Tx. Sucesso"]
+            elif "Realizado" in ranking.columns and "Meta" in ranking.columns:
+                ranking["Atingimento"] = pd.to_numeric(ranking["Realizado"], errors="coerce") / pd.to_numeric(ranking["Meta"], errors="coerce").replace(0, pd.NA)
+            else:
+                ranking["Atingimento"] = pd.NA
+
+        # Para despesas com limite, menor uso costuma ser melhor.
+        asc = False
+        try:
+            if eh_despesa_com_limite(indicador) or eh_despesa_geral(indicador):
+                asc = True
+        except Exception:
+            asc = False
+
+        ranking["_ordem"] = pd.to_numeric(ranking["Atingimento"], errors="coerce")
+        ranking = ranking.sort_values("_ordem", ascending=asc, na_position="last").drop(columns=["_ordem"], errors="ignore")
+        return ranking.reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
 def renderizar_top_insights(df, indicador, filial, data_geracao_planilha, df_filiais=None):
     try:
         anos = sorted(df["ANO"].dropna().unique())
@@ -5864,6 +5954,65 @@ def renderizar_top_insights(df, indicador, filial, data_geracao_planilha, df_fil
         """,
         unsafe_allow_html=True,
     )
+
+
+
+
+def renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, df_comparativo_filiais=None):
+    """
+    Aba Insights IA / Análise.
+    Função de compatibilidade para evitar NameError quando a aba chama
+    renderizar_analise_executiva(). Mantém uma análise gerencial simples,
+    sem alterar fórmulas do painel.
+    """
+    try:
+        titulo_secao("Insights IA", f"{indicador} — {filial}: leitura executiva do desempenho.")
+    except Exception:
+        st.subheader("Insights IA")
+
+    try:
+        contexto_dashboard(indicador, filial, "Período selecionado", "Análise executiva", data_geracao_planilha)
+    except Exception:
+        pass
+
+    if df is None or df.empty:
+        st.info("Não há dados suficientes para gerar a análise executiva.")
+        return
+
+    try:
+        renderizar_top_insights(df, indicador, filial, data_geracao_planilha, df_comparativo_filiais)
+    except Exception as e:
+        st.warning("Não foi possível montar os cards automáticos de insights.")
+        if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+            st.exception(e)
+
+    st.divider()
+
+    try:
+        anos = sorted(pd.to_numeric(df["ANO"], errors="coerce").dropna().astype(int).unique().tolist())
+        ano = anos[-1] if anos else None
+        if ano is not None:
+            titulo_secao("Resumo do ano", "Números consolidados do ano mais recente disponível na base.")
+            tabela = obter_tabela_mensal_ano(df, indicador, ano)
+            if tabela is not None and not tabela.empty:
+                st.dataframe(formatar_df_periodo_tela_seguro(tabela), use_container_width=True, hide_index=True)
+            else:
+                st.info("Não foi possível montar a tabela mensal para a análise.")
+    except Exception as e:
+        st.info("A análise mensal não está disponível para este indicador.")
+        if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+            st.exception(e)
+
+    st.divider()
+
+    try:
+        if client is None:
+            st.info("IA não configurada. Confira a chave ANTHROPIC_API_KEY nos Secrets para liberar a análise textual automática.")
+            return
+
+        st.caption("A IA pode ser usada para interpretar os dados exibidos, mas os números oficiais continuam sendo os cálculos do painel.")
+    except Exception:
+        pass
 
 
 def dataframe_premium(styler_ou_df, **kwargs):
