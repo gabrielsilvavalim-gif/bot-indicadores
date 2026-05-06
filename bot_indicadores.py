@@ -10214,6 +10214,309 @@ with tab2:
             )
 
 
+# =========================
+# CARDS DO COMPARATIVO DE MESMO PERÍODO
+# =========================
+def _pegar_valor_coluna_seguro(row, nomes_colunas, padrao=None):
+    """Busca o primeiro valor disponível em uma linha, aceitando diferentes nomes de coluna."""
+    if row is None:
+        return padrao
+
+    for nome in nomes_colunas:
+        try:
+            if nome in row.index:
+                valor = row.get(nome)
+                if valor is not None and not pd.isna(valor):
+                    return valor
+        except Exception:
+            pass
+
+    return padrao
+
+
+def _formatar_card_periodo(valor, tipo="brl"):
+    """Formatação segura para os cards do comparativo de mesmo período."""
+    try:
+        if valor is None or pd.isna(valor):
+            return "—"
+        if tipo == "pct":
+            return fmt_pct(valor)
+        if tipo == "var_pct":
+            return fmt_var_pct_seguro(valor)
+        if tipo == "num":
+            return fmt_num(valor)
+        return fmt_brl(valor)
+    except Exception:
+        return "—"
+
+
+def _status_variacao_periodo(valor, melhor_quando_maior=True):
+    """Define a cor/status do card conforme a variação."""
+    try:
+        if valor is None or pd.isna(valor):
+            return "info"
+        if melhor_quando_maior:
+            return "good" if float(valor) >= 0 else "warn"
+        return "good" if float(valor) <= 0 else "warn"
+    except Exception:
+        return "info"
+
+
+def cards_comparativo_periodo(df_periodo_tela, indicador):
+    """
+    Renderiza os cards do bloco 'Mesmo período x ano anterior'.
+
+    Esta função corrige o NameError que ocorria quando o app chamava
+    cards_comparativo_periodo() na aba YoY, mas a função não existia
+    no arquivo final.
+
+    Ela foi feita para ser tolerante às diferentes estruturas de indicador:
+    - Faturamento/despesas padrão;
+    - Pneus Moto;
+    - Despesa Geral;
+    - Resultado Financeiro;
+    - Qualidade;
+    - Tecfil.
+    """
+    try:
+        if df_periodo_tela is None or df_periodo_tela.empty:
+            return
+
+        df_tmp = df_periodo_tela.copy()
+
+        if "Ano" in df_tmp.columns:
+            df_tmp = df_tmp.sort_values("Ano")
+        elif "ANO" in df_tmp.columns:
+            df_tmp = df_tmp.sort_values("ANO")
+
+        atual = df_tmp.iloc[-1]
+        anterior = df_tmp.iloc[-2] if len(df_tmp) >= 2 else None
+
+        ano_atual = _pegar_valor_coluna_seguro(atual, ["Ano", "ANO"], "—")
+        periodo = _pegar_valor_coluna_seguro(atual, ["Período", "PERIODO"], "Mesmo período")
+
+        # Estruturas especiais primeiro
+        if eh_moto_margem(indicador):
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                card_ouro(
+                    "Faturamento atual",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Faturamento", "Realizado"]), "brl"),
+                    f"{periodo} de {ano_atual}.",
+                    "info",
+                )
+            with c2:
+                card_ouro(
+                    "Margem bruta atual",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Margem Bruta", "Gap (R$)"]), "brl"),
+                    "Margem do mesmo período.",
+                    "info",
+                )
+            with c3:
+                var_fat = _pegar_valor_coluna_seguro(atual, ["Variação Faturamento", "Variação Realizado"])
+                card_ouro(
+                    "Variação faturamento",
+                    _formatar_card_periodo(var_fat, "var_pct"),
+                    "Contra o mesmo período do ano anterior.",
+                    _status_variacao_periodo(var_fat, True),
+                )
+            with c4:
+                var_margem = _pegar_valor_coluna_seguro(atual, ["Variação Margem"])
+                card_ouro(
+                    "Variação margem",
+                    _formatar_card_periodo(var_margem, "var_pct"),
+                    "Contra o mesmo período do ano anterior.",
+                    _status_variacao_periodo(var_margem, True),
+                )
+            return
+
+        if eh_tecfil(indicador):
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                card_ouro(
+                    "Realizado R$ atual",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Realizado R$", "Realizado"]), "brl"),
+                    f"{periodo} de {ano_atual}.",
+                    "info",
+                )
+            with c2:
+                card_ouro(
+                    "Realizado KG atual",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Realizado KG"]), "num"),
+                    "Volume no mesmo período.",
+                    "info",
+                )
+            with c3:
+                var_rs = _pegar_valor_coluna_seguro(atual, ["Variação R$", "Variação Realizado"])
+                card_ouro(
+                    "Variação R$",
+                    _formatar_card_periodo(var_rs, "var_pct"),
+                    "Contra o ano anterior.",
+                    _status_variacao_periodo(var_rs, True),
+                )
+            with c4:
+                var_kg = _pegar_valor_coluna_seguro(atual, ["Variação KG"])
+                card_ouro(
+                    "Variação KG",
+                    _formatar_card_periodo(var_kg, "var_pct"),
+                    "Contra o ano anterior.",
+                    _status_variacao_periodo(var_kg, True),
+                )
+            return
+
+        if eh_qualidade(indicador):
+            melhor_maior = modelo_qualidade(indicador) != "parametro_coleta_critico"
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                card_ouro(
+                    "Resultado atual",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Resultado %", "Atingimento"]), "pct"),
+                    f"{periodo} de {ano_atual}.",
+                    "info",
+                )
+            with c2:
+                card_ouro(
+                    "Meta/Limite",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Meta", "Meta_Compat"]), "pct"),
+                    "Referência do período.",
+                    "info",
+                )
+            with c3:
+                card_ouro(
+                    "Diferença",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Diferença", "Gap (R$)"]), "num"),
+                    "Resultado contra referência.",
+                    "info",
+                )
+            with c4:
+                var_res = _pegar_valor_coluna_seguro(atual, ["Variação Resultado", "Variação Realizado"])
+                card_ouro(
+                    "Variação resultado",
+                    _formatar_card_periodo(var_res, "var_pct"),
+                    "Contra o ano anterior.",
+                    _status_variacao_periodo(var_res, melhor_maior),
+                )
+            return
+
+        if eh_resultado_financeiro(indicador):
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                card_ouro(
+                    "Resultado % atual",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Resultado %", "Atingimento"]), "pct"),
+                    f"{periodo} de {ano_atual}.",
+                    "info",
+                )
+            with c2:
+                card_ouro(
+                    "Meta %",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Meta %", "Meta"]), "pct"),
+                    "Meta do mesmo período.",
+                    "info",
+                )
+            with c3:
+                card_ouro(
+                    "Resultado R$",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Resultado R$", "Gap (R$)"]), "brl"),
+                    "Resultado financeiro acumulado.",
+                    "info",
+                )
+            with c4:
+                var_res = _pegar_valor_coluna_seguro(atual, ["Variação Resultado", "Variação Realizado"])
+                card_ouro(
+                    "Variação resultado",
+                    _formatar_card_periodo(var_res, "var_pct"),
+                    "Contra o ano anterior.",
+                    _status_variacao_periodo(var_res, True),
+                )
+            return
+
+        if eh_despesa_geral(indicador):
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                card_ouro(
+                    "Despesa atual",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Despesa", "Realizado"]), "brl"),
+                    f"{periodo} de {ano_atual}.",
+                    "info",
+                )
+            with c2:
+                card_ouro(
+                    "Receita atual",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Receita"]), "brl"),
+                    "Base de comparação.",
+                    "info",
+                )
+            with c3:
+                card_ouro(
+                    "Tx. sucesso",
+                    _formatar_card_periodo(_pegar_valor_coluna_seguro(atual, ["Tx. Sucesso", "Atingimento"]), "pct"),
+                    "Despesa / Receita.",
+                    "info",
+                )
+            with c4:
+                var_tx = _pegar_valor_coluna_seguro(atual, ["Variação Tx. Sucesso", "Variação Resultado", "Variação Realizado"])
+                card_ouro(
+                    "Variação",
+                    _formatar_card_periodo(var_tx, "var_pct"),
+                    "Menor é melhor para despesa.",
+                    _status_variacao_periodo(var_tx, False),
+                )
+            return
+
+        # Estrutura padrão: faturamento e despesas simples
+        realizado = _pegar_valor_coluna_seguro(atual, ["Realizado", "Despesa", "Pago em Hora Extra", "Valor"])
+        meta = _pegar_valor_coluna_seguro(atual, ["Meta", "Limite", "Meta/Limite"])
+        gap = _pegar_valor_coluna_seguro(atual, ["Gap (R$)", "Gap", "Saldo do Limite", "Resultado R$"])
+        ating = _pegar_valor_coluna_seguro(atual, ["Atingimento", "Uso do Limite", "Resultado %", "Ating."])
+        var_real = _pegar_valor_coluna_seguro(atual, ["Variação Realizado", "Variação Despesa", "Variação Resultado"])
+
+        melhor_maior = not (eh_despesa(indicador) or eh_despesa_com_limite(indicador))
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1:
+            card_ouro(
+                rotulo_realizado(indicador),
+                _formatar_card_periodo(realizado, "brl"),
+                f"{periodo} de {ano_atual}.",
+                "info",
+            )
+        with c2:
+            card_ouro(
+                rotulo_meta(indicador),
+                _formatar_card_periodo(meta, "brl"),
+                "Referência do período.",
+                "info",
+            )
+        with c3:
+            status_gap = "good" if gap is not None and pd.notna(gap) and float(gap) >= 0 else "warn"
+            card_ouro(
+                rotulo_gap(indicador),
+                _formatar_card_periodo(gap, "brl"),
+                "Diferença contra meta/limite.",
+                status_gap,
+            )
+        with c4:
+            card_ouro(
+                rotulo_percentual(indicador),
+                _formatar_card_periodo(ating, "pct"),
+                "Resultado percentual.",
+                "info",
+            )
+        with c5:
+            card_ouro(
+                "Vs ano anterior",
+                _formatar_card_periodo(var_real, "var_pct"),
+                "Mesmo período.",
+                _status_variacao_periodo(var_real, melhor_maior),
+            )
+
+    except Exception as e:
+        st.info("Não foi possível montar os cards do comparativo de mesmo período, mas a tabela abaixo continuará disponível.")
+        if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+            st.exception(e)
+
+
 
 # =========================
 # ABA YOY
