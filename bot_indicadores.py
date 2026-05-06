@@ -338,11 +338,12 @@ def verificar_senha_acesso():
     st.markdown('<div class="login-bg"><div class="login-shell"><div class="login-card">', unsafe_allow_html=True)
 
     logo_renderizado = False
-    if os.path.exists(LOGO_ARQUIVO):
+    logo_login_arquivo = globals().get("LOGO_ARQUIVO", "MazolaCertificado.ico")
+    if os.path.exists(logo_login_arquivo):
         try:
             col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 1.25, 1])
             with col_logo_2:
-                st.image(LOGO_ARQUIVO, use_container_width=True)
+                st.image(logo_login_arquivo, use_container_width=True)
             logo_renderizado = True
         except Exception:
             logo_renderizado = False
