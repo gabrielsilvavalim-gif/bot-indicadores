@@ -1389,9 +1389,13 @@ def consolidar_campos(df, nome_indicador):
         # Para Despesa Manutenção:
         # META_CALC representa o LIMITE máximo de gasto.
         # REALIZADO_CALC representa a DESPESA realizada.
+        #
+        # Estrutura solicitada:
+        # RESULT. R$ = LIMITE - DESPESA
+        # RESULT. %  = 1 - (DESPESA / LIMITE)
         d["REALIZADO_CALC"] = d["VALOR1"]
         d["RESULTADO_RS"] = d["META_CALC"] - d["REALIZADO_CALC"]
-        d["ATINGIMENTO_CALC"] = d["REALIZADO_CALC"] / d["META_CALC"].replace(0, pd.NA)
+        d["ATINGIMENTO_CALC"] = 1 - (d["REALIZADO_CALC"] / d["META_CALC"].replace(0, pd.NA))
 
     elif categoria == "despesa":
         d["REALIZADO_CALC"] = d["VALOR1"]
@@ -2774,6 +2778,85 @@ def tabela_completa_ano(d, ano, indicador):
             "Dif. R$": resumo_total["Dif. R$"],
             "Acum. KG": resumo_total["Dif. KG"],
             "Acum. R$": resumo_total["Dif. R$"],
+        })
+
+        return pd.DataFrame(rows)
+
+    if eh_despesa_manutencao(indicador):
+        rows = []
+        base_ano = d[d["ANO"] == ano].copy()
+        acumulado = 0
+
+        mensal = (
+            base_ano.groupby("MÊS", as_index=False)
+            .agg({"REALIZADO_CALC": "sum", "META_CALC": "sum"})
+            .sort_values("MÊS")
+        )
+
+        for i in range(1, 13):
+            mes_nome = MESES_MAPA[i]
+            sub = mensal[mensal["MÊS"] == i]
+
+            if len(sub) > 0:
+                limite = sub["META_CALC"].values[0]
+                despesa = sub["REALIZADO_CALC"].values[0]
+                resultado_rs = limite - despesa if pd.notna(limite) and pd.notna(despesa) else None
+                resultado_pct = 1 - (despesa / limite) if pd.notna(limite) and limite > 0 else None
+
+                if pd.notna(resultado_rs):
+                    acumulado += resultado_rs
+                    acumulado_exibir = acumulado
+                else:
+                    acumulado_exibir = None
+            else:
+                limite = None
+                despesa = None
+                resultado_rs = None
+                resultado_pct = None
+                acumulado_exibir = acumulado if acumulado != 0 else None
+
+            rows.append({
+                "Mês": mes_nome,
+                "Limite": limite,
+                "Despesa": despesa,
+                "Result. R$": resultado_rs,
+                "Result. %": resultado_pct,
+                "Acumulado": acumulado_exibir,
+            })
+
+        total_limite = base_ano["META_CALC"].sum()
+        total_despesa = base_ano["REALIZADO_CALC"].sum()
+        total_resultado = total_limite - total_despesa
+        total_resultado_pct = 1 - (total_despesa / total_limite) if total_limite > 0 else None
+
+        rows.append({
+            "Mês": "TOTAL",
+            "Limite": total_limite,
+            "Despesa": total_despesa,
+            "Result. R$": total_resultado,
+            "Result. %": total_resultado_pct,
+            "Acumulado": total_resultado,
+        })
+
+        meses_com_limite = mensal[pd.to_numeric(mensal["META_CALC"], errors="coerce").fillna(0) != 0].copy()
+        if not meses_com_limite.empty:
+            media_limite = meses_com_limite["META_CALC"].mean()
+            media_despesa = meses_com_limite["REALIZADO_CALC"].mean()
+            media_resultado = media_limite - media_despesa
+            media_resultado_pct = 1 - (media_despesa / media_limite) if media_limite > 0 else None
+        else:
+            media_limite = None
+            media_despesa = None
+            media_resultado = None
+            media_resultado_pct = None
+
+        rows.append({
+            "Mês": "MÉDIA",
+            "Limite": media_limite,
+            "Despesa": media_despesa,
+            "Result. R$": media_resultado,
+            "Result. %": media_resultado_pct,
+            "Acumulado": total_resultado,
         })
 
         return pd.DataFrame(rows)
@@ -8038,7 +8121,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.0 — gráfico despesa geral percentual")
+    st.caption("v5.0 etapa 10.1 — tabela despesa manutenção")
 
 
 
@@ -8745,22 +8828,33 @@ with tab1:
                 hide_index=True,
             )
         elif eh_despesa_manutencao(indicador):
-            df_completa_tela = df_completa_tela.rename(columns={
-                "Realizado": "Despesa",
-                "Meta": "Limite",
-                "Gap (R$)": "Saldo do Limite",
-                "Atingimento": "Uso do Limite",
-            })
+            # Estrutura solicitada para Despesa Manutenção:
+            # Mês | Limite | Despesa | Result. R$ | Result. % | Acumulado
+            cols_manutencao = ["Mês", "Limite", "Despesa", "Result. R$", "Result. %", "Acumulado"]
+            cols_manutencao = [c for c in cols_manutencao if c in df_completa_tela.columns]
+
+            def destacar_total_media_manutencao(row):
+                nome = str(row.get("Mês", "")).upper()
+                if nome.startswith("TOTAL") or nome.startswith("MÉDIA"):
+                    return [
+                        "background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;"
+                        for _ in row
+                    ]
+                return ["" for _ in row]
+
             st.dataframe(
-                df_completa_tela.style
+                df_completa_tela[cols_manutencao].style
+                .apply(destacar_total_media_manutencao, axis=1)
                 .format({
-                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "",
                     "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
-                    "Uso do Limite": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Result. R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
+                    "Result. %": lambda v: f"{v:.1%}" if pd.notna(v) else "",
+                    "Acumulado": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
                 })
-                .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
-                .map(cor_despesa_manutencao, subset=["Uso do Limite"]),
+                .map(lambda v: cor_gap_valor(v, False), subset=["Result. R$", "Acumulado"])
+                .map(lambda v: f"color: {COR_VERDE}; font-weight:bold" if pd.notna(v) and v >= 0 else (f"color: {COR_LARANJA}; font-weight:bold" if pd.notna(v) else ""), subset=["Result. %"])
+                ,
                 use_container_width=True,
                 hide_index=True,
             )
