@@ -152,33 +152,7 @@ def verificar_senha_acesso():
                 border-radius: 22px;
             }
 
-            .login-shell {
-                width: min(520px, 100%);
-                position: relative;
-            }
-
-            .login-card {
-                background: rgba(255,255,255,0.98);
-                border: 1px solid #E5E7EB;
-                border-radius: 24px;
-                padding: 32px 34px 28px 34px;
-                box-shadow: 0 20px 55px rgba(17,24,39,0.12);
-                overflow: hidden;
-                position: relative;
-            }
-
-            .login-card::before {
-                content: "";
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-                height: 6px;
-                background: linear-gradient(90deg, #F26522, #00A350);
-                border-radius: 24px 24px 0 0;
-            }
-
-            .login-logo-wrap {
+                        .login-logo-wrap {
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -335,59 +309,70 @@ def verificar_senha_acesso():
         st.stop()
 
     # ---- Estrutura visual da tela de login ----
-    st.markdown('<div class="login-bg"><div class="login-shell"><div class="login-card">', unsafe_allow_html=True)
+    st.markdown('<div class="login-bg">', unsafe_allow_html=True)
+    col_esq, col_centro, col_dir = st.columns([1.2, 1.0, 1.2])
 
-    logo_renderizado = False
-    logo_login_arquivo = globals().get("LOGO_ARQUIVO", "MazolaCertificado.ico")
-    if os.path.exists(logo_login_arquivo):
-        try:
-            col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 1.25, 1])
-            with col_logo_2:
-                st.image(logo_login_arquivo, use_container_width=True)
-            logo_renderizado = True
-        except Exception:
-            logo_renderizado = False
-
-    if not logo_renderizado:
+    with col_centro:
         st.markdown(
             """
-            <div class="login-logo-wrap">
-                <div style="font-size: 46px;">♻️</div>
+            <div style="margin: 0 auto 16px auto; width: 100%; max-width: 520px;">
+                <div style="height: 6px; border-radius: 999px; background: linear-gradient(90deg, #F26522, #00A350);"></div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    st.markdown(
-        """
-        <div style="text-align:center;">
-            <div class="login-badge">🔐 Ambiente seguro</div>
-        </div>
-        <div class="login-title">Acesso ao Painel</div>
-        <div class="login-subtitle">
-            Informe suas credenciais para acessar o painel gerencial de indicadores.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        logo_renderizado = False
+        logo_login_arquivo = globals().get("LOGO_ARQUIVO", "MazolaCertificado.ico")
+        if os.path.exists(logo_login_arquivo):
+            try:
+                col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 1.2, 1])
+                with col_logo_2:
+                    st.image(logo_login_arquivo, use_container_width=True)
+                logo_renderizado = True
+            except Exception:
+                logo_renderizado = False
 
-    with st.form("form_login_acesso"):
-        usuario_digitado = st.text_input("Usuário", placeholder="Digite seu usuário")
-        senha_digitada = st.text_input("Senha", type="password", placeholder="Digite sua senha")
-        entrar = st.form_submit_button("Entrar no painel", use_container_width=True)
+        if not logo_renderizado:
+            st.markdown(
+                """
+                <div class="login-logo-wrap">
+                    <div style="font-size: 46px;">♻️</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-    st.markdown(
-        """
-        <div class="login-security">
-            <span>🛡️</span>
-            <span>Acesso restrito a usuários autorizados. Após tentativas incorretas, o login é temporariamente bloqueado.</span>
-        </div>
-        <div class="login-footer">Mazola Ambiental • Painel de Indicadores</div>
-        """,
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            """
+            <div style="text-align:center; margin-top: 8px;">
+                <div class="login-badge">🔐 Ambiente seguro</div>
+            </div>
+            <div class="login-title">Acesso ao Painel</div>
+            <div class="login-subtitle">
+                Informe suas credenciais para acessar o painel gerencial de indicadores.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    st.markdown('</div></div></div>', unsafe_allow_html=True)
+        with st.form("form_login_acesso"):
+            usuario_digitado = st.text_input("Usuário", placeholder="Digite seu usuário")
+            senha_digitada = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+            entrar = st.form_submit_button("Entrar no painel", use_container_width=True)
+
+        st.markdown(
+            """
+            <div class="login-security">
+                <span>🛡️</span>
+                <span>Acesso restrito a usuários autorizados. Após tentativas incorretas, o login é temporariamente bloqueado.</span>
+            </div>
+            <div class="login-footer">Mazola Ambiental • Painel de Indicadores</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if entrar:
         usuario_digitado_limpo = str(usuario_digitado).strip()
