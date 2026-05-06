@@ -8144,7 +8144,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.5 — correção gráfico manutenção final")
+    st.caption("v6.0 — resumo executivo, alertas, ranking e exportação Excel")
 
 
 
@@ -8217,6 +8217,588 @@ if df.empty:
 
 
 
+
+
+# =========================
+# MELHORIAS VISUAIS / OPERACIONAIS / ANALÍTICAS v6.0
+# =========================
+def css_executivo_v6():
+    """CSS complementar para deixar o painel mais executivo, sem substituir o CSS original."""
+    st.markdown(
+        f"""
+        <style>
+            .mazola-kpi-card {{
+                background: #FFFFFF;
+                border: 1px solid #E5E7EB;
+                border-radius: 20px;
+                padding: 18px 18px 15px 18px;
+                min-height: 126px;
+                box-shadow: 0 12px 30px rgba(17,24,39,0.07);
+                position: relative;
+                overflow: hidden;
+            }}
+            .mazola-kpi-card:before {{
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                height: 5px;
+                width: 100%;
+                background: linear-gradient(90deg, {COR_LARANJA}, {COR_VERDE});
+            }}
+            .mazola-kpi-label {{
+                color: #6B7280;
+                font-size: 12px;
+                font-weight: 850;
+                text-transform: uppercase;
+                letter-spacing: .035em;
+                margin-bottom: 8px;
+            }}
+            .mazola-kpi-value {{
+                color: #111827;
+                font-size: 25px;
+                font-weight: 950;
+                line-height: 1.08;
+                margin-bottom: 8px;
+                word-break: break-word;
+            }}
+            .mazola-kpi-help {{
+                color: #6B7280;
+                font-size: 12px;
+                font-weight: 650;
+                line-height: 1.35;
+            }}
+            .mazola-section-title {{
+                margin: 26px 0 10px 0;
+                font-size: 20px;
+                color: #111827;
+                font-weight: 950;
+                letter-spacing: -0.02em;
+            }}
+            .mazola-section-subtitle {{
+                margin: -4px 0 16px 0;
+                font-size: 13px;
+                color: #6B7280;
+                font-weight: 650;
+            }}
+            .mazola-alert {{
+                border-radius: 16px;
+                padding: 14px 15px;
+                border: 1px solid #E5E7EB;
+                background: #FFFFFF;
+                box-shadow: 0 8px 22px rgba(17,24,39,0.05);
+                margin-bottom: 10px;
+                font-size: 13px;
+                font-weight: 650;
+                line-height: 1.45;
+            }}
+            .mazola-alert.good {{
+                border-left: 6px solid {COR_VERDE};
+                background: rgba(0,163,80,0.055);
+            }}
+            .mazola-alert.warn {{
+                border-left: 6px solid {COR_LARANJA};
+                background: rgba(242,101,34,0.070);
+            }}
+            .mazola-alert.bad {{
+                border-left: 6px solid {COR_VERMELHO};
+                background: rgba(209,52,56,0.060);
+            }}
+            .mazola-alert.neutral {{
+                border-left: 6px solid #9CA3AF;
+                background: #F9FAFB;
+            }}
+            .mazola-narrativa {{
+                background:
+                    radial-gradient(circle at top left, rgba(242,101,34,0.09), transparent 24%),
+                    radial-gradient(circle at bottom right, rgba(0,163,80,0.08), transparent 28%),
+                    linear-gradient(135deg, #FFFFFF 0%, #FAFAFA 100%);
+                border: 1px solid #E5E7EB;
+                border-radius: 22px;
+                padding: 18px 20px;
+                box-shadow: 0 14px 34px rgba(17,24,39,0.06);
+                color: #374151;
+                font-size: 14px;
+                font-weight: 650;
+                line-height: 1.55;
+            }}
+            .mazola-badge {{
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                border-radius: 999px;
+                padding: 6px 10px;
+                background: rgba(242,101,34,0.09);
+                border: 1px solid rgba(242,101,34,0.17);
+                color: {COR_LARANJA};
+                font-size: 12px;
+                font-weight: 850;
+                margin-bottom: 10px;
+            }}
+            div[data-testid="stDataFrame"] {{
+                border-radius: 16px !important;
+                overflow: hidden !important;
+            }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def aplicar_layout_plotly_mazola(fig, titulo=None, altura=420, legenda=True):
+    """Padroniza gráficos Plotly do app com visual Mazola."""
+    fig.update_layout(
+        title=dict(text=titulo or "", x=0.02, xanchor="left", font=dict(size=18, color="#111827")),
+        height=altura,
+        margin=dict(l=25, r=25, t=55 if titulo else 25, b=35),
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        font=dict(family="Arial, sans-serif", color="#374151", size=12),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0)"),
+        showlegend=legenda,
+        hoverlabel=dict(bgcolor="#FFFFFF", font_size=12, font_family="Arial"),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False, linecolor="#E5E7EB", tickfont=dict(color="#6B7280"))
+    fig.update_yaxes(showgrid=True, gridcolor="#F3F4F6", zeroline=False, linecolor="#E5E7EB", tickfont=dict(color="#6B7280"))
+    return fig
+
+
+def _valor_seguro(v, padrao=0):
+    try:
+        if v is None or pd.isna(v):
+            return padrao
+        return float(v)
+    except Exception:
+        return padrao
+
+
+def _fmt_variacao_pct(v):
+    if v is None or pd.isna(v):
+        return "—"
+    try:
+        return f"{float(v):+.1%}"
+    except Exception:
+        return "—"
+
+
+def card_executivo(label, valor, apoio="", tipo_status="neutral"):
+    """Card visual reutilizável para a aba Resumo."""
+    cor_status = {
+        "good": COR_VERDE,
+        "warn": COR_LARANJA,
+        "bad": COR_VERMELHO,
+        "neutral": "#111827",
+    }.get(tipo_status, "#111827")
+
+    st.markdown(
+        f"""
+        <div class="mazola-kpi-card">
+            <div class="mazola-kpi-label">{label}</div>
+            <div class="mazola-kpi-value" style="color:{cor_status};">{valor}</div>
+            <div class="mazola-kpi-help">{apoio}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def alerta_dashboard(titulo, mensagem, tipo="neutral"):
+    st.markdown(
+        f"""
+        <div class="mazola-alert {tipo}">
+            <strong>{titulo}</strong><br>
+            {mensagem}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def titulo_secao_v6(titulo, subtitulo=None):
+    st.markdown(f'<div class="mazola-section-title">{titulo}</div>', unsafe_allow_html=True)
+    if subtitulo:
+        st.markdown(f'<div class="mazola-section-subtitle">{subtitulo}</div>', unsafe_allow_html=True)
+
+
+def diagnostico_base_executivo(df_raw, df_filtrado=None, indicador=None, filial=None):
+    """Mostra diagnóstico gerencial da base carregada."""
+    try:
+        total_linhas = len(df_raw) if df_raw is not None else 0
+        total_filtrado = len(df_filtrado) if df_filtrado is not None else 0
+
+        anos = []
+        if df_raw is not None and "REFERÊNCIA" in df_raw.columns:
+            refs = pd.to_datetime(df_raw["REFERÊNCIA"], errors="coerce")
+            anos = sorted(refs.dropna().dt.year.unique().tolist())
+
+        filiais = []
+        if df_raw is not None and "FILIAL" in df_raw.columns:
+            filiais = sorted([str(x) for x in df_raw["FILIAL"].dropna().unique().tolist()])[:8]
+
+        data_base = obter_data_geracao_planilha(df_raw) if "obter_data_geracao_planilha" in globals() else "-"
+
+        with st.expander("🧪 Diagnóstico da base carregada", expanded=False):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Linhas na base", f"{total_linhas:,}".replace(",", "."))
+            c2.metric("Linhas filtradas", f"{total_filtrado:,}".replace(",", "."))
+            c3.metric("Anos disponíveis", ", ".join(map(str, anos)) if anos else "—")
+            c4.metric("Data da base", data_base)
+            st.caption(f"Filtro atual: Indicador = {indicador or '-'} | Filial = {filial or '-'}")
+            if filiais:
+                st.caption("Filiais encontradas na base: " + ", ".join(filiais))
+    except Exception as e:
+        st.warning("Não foi possível montar o diagnóstico da base.")
+        if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+            st.exception(e)
+
+
+def resumo_ano_filtrado_v6(df_base, indicador, ano):
+    """Resume o ano selecionado usando colunas já calculadas pelo pipeline do app."""
+    if df_base is None or df_base.empty or "ANO" not in df_base.columns:
+        return {}
+
+    base = df_base[df_base["ANO"] == ano].copy()
+    if base.empty:
+        return {}
+
+    meta = pd.to_numeric(base.get("META_CALC"), errors="coerce").fillna(0).sum()
+    realizado = pd.to_numeric(base.get("REALIZADO_CALC"), errors="coerce").fillna(0).sum()
+
+    if eh_despesa_com_limite(indicador):
+        gap = meta - realizado
+        atingimento = realizado / meta if meta else None
+    elif "RESULTADO_RS" in base.columns:
+        gap = pd.to_numeric(base["RESULTADO_RS"], errors="coerce").fillna(0).sum()
+        atingimento = realizado / meta if meta else None
+    else:
+        gap = realizado - meta
+        atingimento = realizado / meta if meta else None
+
+    meses_com_dado = int(base["MÊS"].nunique()) if "MÊS" in base.columns else 0
+
+    return {
+        "ano": ano,
+        "meta": meta,
+        "realizado": realizado,
+        "gap": gap,
+        "atingimento": atingimento,
+        "meses_com_dado": meses_com_dado,
+    }
+
+
+def variacao_mesmo_periodo_ano_anterior_v6(df_base, indicador, ano):
+    """Compara o ano selecionado com o mesmo número de meses do ano anterior."""
+    try:
+        if df_base is None or df_base.empty or "ANO" not in df_base.columns or "MÊS" not in df_base.columns:
+            return None
+
+        atual = df_base[df_base["ANO"] == ano].copy()
+        anterior = df_base[df_base["ANO"] == ano - 1].copy()
+
+        if atual.empty or anterior.empty:
+            return None
+
+        ultimo_mes = int(pd.to_numeric(atual["MÊS"], errors="coerce").dropna().max())
+        atual = atual[atual["MÊS"] <= ultimo_mes]
+        anterior = anterior[anterior["MÊS"] <= ultimo_mes]
+
+        col = "REALIZADO_CALC"
+        if (eh_despesa_geral(indicador) or eh_resultado_financeiro(indicador)) and "RESULTADO_RS" in df_base.columns:
+            col = "RESULTADO_RS"
+
+        val_atual = pd.to_numeric(atual.get(col), errors="coerce").fillna(0).sum()
+        val_anterior = pd.to_numeric(anterior.get(col), errors="coerce").fillna(0).sum()
+
+        if val_anterior == 0:
+            return None
+
+        return (val_atual - val_anterior) / abs(val_anterior)
+    except Exception:
+        return None
+
+
+def montar_ranking_filiais_executivo(df_raw, indicador, ano):
+    """Ranking por filial com realizado, meta, gap e atingimento."""
+    linhas = []
+    try:
+        if eh_tecfil(indicador):
+            lista = ["Tecfil Geral", "Tecfil SP", "Tecfil MS", "Tecfil ES", "Tecfil PR"]
+            for ind_tec in lista:
+                dfil = filtrar(df_raw, ind_tec, "Geral")
+                if dfil is None or dfil.empty:
+                    continue
+                res = resumo_ano_filtrado_v6(dfil, ind_tec, ano)
+                if not res:
+                    continue
+                linhas.append({
+                    "Filial": ind_tec,
+                    "Realizado": res.get("realizado"),
+                    "Meta/Limite": res.get("meta"),
+                    "Gap/Saldo": res.get("gap"),
+                    "% Resultado": res.get("atingimento"),
+                })
+        else:
+            for filial_real in FILIAIS_REAIS:
+                dfil = filtrar(df_raw, indicador, filial_real)
+                if dfil is None or dfil.empty:
+                    continue
+                res = resumo_ano_filtrado_v6(dfil, indicador, ano)
+                if not res:
+                    continue
+                linhas.append({
+                    "Filial": filial_real,
+                    "Realizado": res.get("realizado"),
+                    "Meta/Limite": res.get("meta"),
+                    "Gap/Saldo": res.get("gap"),
+                    "% Resultado": res.get("atingimento"),
+                })
+
+        ranking = pd.DataFrame(linhas)
+        if ranking.empty:
+            return ranking
+
+        if eh_despesa_com_limite(indicador):
+            ranking = ranking.sort_values("% Resultado", ascending=True)
+        else:
+            ranking = ranking.sort_values("% Resultado", ascending=False)
+
+        return ranking.reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
+
+def montar_alertas_executivos_v6(df_base, indicador, ano):
+    """Gera alertas automáticos para orientar a tomada de decisão."""
+    alertas = []
+    res = resumo_ano_filtrado_v6(df_base, indicador, ano)
+    if not res:
+        return alertas
+
+    meta = res.get("meta")
+    ating = res.get("atingimento")
+
+    if meta in [None, 0] or pd.isna(meta):
+        alertas.append(("Meta/Limite ausente", "Não há meta ou limite válido para este período. Confira a coluna META da base.", "warn"))
+
+    if ating is not None and pd.notna(ating):
+        if eh_despesa_com_limite(indicador):
+            if ating <= 1:
+                alertas.append(("Dentro do limite", f"O indicador está dentro do limite, com uso de {fmt_pct(ating)}.", "good"))
+            else:
+                alertas.append(("Acima do limite", f"O indicador ultrapassou o limite, com uso de {fmt_pct(ating)}.", "bad"))
+        else:
+            if ating >= 1:
+                alertas.append(("Meta atingida", f"O indicador está acima da meta, com atingimento de {fmt_pct(ating)}.", "good"))
+            elif ating >= 0.90:
+                alertas.append(("Próximo da meta", f"O indicador está próximo da meta, com atingimento de {fmt_pct(ating)}.", "warn"))
+            else:
+                alertas.append(("Abaixo da meta", f"O indicador está abaixo da meta, com atingimento de {fmt_pct(ating)}.", "bad"))
+
+    variacao = variacao_mesmo_periodo_ano_anterior_v6(df_base, indicador, ano)
+    if variacao is not None:
+        if variacao >= 0:
+            alertas.append(("Evolução anual positiva", f"No mesmo período do ano anterior, houve variação de {_fmt_variacao_pct(variacao)}.", "good"))
+        else:
+            alertas.append(("Queda contra o ano anterior", f"No mesmo período do ano anterior, houve variação de {_fmt_variacao_pct(variacao)}.", "warn"))
+
+    try:
+        base_ano = df_base[df_base["ANO"] == ano].copy()
+        if "MÊS" in base_ano.columns:
+            meses = sorted(pd.to_numeric(base_ano["MÊS"], errors="coerce").dropna().unique().tolist())
+            if meses:
+                mes_atual = int(max(meses))
+                if mes_atual < 12:
+                    alertas.append(("Ano em andamento", f"O ano possui dados até {MESES_MAPA.get(mes_atual, mes_atual)}. Avalie a projeção antes de tomar decisão final.", "neutral"))
+    except Exception:
+        pass
+
+    return alertas
+
+
+def narrativa_executiva_v6(df_base, indicador, filial, ano):
+    """Texto executivo automático para a aba Resumo."""
+    res = resumo_ano_filtrado_v6(df_base, indicador, ano)
+    if not res:
+        return "Não há dados suficientes para montar a leitura executiva do período selecionado."
+
+    meta = res.get("meta")
+    realizado = res.get("realizado")
+    gap = res.get("gap")
+    ating = res.get("atingimento")
+    meses = res.get("meses_com_dado")
+
+    nome_meta = rotulo_meta(indicador)
+    nome_real = rotulo_realizado(indicador)
+    nome_gap = rotulo_gap(indicador)
+    nome_pct = rotulo_percentual(indicador)
+
+    variacao = variacao_mesmo_periodo_ano_anterior_v6(df_base, indicador, ano)
+    variacao_txt = ""
+    if variacao is not None:
+        direcao = "crescimento" if variacao >= 0 else "queda"
+        variacao_txt = f" Em comparação com o mesmo período do ano anterior, houve {direcao} de {_fmt_variacao_pct(variacao)}."
+
+    status = ""
+    if ating is not None and pd.notna(ating):
+        if eh_despesa_com_limite(indicador):
+            status = "dentro do limite" if ating <= 1 else "acima do limite"
+        else:
+            status = "acima da meta" if ating >= 1 else "abaixo da meta"
+
+    return (
+        f"No ano de {ano}, o indicador <strong>{indicador}</strong> para <strong>{filial}</strong> "
+        f"apresenta {nome_real.lower()} de <strong>{fmt_brl(realizado)}</strong> contra "
+        f"{nome_meta.lower()} de <strong>{fmt_brl(meta)}</strong>. "
+        f"O {nome_gap.lower()} é de <strong>{fmt_brl(gap)}</strong> e o {nome_pct.lower()} está em "
+        f"<strong>{fmt_pct(ating) if ating is not None and pd.notna(ating) else '—'}</strong>. "
+        f"Com base nos dados disponíveis, o indicador está <strong>{status or 'sem status definido'}</strong>. "
+        f"A análise considera <strong>{meses}</strong> mês(es) com dados no ano selecionado."
+        f"{variacao_txt}"
+    )
+
+
+def grafico_evolucao_executiva_v6(df_base, indicador, ano):
+    """Gráfico de evolução mensal do realizado contra meta/limite."""
+    if df_base is None or df_base.empty or "ANO" not in df_base.columns:
+        return None
+
+    base = df_base[df_base["ANO"] == ano].copy()
+    if base.empty or "MÊS" not in base.columns:
+        return None
+
+    mensal = (
+        base.groupby("MÊS", as_index=False)
+        .agg({"REALIZADO_CALC": "sum", "META_CALC": "sum"})
+        .sort_values("MÊS")
+    )
+    mensal["Mês"] = mensal["MÊS"].map(MESES_MAPA)
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=mensal["Mês"],
+        y=mensal["REALIZADO_CALC"],
+        name=rotulo_realizado(indicador),
+        marker_color=COR_LARANJA,
+        text=[fmt_brl(v) for v in mensal["REALIZADO_CALC"]],
+        textposition="outside",
+        hovertemplate="%{x}<br>Realizado: %{text}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=mensal["Mês"],
+        y=mensal["META_CALC"],
+        name=rotulo_meta(indicador),
+        mode="lines+markers",
+        line=dict(color=COR_VERDE, width=3),
+        marker=dict(size=8),
+        hovertemplate="%{x}<br>Meta/Limite: R$ %{y:,.0f}<extra></extra>",
+    ))
+    return aplicar_layout_plotly_mazola(fig, "Evolução mensal do indicador", altura=430)
+
+
+def renderizar_resumo_executivo_melhorado(df_base, df_raw, indicador, filial, ano_selecionado=None):
+    """Nova tela executiva para usar no começo da aba Resumo."""
+    css_executivo_v6()
+
+    if df_base is None or df_base.empty:
+        st.warning("Não há dados para montar o resumo executivo.")
+        return
+
+    if ano_selecionado is None:
+        if "ANO" in df_base.columns and df_base["ANO"].notna().any():
+            ano_selecionado = int(pd.to_numeric(df_base["ANO"], errors="coerce").dropna().max())
+        else:
+            st.warning("Não foi possível identificar o ano selecionado.")
+            return
+
+    diagnostico_base_executivo(df_raw, df_base, indicador, filial)
+
+    st.markdown('<div class="mazola-badge">📊 Resumo executivo</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="mazola-narrativa">{narrativa_executiva_v6(df_base, indicador, filial, ano_selecionado)}</div>', unsafe_allow_html=True)
+
+    res = resumo_ano_filtrado_v6(df_base, indicador, ano_selecionado)
+    if not res:
+        st.info("Sem resumo disponível para o ano selecionado.")
+        return
+
+    meta = res.get("meta")
+    realizado = res.get("realizado")
+    gap = res.get("gap")
+    ating = res.get("atingimento")
+    variacao = variacao_mesmo_periodo_ano_anterior_v6(df_base, indicador, ano_selecionado)
+
+    if eh_despesa_com_limite(indicador):
+        status_gap = "good" if _valor_seguro(gap) >= 0 else "bad"
+        status_pct = "good" if ating is not None and pd.notna(ating) and ating <= 1 else "bad"
+    else:
+        status_gap = "good" if _valor_seguro(gap) >= 0 else "warn"
+        status_pct = "good" if ating is not None and pd.notna(ating) and ating >= 1 else "warn"
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        card_executivo(rotulo_meta(indicador), fmt_brl(meta), f"Ano {ano_selecionado}", "neutral")
+    with c2:
+        card_executivo(rotulo_realizado(indicador), fmt_brl(realizado), "Total acumulado", "neutral")
+    with c3:
+        card_executivo(rotulo_gap(indicador), fmt_brl(gap), "Diferença contra meta/limite", status_gap)
+    with c4:
+        card_executivo(rotulo_percentual(indicador), fmt_pct(ating) if ating is not None and pd.notna(ating) else "—", "Resultado percentual", status_pct)
+    with c5:
+        card_executivo("Vs ano anterior", _fmt_variacao_pct(variacao), "Mesmo período", "good" if variacao is not None and variacao >= 0 else "warn")
+
+    titulo_secao_v6("Alertas automáticos", "Leitura rápida dos pontos de atenção do indicador.")
+    alertas = montar_alertas_executivos_v6(df_base, indicador, ano_selecionado)
+    if alertas:
+        for titulo, mensagem, tipo in alertas[:5]:
+            alerta_dashboard(titulo, mensagem, tipo)
+    else:
+        st.info("Nenhum alerta automático foi identificado para o período.")
+
+    titulo_secao_v6("Tendência mensal", "Evolução do realizado contra a meta/limite.")
+    fig = grafico_evolucao_executiva_v6(df_base, indicador, ano_selecionado)
+    if fig is not None:
+        st.plotly_chart(fig, use_container_width=True, key=f"grafico_exec_v6_{indicador}_{filial}_{ano_selecionado}")
+    else:
+        st.info("Não foi possível montar o gráfico de tendência mensal.")
+
+    if filial == "Geral":
+        titulo_secao_v6("Ranking de filiais", "Comparativo acumulado por unidade no ano selecionado.")
+        ranking = montar_ranking_filiais_executivo(df_raw, indicador, ano_selecionado)
+        if ranking is not None and not ranking.empty:
+            st.dataframe(
+                ranking.style.format({
+                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Meta/Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Gap/Saldo": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "% Resultado": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Não há dados suficientes para montar ranking por filial.")
+
+
+def dataframe_para_excel_bytes(df_exportar, nome_aba="Dados"):
+    """Converte DataFrame em bytes de Excel para download."""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_exportar.to_excel(writer, index=False, sheet_name=nome_aba[:31])
+        try:
+            ws = writer.book[nome_aba[:31]]
+            for col in ws.columns:
+                max_len = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    try:
+                        max_len = max(max_len, len(str(cell.value)))
+                    except Exception:
+                        pass
+                ws.column_dimensions[col_letter].width = min(max_len + 2, 42)
+        except Exception:
+            pass
+    output.seek(0)
+    return output.getvalue()
+
 def label_aba_com_icone(arquivo_icone, texto, emoji_fallback="📊"):
     """
     Cria um rótulo de aba com imagem local.
@@ -8261,20 +8843,20 @@ st.markdown(
 
 if eh_admin():
     tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📊 Visão Geral",
+        "📊 Resumo",
         "📅 Períodos",
-        "📈 MoM",
-        "🔁 YoY",
+        "📈 Mês a Mês",
+        "🔁 Ano contra Ano",
         "📌 Projeção",
-        "🧠 Análise",
-        "📤 Opções"
+        "🧠 Insights IA",
+        "📤 Exportações"
     ])
 else:
     tab0, tab1, tab2, tab3 = st.tabs([
-        "📊 Visão Geral",
+        "📊 Resumo",
         "📅 Períodos",
-        "📈 MoM",
-        "🔁 YoY"
+        "📈 Mês a Mês",
+        "🔁 Ano contra Ano"
     ])
     tab4 = None
     tab5 = None
@@ -8621,10 +9203,36 @@ def renderizar_tabela_periodo_acumulado(df_periodo, indicador, modo):
 
 
 # =========================
-# ABA VISÃO GERAL
+# ABA RESUMO
 # =========================
 with tab0:
-    st.markdown(f"<h2 style='margin-bottom:6px;'>📊 Visão Geral — {indicador} | {filial}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='margin-bottom:6px;'>📊 Resumo — {indicador} | {filial}</h2>", unsafe_allow_html=True)
+
+    try:
+        anos_disponiveis_resumo = sorted(pd.to_numeric(df["ANO"], errors="coerce").dropna().astype(int).unique().tolist())
+        ano_padrao_resumo = max(anos_disponiveis_resumo) if anos_disponiveis_resumo else None
+
+        ano_resumo = st.selectbox(
+            "Ano do resumo",
+            anos_disponiveis_resumo,
+            index=anos_disponiveis_resumo.index(ano_padrao_resumo) if ano_padrao_resumo in anos_disponiveis_resumo else 0,
+            key="ano_resumo_executivo_v6",
+        )
+
+        renderizar_resumo_executivo_melhorado(
+            df_base=df,
+            df_raw=df_raw,
+            indicador=indicador,
+            filial=filial,
+            ano_selecionado=ano_resumo,
+        )
+
+        st.divider()
+    except Exception as e:
+        st.warning("Não foi possível carregar o novo Resumo Executivo.")
+        if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+            st.exception(e)
+
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_kpi = int(anos[-1])
@@ -10482,7 +11090,27 @@ if eh_admin() and tab5 is not None:
 # =========================
 if eh_admin() and tab6 is not None:
     with tab6:
-        titulo_secao("Opções", f"{indicador} — {filial}: PDF, e-mail e administração da base.")
+        titulo_secao("Exportações", f"{indicador} — {filial}: PDF, Excel, e-mail e administração da base.")
+
+        with st.expander("📊 Baixar base filtrada em Excel", expanded=False):
+            st.caption("Exporta a base já filtrada conforme indicador e filial selecionados.")
+            if df is not None and not df.empty:
+                try:
+                    excel_bytes = dataframe_para_excel_bytes(df, "Base Filtrada")
+                    nome_excel = f"base_filtrada_{normalizar_texto(indicador).replace(' ', '_')}_{normalizar_texto(filial).replace(' ', '_')}.xlsx"
+                    st.download_button(
+                        label="📥 Baixar base filtrada em Excel",
+                        data=excel_bytes,
+                        file_name=nome_excel,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                    )
+                except Exception as e:
+                    st.warning("Não foi possível gerar o Excel da base filtrada.")
+                    if str(st.secrets.get("DEBUG_MODE", "false")).lower() in ["true", "1", "yes", "sim"]:
+                        st.exception(e)
+            else:
+                st.info("Não há dados filtrados para exportar.")
 
         if eh_admin():
             with st.expander("🔐 Administração da base", expanded=False):
