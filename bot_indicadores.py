@@ -8001,7 +8001,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9.7 — cards RF identificados")
+    st.caption("v5.0 etapa 9.8 — correção comparativo moto")
 
 
 
@@ -9318,20 +9318,60 @@ with tab3:
         cards_comparativo_periodo(df_periodo_tela, indicador)
 
         if not df_periodo_tela.empty:
-            st.dataframe(
-                df_periodo_tela[["Ano", "Período", "Faturamento", "Compra", "Margem Bruta", "Meta %", "Meta Margem (R$)", "Tx. Sucesso"]].style
-                .format({
+            if eh_moto_margem(indicador):
+                # Após a limpeza do comparativo de Pneus Moto, algumas colunas como
+                # "Meta Margem (R$)" e "Gap (R$)" podem não existir mais.
+                # Por isso, exibimos apenas as colunas disponíveis.
+                cols_periodo_moto = [
+                    "Ano",
+                    "Período",
+                    "Faturamento",
+                    "Compra",
+                    "Margem Bruta",
+                    "Meta %",
+                    "Tx. Sucesso",
+                    "Variação Faturamento",
+                    "Variação Margem",
+                ]
+                cols_periodo_moto = [c for c in cols_periodo_moto if c in df_periodo_tela.columns]
+
+                fmt_periodo_moto = {
                     "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                    "Meta Margem (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                })
-                .apply(cor_tx_sucesso_moto_por_linha, axis=1),
-                use_container_width=True,
-                hide_index=True,
-            )
+                    "Variação Faturamento": lambda v: fmt_var_pct_seguro(v) if pd.notna(v) else "—",
+                    "Variação Margem": lambda v: fmt_var_pct_seguro(v) if pd.notna(v) else "—",
+                }
+                fmt_periodo_moto = {k: v for k, v in fmt_periodo_moto.items() if k in cols_periodo_moto}
+
+                st.dataframe(
+                    df_periodo_tela[cols_periodo_moto].style
+                    .format(fmt_periodo_moto)
+                    .apply(cor_tx_sucesso_moto_por_linha, axis=1),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.dataframe(
+                    df_periodo_tela.style
+                    .format({
+                        "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Gap (R$)": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                        "Variação Realizado": lambda v: fmt_var_pct_seguro(v) if pd.notna(v) else "—",
+                        "Variação Meta": lambda v: fmt_var_pct_seguro(v) if pd.notna(v) else "—",
+                        "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Resultado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                        "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                        "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    }),
+                    use_container_width=True,
+                    hide_index=True,
+                )
         else:
             st.info("Sem dados suficientes para comparar o mesmo período.")
 
