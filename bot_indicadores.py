@@ -7947,7 +7947,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 9.2 — projeção admin e comparativo limpo")
+    st.caption("v5.0 etapa 9.3 — abas administrativas protegidas")
 
 
 
@@ -8073,15 +8073,15 @@ if eh_admin():
         "📤 Opções"
     ])
 else:
-    tab0, tab1, tab2, tab3, tab5, tab6 = st.tabs([
+    tab0, tab1, tab2, tab3 = st.tabs([
         "📊 Visão Geral",
         "📅 Por Ano",
         "📈 MoM",
-        "🔁 YoY",
-        "🧠 Análise",
-        "📤 Opções"
+        "🔁 YoY"
     ])
     tab4 = None
+    tab5 = None
+    tab6 = None
 
 
 # =========================
@@ -9835,129 +9835,130 @@ with tab3:
 # =========================
 if eh_admin() and tab4 is not None:
     with tab4:
-        renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha)
-
+            renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha)
 
 # =========================
 # ABA ANÁLISE
 # =========================
-with tab5:
-    renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, df_comparativo_filiais)
-
+if eh_admin() and tab5 is not None:
+    with tab5:
+        renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, df_comparativo_filiais)
 
 # =========================
 # ABA OPÇÕES
 # =========================
-with tab6:
-    titulo_secao("Opções", f"{indicador} — {filial}: PDF, e-mail e administração da base.")
+if eh_admin() and tab6 is not None:
+    with tab6:
+        titulo_secao("Opções", f"{indicador} — {filial}: PDF, e-mail e administração da base.")
 
-    if eh_admin():
-        with st.expander("🔐 Administração da base", expanded=False):
-            st.caption("Área exclusiva do perfil Administrador.")
+        if eh_admin():
+            with st.expander("🔐 Administração da base", expanded=False):
+                st.caption("Área exclusiva do perfil Administrador.")
 
-            fonte_atual = st.session_state.get("fonte_dados_admin", "Google Drive")
-            nova_fonte = st.radio(
-                "Fonte da base",
-                ["Google Drive", "Upload manual"],
-                index=0 if fonte_atual == "Google Drive" else 1,
-                horizontal=True,
-                key="opcoes_fonte_dados_admin",
-            )
-
-            novo_nome_drive = st.text_input(
-                "Nome do arquivo no Drive",
-                value=st.session_state.get("nome_arquivo_drive_admin", "BaseSistema.xlsx"),
-                key="opcoes_nome_arquivo_drive_admin",
-            )
-
-            if nova_fonte == "Upload manual":
-                arquivo_admin = st.file_uploader(
-                    "Carregar planilha manualmente (.xlsx)",
-                    type=["xlsx"],
-                    key="opcoes_upload_manual_admin",
+                fonte_atual = st.session_state.get("fonte_dados_admin", "Google Drive")
+                nova_fonte = st.radio(
+                    "Fonte da base",
+                    ["Google Drive", "Upload manual"],
+                    index=0 if fonte_atual == "Google Drive" else 1,
+                    horizontal=True,
+                    key="opcoes_fonte_dados_admin",
                 )
 
-                if arquivo_admin is not None:
-                    st.session_state["arquivo_manual_bytes_admin"] = arquivo_admin.getvalue()
-                    st.session_state["arquivo_manual_nome_admin"] = arquivo_admin.name
-                    st.success(f"Arquivo manual carregado: {arquivo_admin.name}")
+                novo_nome_drive = st.text_input(
+                    "Nome do arquivo no Drive",
+                    value=st.session_state.get("nome_arquivo_drive_admin", "BaseSistema.xlsx"),
+                    key="opcoes_nome_arquivo_drive_admin",
+                )
 
-                if st.session_state.get("arquivo_manual_nome_admin"):
-                    st.info(f"Arquivo manual atual: {st.session_state.get('arquivo_manual_nome_admin')}")
+                if nova_fonte == "Upload manual":
+                    arquivo_admin = st.file_uploader(
+                        "Carregar planilha manualmente (.xlsx)",
+                        type=["xlsx"],
+                        key="opcoes_upload_manual_admin",
+                    )
 
-            col_admin_1, col_admin_2 = st.columns(2)
+                    if arquivo_admin is not None:
+                        st.session_state["arquivo_manual_bytes_admin"] = arquivo_admin.getvalue()
+                        st.session_state["arquivo_manual_nome_admin"] = arquivo_admin.name
+                        st.success(f"Arquivo manual carregado: {arquivo_admin.name}")
 
-            with col_admin_1:
-                if st.button("Salvar configuração da base", use_container_width=True):
-                    st.session_state["fonte_dados_admin"] = nova_fonte
-                    st.session_state["nome_arquivo_drive_admin"] = str(novo_nome_drive).strip() or "BaseSistema.xlsx"
-                    st.cache_data.clear()
-                    st.success("Configuração salva. Recarregando dados...")
-                    st.rerun()
+                    if st.session_state.get("arquivo_manual_nome_admin"):
+                        st.info(f"Arquivo manual atual: {st.session_state.get('arquivo_manual_nome_admin')}")
 
-            with col_admin_2:
-                if st.button("Voltar para Google Drive padrão", use_container_width=True):
-                    st.session_state["fonte_dados_admin"] = "Google Drive"
-                    st.session_state["nome_arquivo_drive_admin"] = "BaseSistema.xlsx"
-                    st.session_state.pop("arquivo_manual_bytes_admin", None)
-                    st.session_state.pop("arquivo_manual_nome_admin", None)
-                    st.cache_data.clear()
-                    st.success("Fonte restaurada para Google Drive.")
-                    st.rerun()
+                col_admin_1, col_admin_2 = st.columns(2)
 
-            st.info("Usuários comuns não veem essa área e ficam travados na importação pelo Google Drive.")
+                with col_admin_1:
+                    if st.button("Salvar configuração da base", use_container_width=True):
+                        st.session_state["fonte_dados_admin"] = nova_fonte
+                        st.session_state["nome_arquivo_drive_admin"] = str(novo_nome_drive).strip() or "BaseSistema.xlsx"
+                        st.cache_data.clear()
+                        st.success("Configuração salva. Recarregando dados...")
+                        st.rerun()
 
-    ano_pdf_dashboard = int(df["ANO"].max())
-    nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
+                with col_admin_2:
+                    if st.button("Voltar para Google Drive padrão", use_container_width=True):
+                        st.session_state["fonte_dados_admin"] = "Google Drive"
+                        st.session_state["nome_arquivo_drive_admin"] = "BaseSistema.xlsx"
+                        st.session_state.pop("arquivo_manual_bytes_admin", None)
+                        st.session_state.pop("arquivo_manual_nome_admin", None)
+                        st.cache_data.clear()
+                        st.success("Fonte restaurada para Google Drive.")
+                        st.rerun()
 
-    with st.spinner("Gerando PDF..."):
-        pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
+                st.info("Usuários comuns não veem essa área e ficam travados na importação pelo Google Drive.")
 
-    st.markdown("### Arquivos e envio")
-    col_op1, col_op2 = st.columns(2)
+        ano_pdf_dashboard = int(df["ANO"].max())
+        nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
 
-    with col_op1:
-        st.download_button(
-            label="📄 Baixar PDF",
-            data=pdf_bytes_dashboard,
-            file_name=nome_pdf_dashboard,
-            mime="application/pdf",
-            use_container_width=True,
-            key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
-        )
+        with st.spinner("Gerando PDF..."):
+            pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
 
-    with col_op2:
-        st.info("Use a opção abaixo para enviar o relatório diretamente por e-mail.")
+        st.markdown("### Arquivos e envio")
+        col_op1, col_op2 = st.columns(2)
 
-    with st.expander("✉️ Enviar por e-mail", expanded=True):
-        with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
-            email_destino = st.text_input("E-mail do destinatário")
-            assunto_email = st.text_input(
-                "Assunto",
-                value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
-            )
-            corpo_email = st.text_area(
-                "Mensagem",
-                value=f"Olá,\\n\\nSegue em anexo o relatório de indicadores referente a {indicador}, base {filial}, ano {ano_pdf_dashboard}.\\n\\nAtenciosamente.",
-                height=140
+        with col_op1:
+            st.download_button(
+                label="📄 Baixar PDF",
+                data=pdf_bytes_dashboard,
+                file_name=nome_pdf_dashboard,
+                mime="application/pdf",
+                use_container_width=True,
+                key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
             )
 
-            enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
+        with col_op2:
+            st.info("Use a opção abaixo para enviar o relatório diretamente por e-mail.")
 
-            if enviar_email:
-                if not email_destino or "@" not in email_destino:
-                    st.warning("Informe um e-mail válido.")
-                else:
-                    with st.spinner("Enviando e-mail..."):
-                        ok, msg_envio = enviar_email_relatorio(
-                            destinatario=email_destino,
-                            assunto=assunto_email,
-                            corpo=corpo_email,
-                            nome_arquivo=nome_pdf_dashboard,
-                            pdf_bytes=pdf_bytes_dashboard,
-                        )
+        with st.expander("✉️ Enviar por e-mail", expanded=True):
+            with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
+                email_destino = st.text_input("E-mail do destinatário")
+                assunto_email = st.text_input(
+                    "Assunto",
+                    value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
+                )
+                corpo_email = st.text_area(
+                    "Mensagem",
+                    value=f"Olá,\\n\\nSegue em anexo o relatório de indicadores referente a {indicador}, base {filial}, ano {ano_pdf_dashboard}.\\n\\nAtenciosamente.",
+                    height=140
+                )
 
-                    if ok:
-                        st.success(msg_envio)
+                enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
+
+                if enviar_email:
+                    if not email_destino or "@" not in email_destino:
+                        st.warning("Informe um e-mail válido.")
                     else:
-                        st.error(msg_envio)
+                        with st.spinner("Enviando e-mail..."):
+                            ok, msg_envio = enviar_email_relatorio(
+                                destinatario=email_destino,
+                                assunto=assunto_email,
+                                corpo=corpo_email,
+                                nome_arquivo=nome_pdf_dashboard,
+                                pdf_bytes=pdf_bytes_dashboard,
+                            )
+
+                        if ok:
+                            st.success(msg_envio)
+                        else:
+                            st.error(msg_envio)
+
