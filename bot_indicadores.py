@@ -5755,25 +5755,48 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
         return aplicar_tema_plotly_mazola(fig)
 
-    dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
-    if dados.empty:
-        return None
+    # Bloco genérico do gráfico.
+    # Correção: Despesa Manutenção agora usa a tabela:
+    # Mês | Limite | Despesa | Result. R$ | Result. % | Acumulado
+    # Portanto, nesse caso não existe mais a coluna "Realizado".
+    if indicador and eh_despesa_manutencao(indicador) and "Despesa" in df_completa.columns and "Limite" in df_completa.columns:
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Despesa"].notna())].copy()
+        if dados.empty:
+            return None
 
-    ultimo_mes = dados["Mês"].iloc[-1]
+        dados = dados.rename(columns={"Despesa": "Realizado", "Limite": "Meta"})
+        ultimo_mes = dados["Mês"].iloc[-1]
 
-    if indicador and eh_despesa_manutencao(indicador):
         titulo_final = titulo or f"Despesa x Limite — até {ultimo_mes}/{ano}"
         nome_realizado = "Despesa"
         nome_meta = "Limite"
+
         cor_barras = [
             COR_VERDE if pd.notna(r) and pd.notna(m) and r <= m else COR_LARANJA
             for r, m in zip(dados["Realizado"], dados["Meta"])
         ]
+
     else:
-        titulo_final = titulo or f"Realizado x Meta — até {ultimo_mes}/{ano}"
-        nome_realizado = "Realizado"
-        nome_meta = "Meta"
-        cor_barras = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(dados["Realizado"], dados["Meta"])]
+        if "Realizado" not in df_completa.columns:
+            return None
+
+        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
+        if dados.empty:
+            return None
+
+        ultimo_mes = dados["Mês"].iloc[-1]
+
+        titulo_final = titulo or f"{rotulo_realizado(indicador)} x {rotulo_meta(indicador)} — até {ultimo_mes}/{ano}"
+        nome_realizado = rotulo_realizado(indicador)
+        nome_meta = rotulo_meta(indicador)
+
+        if indicador and eh_despesa_manutencao(indicador):
+            cor_barras = [
+                COR_VERDE if pd.notna(r) and pd.notna(m) and r <= m else COR_LARANJA
+                for r, m in zip(dados["Realizado"], dados["Meta"])
+            ]
+        else:
+            cor_barras = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(dados["Realizado"], dados["Meta"])]
 
     texto_barras = []
     for realizado_valor, meta_valor in zip(dados["Realizado"], dados["Meta"]):
@@ -8121,7 +8144,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.4 — nomes ajustados")
+    st.caption("v5.0 etapa 10.5 — correção gráfico manutenção final")
 
 
 
