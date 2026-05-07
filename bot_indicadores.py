@@ -325,39 +325,7 @@ def verificar_senha_acesso():
                 font-weight: 700;
                 text-align: left;
             }
-        
-
-/* Padronização final dos cards KPI — todos com mesmo tamanho */
-div[data-testid="column"] div[data-testid="stMetric"] {
-    width: 100% !important;
-    height: 118px !important;
-    min-height: 118px !important;
-    max-height: 118px !important;
-    box-sizing: border-box !important;
-}
-
-div[data-testid="column"] {
-    align-items: stretch !important;
-}
-
-/* Detalhes sempre nas cores Mazola */
-.kpi-card::before,
-div[data-testid="stMetric"]::before {
-    background: linear-gradient(90deg, #F26522 0%, #00A350 100%) !important;
-}
-
-.kpi-card,
-div[data-testid="stMetric"] {
-    border-color: #E5E7EB !important;
-}
-
-.kpi-card:hover,
-div[data-testid="stMetric"]:hover {
-    border-color: rgba(242,101,34,0.35) !important;
-    box-shadow: 0 6px 18px rgba(17,24,39,0.10) !important;
-}
-
-</style>
+        </style>
         """,
         unsafe_allow_html=True,
     )
@@ -5787,48 +5755,25 @@ def grafico_realizado_meta(df_completa, ano, titulo=None, indicador=None):
         fig.update_yaxes(showgrid=True, gridcolor="#EAEAEA")
         return aplicar_tema_plotly_mazola(fig)
 
-    # Bloco genérico do gráfico.
-    # Correção: Despesa Manutenção agora usa a tabela:
-    # Mês | Limite | Despesa | Result. R$ | Result. % | Acumulado
-    # Portanto, nesse caso não existe mais a coluna "Realizado".
-    if indicador and eh_despesa_manutencao(indicador) and "Despesa" in df_completa.columns and "Limite" in df_completa.columns:
-        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Despesa"].notna())].copy()
-        if dados.empty:
-            return None
+    dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
+    if dados.empty:
+        return None
 
-        dados = dados.rename(columns={"Despesa": "Realizado", "Limite": "Meta"})
-        ultimo_mes = dados["Mês"].iloc[-1]
+    ultimo_mes = dados["Mês"].iloc[-1]
 
+    if indicador and eh_despesa_manutencao(indicador):
         titulo_final = titulo or f"Despesa x Limite — até {ultimo_mes}/{ano}"
         nome_realizado = "Despesa"
         nome_meta = "Limite"
-
         cor_barras = [
             COR_VERDE if pd.notna(r) and pd.notna(m) and r <= m else COR_LARANJA
             for r, m in zip(dados["Realizado"], dados["Meta"])
         ]
-
     else:
-        if "Realizado" not in df_completa.columns:
-            return None
-
-        dados = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Realizado"].notna())].copy()
-        if dados.empty:
-            return None
-
-        ultimo_mes = dados["Mês"].iloc[-1]
-
-        titulo_final = titulo or f"{rotulo_realizado(indicador)} x {rotulo_meta(indicador)} — até {ultimo_mes}/{ano}"
-        nome_realizado = rotulo_realizado(indicador)
-        nome_meta = rotulo_meta(indicador)
-
-        if indicador and eh_despesa_manutencao(indicador):
-            cor_barras = [
-                COR_VERDE if pd.notna(r) and pd.notna(m) and r <= m else COR_LARANJA
-                for r, m in zip(dados["Realizado"], dados["Meta"])
-            ]
-        else:
-            cor_barras = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(dados["Realizado"], dados["Meta"])]
+        titulo_final = titulo or f"Realizado x Meta — até {ultimo_mes}/{ano}"
+        nome_realizado = "Realizado"
+        nome_meta = "Meta"
+        cor_barras = [COR_VERDE if r >= m else COR_LARANJA for r, m in zip(dados["Realizado"], dados["Meta"])]
 
     texto_barras = []
     for realizado_valor, meta_valor in zip(dados["Realizado"], dados["Meta"]):
@@ -7238,14 +7183,11 @@ st.markdown(
 .kpi-card {
     position: relative;
     border:1px solid #E5E7EB;
-    border-radius:16px;
-    padding:16px 16px 32px 16px;
+    border-radius:12px;
+    padding:11px 14px 34px 14px;
     background:#FFFFFF;
-    height:118px;
-    min-height:118px;
-    max-height:118px;
-    box-shadow:0 4px 14px rgba(17,24,39,0.07);
-    overflow:hidden;
+    min-height:96px;
+    box-shadow:0 1px 4px rgba(0,0,0,0.06);
 }
 
 .kpi-card::before {
@@ -7253,44 +7195,37 @@ st.markdown(
     position:absolute;
     left:0;
     top:0;
-    height:5px;
+    height:4px;
     width:100%;
-    border-radius:16px 16px 0 0;
-    background:linear-gradient(90deg, #F26522 0%, #00A350 100%);
+    border-radius:12px 12px 0 0;
+    background:#F26522;
 }
 
 .kpi-label {
     font-size:11px;
-    color:#6B7280;
-    margin-bottom:8px;
-    font-weight:850;
-    text-transform:uppercase;
-    letter-spacing:.02em;
+    color:#404040;
+    margin-bottom:7px;
     white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
 }
 
 .kpi-value {
-    font-size:20px;
-    font-weight:900;
+    font-size:17px;
+    font-weight:700;
     color:#111827;
-    line-height:1.08;
+    line-height:1.15;
     white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
     font-variant-numeric: tabular-nums;
 }
 
 .kpi-delta {
     position:absolute;
-    left:16px;
-    bottom:10px;
+    left:14px;
+    bottom:9px;
     display:inline-block;
-    padding:4px 9px;
+    padding:3px 8px;
     border-radius:999px;
     font-size:11px;
-    font-weight:800;
+    font-weight:600;
     width:fit-content;
 }
 
@@ -7302,21 +7237,16 @@ div[data-testid="stDataFrame"] {
     padding-top: 1.2rem;
 }
 
-/* Cards st.metric — padrão visual único Mazola */
+/* Cards st.metric — Dashboard v5.0 */
 div[data-testid="stMetric"] {
-    background: #FFFFFF !important;
-    border: 1px solid #E5E7EB !important;
-    border-radius: 16px !important;
-    padding: 16px 16px 14px 16px !important;
-    height: 118px !important;
-    min-height: 118px !important;
-    max-height: 118px !important;
-    box-shadow: 0 4px 14px rgba(17,24,39,0.07) !important;
-    position: relative !important;
-    overflow: hidden !important;
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: space-between !important;
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 10px 14px;
+    min-height: 88px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    position: relative;
+    overflow: hidden;
 }
 
 div[data-testid="stMetric"]::before {
@@ -7324,77 +7254,26 @@ div[data-testid="stMetric"]::before {
     position: absolute;
     left: 0;
     top: 0;
-    height: 5px;
+    height: 4px;
     width: 100%;
-    background: linear-gradient(90deg, #F26522 0%, #00A350 100%);
-}
-
-div[data-testid="stMetric"] > div {
-    width: 100%;
+    background: #F26522;
 }
 
 div[data-testid="stMetricLabel"] {
-    min-height: 28px !important;
-    max-height: 28px !important;
-    display: flex !important;
-    align-items: flex-start !important;
-}
-
-div[data-testid="stMetricLabel"] p {
-    font-size: 11px !important;
-    color: #6B7280 !important;
-    font-weight: 850 !important;
-    text-transform: uppercase !important;
-    letter-spacing: .02em !important;
-    line-height: 1.15 !important;
-    margin: 0 !important;
-    max-width: 100% !important;
-    white-space: normal !important;
-    overflow: hidden !important;
-    display: -webkit-box !important;
-    -webkit-line-clamp: 2 !important;
-    -webkit-box-orient: vertical !important;
+    font-size: 11px;
+    color: #404040;
+    white-space: nowrap;
 }
 
 div[data-testid="stMetricValue"] {
-    min-height: 34px !important;
-    display: flex !important;
-    align-items: center !important;
-}
-
-div[data-testid="stMetricValue"] div {
-    font-size: clamp(17px, 1.35vw, 22px) !important;
-    font-weight: 900 !important;
-    color: #111827 !important;
-    line-height: 1.05 !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    font-variant-numeric: tabular-nums !important;
+    font-size: 18px;
+    font-weight: 700;
+    color: #111827;
+    white-space: nowrap;
 }
 
 div[data-testid="stMetricDelta"] {
-    min-height: 20px !important;
-    max-height: 20px !important;
-    font-size: 11px !important;
-    font-weight: 800 !important;
-}
-
-div[data-testid="stMetricDelta"] svg {
-    width: 13px !important;
-    height: 13px !important;
-}
-
-/* Cores padrão dos detalhes dos KPIs */
-div[data-testid="stMetricDelta"] [data-testid="stMetricDeltaIcon-Up"],
-div[data-testid="stMetricDelta"] [data-testid="stMetricDeltaIcon-Down"] {
-    color: inherit !important;
-}
-
-/* Remove variações visuais entre cards com e sem delta */
-div[data-testid="stMetric"] [data-testid="stMetricDelta"] + div,
-div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
-    margin-top: 0 !important;
+    font-size: 11px;
 }
 
 
@@ -8242,7 +8121,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.6 — KPIs padronizados")
+    st.caption("v5.0 etapa 10.4 — nomes ajustados")
 
 
 
