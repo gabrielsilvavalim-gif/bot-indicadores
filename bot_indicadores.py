@@ -6961,13 +6961,11 @@ class PDFRelatorio(FPDF):
 
         self.fonte("", 8)
         for _, row in df_mom.iterrows():
-            mom_txt = f"{row['MoM_%']:+.1f}%" if pd.notna(row["MoM_%"]) else "-"
             self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1)
             self.cell(widths[1], 6, fmt_brl(row["Realizado"]), border=1, align="R")
             self.cell(widths[2], 6, fmt_brl(row["META"]), border=1, align="R")
             self.cell(widths[3], 6, fmt_brl(row["Gap"]), border=1, align="R")
             self.cell(widths[4], 6, fmt_pct(row["Ating."]), border=1, align="R")
-            self.cell(widths[5], 6, mom_txt, border=1, align="R")
             self.ln()
 
     def tabela_yoy(self, df_yoy):
@@ -8565,7 +8563,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 12.5 — sem coluna MoM")
+    st.caption("v5.0 etapa 12.6 — PDF sem coluna MoM")
 
 
 
