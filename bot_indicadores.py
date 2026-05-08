@@ -5629,6 +5629,13 @@ COORDENADAS_FILIAIS = {
 # Usado apenas para pintar os estados no mapa.
 GEOJSON_ESTADOS_BRASIL_URL = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
 
+CENTROIDES_ESTADOS_MAPA = {
+    "SP": {"lat": -22.8, "lon": -48.3, "nome": "São Paulo"},
+    "RS": {"lat": -30.3, "lon": -53.2, "nome": "Rio Grande do Sul"},
+    "PR": {"lat": -24.7, "lon": -51.7, "nome": "Paraná"},
+    "RJ": {"lat": -22.4, "lon": -42.7, "nome": "Rio de Janeiro"},
+}
+
 
 def eh_faturamento_normal_geografico(indicador):
     """
@@ -5731,7 +5738,7 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
 
     titulo_secao(
         "Análise geográfica",
-        "Distribuição do faturamento por filial e participação percentual no total."
+        "Mapa fixo do Brasil com os 4 estados pintados e participação percentual no faturamento total."
     )
 
     c_geo1, c_geo2, c_geo3 = st.columns([1.2, 1, 1])
@@ -5741,22 +5748,25 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
         maior = geo.iloc[0]
         kpi_metric("Maior participação", f"{maior['Filial Mapa']}", nota=f"{fmt_pct(maior['Participação'])} do total", nota_status="info")
     with c_geo3:
-        kpi_metric("Filiais no mapa", fmt_num(len(geo)))
-
-    sizeref = max(geo["Faturamento"].max() / 58, 1)
+        kpi_metric("Estados no mapa", fmt_num(geo["UF"].nunique()))
 
     fig = go.Figure()
 
-    # Camada 1: pintura dos estados com base no faturamento consolidado por UF.
     estados = (
         geo.groupby(["Estado", "UF"], as_index=False)
         .agg({"Faturamento": "sum"})
         .sort_values("Faturamento", ascending=False)
     )
     estados["Participação"] = estados["Faturamento"] / total_faturamento if total_faturamento > 0 else pd.NA
+    estados["lat"] = estados["UF"].map(lambda uf: CENTROIDES_ESTADOS_MAPA.get(uf, {}).get("lat"))
+    estados["lon"] = estados["UF"].map(lambda uf: CENTROIDES_ESTADOS_MAPA.get(uf, {}).get("lon"))
+    estados["Texto Estado"] = estados.apply(
+        lambda r: f"{r['UF']}<br>{fmt_pct(r['Participação'])}",
+        axis=1,
+    )
     estados["Hover"] = estados.apply(
         lambda r: f"{r['Estado']} ({r['UF']})<br>{fmt_brl(r['Faturamento'])}<br>{fmt_pct(r['Participação'])} do total",
-        axis=1
+        axis=1,
     )
 
     fig.add_trace(
@@ -5771,47 +5781,28 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
                 [1.00, "#00A350"],
             ],
             marker_line_color="#FFFFFF",
-            marker_line_width=1.2,
-            showscale=True,
-            colorbar=dict(
-                title="Faturamento",
-                tickprefix="R$ ",
-                thickness=12,
-                len=0.55,
-                x=0.96,
-            ),
+            marker_line_width=1.4,
+            showscale=False,
             hovertext=estados["Hover"],
             hovertemplate="<b>%{hovertext}</b><extra></extra>",
             name="Estados",
         )
     )
 
-    # Camada 2: marcadores das filiais sobre os estados pintados.
     fig.add_trace(
         go.Scattergeo(
-            lon=geo["Longitude"],
-            lat=geo["Latitude"],
-            mode="markers+text",
-            text=geo["Texto Marcador"],
-            textposition="top center",
-            textfont=dict(size=11, color="#111827"),
-            marker=dict(
-                size=geo["Faturamento"],
-                sizemode="area",
-                sizeref=sizeref,
-                sizemin=18,
-                color=COR_LARANJA,
-                line=dict(width=2, color="#FFFFFF"),
-                opacity=0.92,
-            ),
-            hovertemplate="<b>%{hovertext}</b><extra></extra>",
-            hovertext=geo["Texto Mapa"],
-            name="Filiais",
+            lon=estados["lon"],
+            lat=estados["lat"],
+            mode="text",
+            text=estados["Texto Estado"],
+            textfont=dict(size=12, color="#111827"),
+            hoverinfo="skip",
+            name="Rótulos",
         )
     )
 
     fig.update_layout(
-        height=520,
+        height=560,
         margin=dict(l=0, r=0, t=10, b=0),
         showlegend=False,
         paper_bgcolor="rgba(0,0,0,0)",
@@ -5822,22 +5813,28 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
             lonaxis_range=[-75, -33],
             showland=True,
             landcolor="#F8FAFC",
-            showcountries=True,
-            countrycolor="#CBD5E1",
+            showcountries=False,
             showsubunits=True,
-            subunitcolor="#E2E8F0",
+            subunitcolor="#D1D5DB",
             showocean=True,
             oceancolor="#EEF6F3",
             showlakes=True,
             lakecolor="#EEF6F3",
+            showframe=False,
+            coastlinecolor="#CBD5E1",
             bgcolor="rgba(0,0,0,0)",
+            fitbounds="locations",
         ),
     )
 
-    st.plotly_chart(fig, use_container_width=True, key=f"mapa_geo_faturamento_{indicador}_{ano}")
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        key=f"mapa_geo_faturamento_{indicador}_{ano}",
+        config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
+    )
 
-    ranking_geo = geo[["Filial Mapa", "UF", "Faturamento", "Participação"]].rename(columns={
-        "Filial Mapa": "Filial",
+    ranking_geo = estados[["Estado", "UF", "Faturamento", "Participação"]].rename(columns={
         "Participação": "% do total",
     })
 
@@ -5849,7 +5846,6 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
         use_container_width=True,
         hide_index=True,
     )
-
 
 def renderizar_semaforo_projecao(info):
     gap = info.get("gap_projetado")
@@ -8817,7 +8813,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 13.0 — mapa com estados")
+    st.caption("v5.0 etapa 13.1 — mapa fixo com rótulos")
 
 
 
