@@ -8250,11 +8250,13 @@ div[data-testid="stSelectbox"] > div {
 .compare-mini-card {
     background:#FFFFFF;
     border:1px solid #E5E7EB;
-    border-radius:14px;
-    padding:12px 14px;
-    box-shadow:0 1px 5px rgba(0,0,0,0.05);
+    border-radius:16px;
+    padding:16px 16px 14px 16px;
+    box-shadow:0 4px 14px rgba(17,24,39,0.07);
     position:relative;
     overflow:hidden;
+    min-height:112px;
+    box-sizing:border-box;
 }
 
 .compare-mini-card::before {
@@ -8262,34 +8264,40 @@ div[data-testid="stSelectbox"] > div {
     position:absolute;
     top:0;
     left:0;
-    height:4px;
+    height:5px;
     width:100%;
-    background:#0078D4;
+    background:linear-gradient(90deg, #F26522 0%, #00A350 100%);
 }
 
 .compare-mini-card.good::before { background:#00A350; }
 .compare-mini-card.warn::before { background:#F26522; }
 
 .compare-label {
-    font-size:12px;
-    color:#4B5563;
-    font-weight:800;
-    margin-bottom:6px;
+    min-height:24px;
+    font-size:11px;
+    color:#6B7280;
+    font-weight:850;
+    margin-bottom:8px;
+    text-transform:uppercase;
+    letter-spacing:.02em;
+    line-height:1.15;
 }
 
 .compare-value {
-    font-size:21px;
+    font-size:clamp(17px, 1.35vw, 22px);
     color:#111827;
-    font-weight:850;
+    font-weight:900;
     white-space:nowrap;
+    line-height:1.05;
+    font-variant-numeric: tabular-nums;
 }
 
 .compare-note {
-    font-size:13px;
-    color:#374151;
-    margin-top:8px;
-    line-height:1.4;
-    font-weight:500;
+    font-size:12px;
+    color:#4B5563;
+    margin-top:10px;
+    line-height:1.35;
+    font-weight:600;
 }
 
 @media (max-width: 900px) {
@@ -8813,7 +8821,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 13.2 — mapa com seletor de ano")
+    st.caption("v5.0 etapa 13.3 — KPIs comparativos padronizados")
 
 
 
