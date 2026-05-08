@@ -8489,8 +8489,14 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section-title">Estrutura da análise</div>', unsafe_allow_html=True)
     indicador = selecionar_indicador_por_blocos()
 
-    st.markdown('<div class="sidebar-section-title">Unidade analisada</div>', unsafe_allow_html=True)
-    filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
+    # Para Tecfil, não permitir troca de unidade.
+    # O usuário deve alterar apenas Bloco e Indicador.
+    if eh_tecfil(indicador):
+        filial = "Geral"
+        st.session_state["filial_tecf_il_travada"] = filial
+    else:
+        st.markdown('<div class="sidebar-section-title">Unidade analisada</div>', unsafe_allow_html=True)
+        filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
 
     bloco_selecionado = st.session_state.get("bloco_principal_indicador", "-")
     grupo_selecionado = st.session_state.get("grupo_indicador", "-")
@@ -8563,7 +8569,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 12.6 — Versão Final")
+    st.caption("v5.0 etapa 12.7 — Tecfil sem filial")
 
 
 
