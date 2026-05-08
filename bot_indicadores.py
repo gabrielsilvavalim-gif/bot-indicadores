@@ -2496,9 +2496,30 @@ def tabela_pneus_moto_ano(d, ano):
 
     return tabela
 
+def meta_mensal_moto(grupo):
+    """
+    Retorna a meta % do mês para Pneus Velhos Moto.
+
+    Diferente da meta total, a meta mensal não deve depender do faturamento.
+    Ela deve refletir a referência/meta cadastrada para aquele mês.
+    """
+    if grupo is None or grupo.empty or "META_PERCENTUAL_CALC" not in grupo.columns:
+        return None
+
+    metas = pd.to_numeric(grupo.get("META_PERCENTUAL_CALC"), errors="coerce").dropna()
+    metas = metas[metas != 0]
+
+    if metas.empty:
+        return None
+
+    # Normalmente a meta do mês é única. Quando houver mais de uma linha,
+    # usa a última meta válida do mês, preservando a referência mais recente.
+    return metas.iloc[-1]
+
+
 def meta_ponderada_moto(grupo):
     """
-    Meta total do ano/mês/período para Pneus Velhos Moto.
+    Meta total/período para Pneus Velhos Moto.
 
     Fórmula correta conforme Excel:
     =SEERRO(((Meta%_Jan*Faturamento_Jan)+...)/(Faturamento_Jan+...);0)
@@ -2509,7 +2530,7 @@ def meta_ponderada_moto(grupo):
     Observação:
     - A meta total NÃO é média simples.
     - A meta total é ponderada pelo faturamento de cada mês/linha.
-    - Meses sem faturamento não influenciam no peso da meta.
+    - Meses sem faturamento entram com peso zero.
     """
     if grupo is None or grupo.empty:
         return None
@@ -2533,7 +2554,19 @@ def resumo_moto_por_grupo(grupo):
     faturamento = pd.to_numeric(grupo.get("FATURAMENTO_MOTO_CALC"), errors="coerce").fillna(0).sum()
     compra = pd.to_numeric(grupo.get("COMPRA_CALC"), errors="coerce").fillna(0).sum()
     margem = faturamento - compra
-    meta_pct = meta_ponderada_moto(grupo)
+
+    # Se o grupo representa apenas um mês, a meta exibida deve ser a meta do mês.
+    # Se representa vários meses, a meta deve ser ponderada pelo faturamento.
+    try:
+        meses_validos = pd.to_numeric(grupo.get("MÊS"), errors="coerce").dropna().unique()
+    except Exception:
+        meses_validos = []
+
+    if len(meses_validos) == 1:
+        meta_pct = meta_mensal_moto(grupo)
+    else:
+        meta_pct = meta_ponderada_moto(grupo)
+
     meta_margem = faturamento * meta_pct if meta_pct is not None and pd.notna(meta_pct) else None
     gap = margem - meta_margem if meta_margem is not None and pd.notna(meta_margem) else None
     tx_sucesso = margem / faturamento if faturamento > 0 else None
@@ -2979,27 +3012,8 @@ def tabela_completa_ano(d, ano, indicador):
             "Acumulado": total_resultado,
         })
 
-        meses_com_limite = mensal[pd.to_numeric(mensal["META_CALC"], errors="coerce").fillna(0) != 0].copy()
-        if not meses_com_limite.empty:
-            media_limite = meses_com_limite["META_CALC"].mean()
-            media_despesa = meses_com_limite["REALIZADO_CALC"].mean()
-            media_resultado = media_limite - media_despesa
-            media_resultado_pct = 1 - (media_despesa / media_limite) if media_limite > 0 else None
-        else:
-            media_limite = None
-            media_despesa = None
-            media_resultado = None
-            media_resultado_pct = None
-
-        rows.append({
-            "Mês": "MÉDIA",
-            "Limite": media_limite,
-            "Despesa": media_despesa,
-            "Result. R$": media_resultado,
-            "Result. %": media_resultado_pct,
-            "Acumulado": total_resultado,
-        })
-
+        # Linha MÉDIA removida conforme solicitado.
+        # Mantém apenas meses e TOTAL.
         return pd.DataFrame(rows)
 
     if eh_despesa_hora_extra(indicador):
@@ -3307,7 +3321,10 @@ def calcular_mom(d, indicador):
     )
 
     if eh_despesa_manutencao(indicador):
-        base["Ating."] = base["REALIZADO_CALC"] / base["META_CALC"].replace(0, pd.NA)
+        # Despesa Manutenção:
+        # Resultado R$ = Limite - Despesa
+        # Resultado % = 1 - (Despesa / Limite)
+        base["Ating."] = 1 - (base["REALIZADO_CALC"] / base["META_CALC"].replace(0, pd.NA))
         base["Gap"] = base["META_CALC"] - base["REALIZADO_CALC"]
     elif eh_despesa(indicador):
         base["Ating."] = base["META_CALC"] / base["REALIZADO_CALC"].replace(0, pd.NA)
@@ -3647,8 +3664,24 @@ def comparativo_filiais(d, ano, indicador):
         return ordenar_df_seguro(pd.DataFrame(linhas), "Realizado R$", ascending=False)
 
     if eh_despesa_hora_extra(indicador):
+        base_he = d[d["ANO"] == ano].copy()
+
+        colunas_retorno_he = [
+            "FILIAL", "Pago em Hora Extra", "Limite", "Salário", "HE da Folha",
+            "Saldo do Limite", "Resultado %", "Realizado", "Meta", "Gap", "Atingimento"
+        ]
+
+        # Evita KeyError no PDF quando não há base por filial disponível
+        # ou quando os dados foram filtrados/removidos antes do comparativo.
+        if base_he.empty or "FILIAL" not in base_he.columns:
+            return pd.DataFrame(columns=colunas_retorno_he)
+
+        for col in ["REALIZADO_CALC", "META_CALC", "SALARIO_CALC"]:
+            if col not in base_he.columns:
+                base_he[col] = 0
+
         comp = (
-            d[d["ANO"] == ano]
+            base_he
             .groupby("FILIAL", as_index=False)
             .agg({"REALIZADO_CALC": "sum", "META_CALC": "sum", "SALARIO_CALC": "sum"})
             .rename(columns={
@@ -3656,8 +3689,18 @@ def comparativo_filiais(d, ano, indicador):
                 "META_CALC": "Limite",
                 "SALARIO_CALC": "Salário",
             })
-            .pipe(lambda _df: ordenar_df_seguro(_df, "Pago em Hora Extra", ascending=False))
         )
+
+        if comp.empty:
+            return pd.DataFrame(columns=colunas_retorno_he)
+
+        # Garante que as colunas existam mesmo se o agrupamento retornar vazio/instável.
+        for col in ["Pago em Hora Extra", "Limite", "Salário"]:
+            if col not in comp.columns:
+                comp[col] = 0
+
+        comp = ordenar_df_seguro(comp, "Pago em Hora Extra", ascending=False)
+
         comp["HE da Folha"] = comp["Pago em Hora Extra"] / comp["Salário"].replace(0, pd.NA)
         comp["Saldo do Limite"] = comp["Limite"] - comp["Pago em Hora Extra"]
         comp["Resultado %"] = comp["Pago em Hora Extra"] / comp["Limite"].replace(0, pd.NA)
@@ -3668,7 +3711,7 @@ def comparativo_filiais(d, ano, indicador):
         comp["Gap"] = comp["Saldo do Limite"]
         comp["Atingimento"] = comp["Resultado %"]
 
-        return comp
+        return comp[colunas_retorno_he]
 
     base_comp = d[d["ANO"] == ano].copy()
 
@@ -6160,6 +6203,9 @@ def rotulo_gap_kpi(indicador):
 def rotulo_ytd_kpi(indicador):
     """
     Define o rótulo do card YTD deixando claro o que está sendo analisado.
+
+    Correção:
+    Não usa eh_faturamento(), pois essa função não existe no código.
     """
     if eh_moto_margem(indicador):
         return "YTD Fat."
@@ -6173,8 +6219,17 @@ def rotulo_ytd_kpi(indicador):
         return "YTD HE"
     if eh_resultado_financeiro(indicador):
         return "YTD Resultado"
-    if eh_faturamento(indicador):
-        return "YTD Fat."
+
+    try:
+        cfg = INDICADORES.get(indicador, {})
+        categoria = normalizar_texto(str(cfg.get("categoria", "")))
+        grupo_01 = normalizar_texto(str(cfg.get("GRUPO 01", "")))
+
+        if categoria == "FATURAMENTO" or grupo_01 == "FATURAMENTO":
+            return "YTD Fat."
+    except Exception:
+        pass
+
     return "YTD"
 
 
@@ -8496,7 +8551,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 11.8 — sem status geral")
+    st.caption("v5.0 etapa 12.3 — PDF hora extra seguro")
 
 
 
@@ -9363,25 +9418,11 @@ with tab0:
         with c3:
             kpi_metric(f"{rotulo_gap_kpi(indicador)} Ano", fmt_brl(gap_total))
         with c4:
-            if eh_despesa_manutencao(indicador):
-                # Para Despesa Manutenção, não exibir "Esperado".
-                # O card deve mostrar apenas o Resultado % calculado:
-                # Resultado % = 1 - (Despesa / Limite)
-                nota_esp = None
-                status_esp = "info"
-            else:
-                nota_esp, status_esp = nota_atingimento_esperado(
-                    ating_total,
-                    ano_kpi,
-                    data_geracao_planilha,
-                    despesa=False
-                )
-
+            # Removido o "Esperado" do card conforme solicitado.
+            # O card agora exibe apenas o percentual principal.
             kpi_metric(
                 ("Resultado %" if eh_despesa_manutencao(indicador) else "Atingimento da meta"),
-                fmt_pct(ating_total),
-                nota=nota_esp,
-                nota_status=status_esp
+                fmt_pct(ating_total)
             )
         with c5:
             kpi_metric(f"{rotulo_ytd_kpi(indicador)} {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-", delta_ytd)
@@ -10130,10 +10171,10 @@ with tab2:
 
             if eh_despesa_manutencao(indicador):
                 # Despesa Manutenção:
-                # Limite é o máximo que pode gastar.
-                # Uso do Limite = Despesa / Limite.
+                # Resultado R$ = Limite - Despesa
+                # Resultado % = 1 - (Despesa / Limite)
                 total_gap = total_meta - total_realizado
-                total_ating = total_realizado / total_meta if total_meta > 0 else None
+                total_ating = 1 - (total_realizado / total_meta) if total_meta > 0 else None
 
             elif eh_despesa(indicador):
                 total_gap = total_meta - total_realizado
@@ -10165,8 +10206,8 @@ with tab2:
             df_mom_tela_exibir = df_mom_tela.rename(columns={
                 "META": "Limite",
                 "Realizado": "Despesa",
-                "Gap": "Saldo do Limite",
-                "Ating.": "Uso do Limite",
+                "Gap": "Resultado R$",
+                "Ating.": "Resultado %",
                 "MoM_%": "MoM_%",
             })
 
@@ -10178,12 +10219,12 @@ with tab2:
                     "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
                     "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                     "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
-                    "Uso do Limite": lambda v: f"{v:.0%}" if pd.notna(v) else "—",
+                    "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                    "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
                     "MoM_%": fmt_mom_seguro,
                 })
-                .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
-                .map(cor_despesa_manutencao, subset=["Uso do Limite"])
+                .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
+                .map(lambda v: f"color: {COR_VERDE}; font-weight:bold" if pd.notna(v) and v >= 0 else (f"color: {COR_LARANJA}; font-weight:bold" if pd.notna(v) else ""), subset=["Resultado %"])
                 .map(cor_variacao, subset=["MoM_%"]),
                 use_container_width=True,
                 hide_index=True,
