@@ -8563,7 +8563,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 12.6 — PDF sem coluna MoM")
+    st.caption("v5.0 etapa 12.6 — Versão Final")
 
 
 
