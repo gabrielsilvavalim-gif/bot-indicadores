@@ -8813,7 +8813,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 13.1 — mapa fixo com rótulos")
+    st.caption("v5.0 etapa 13.2 — mapa com seletor de ano")
 
 
 
@@ -11233,7 +11233,6 @@ with tab_geo:
     )
 
     anos_mapa = sorted(df["ANO"].dropna().unique())
-    ano_mapa = int(anos_mapa[-1]) if anos_mapa else None
 
     if not eh_faturamento_normal_geografico(indicador):
         st.info(
@@ -11245,10 +11244,18 @@ with tab_geo:
             "Para visualizar o mapa, selecione a filial como Geral. "
             "O mapa compara a participação das filiais no faturamento total."
         )
-    elif ano_mapa is None:
+    elif not anos_mapa:
         st.info("Não há ano disponível para montar a análise geográfica.")
     else:
-        renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, ano_mapa)
+        ano_mapa = st.selectbox(
+            "Selecione o ano do mapa",
+            anos_mapa,
+            index=len(anos_mapa) - 1,
+            key=f"ano_mapa_{indicador}_{filial}",
+        )
+
+        st.caption(f"Mapa referente ao ano de {ano_mapa}.")
+        renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, int(ano_mapa))
 
 
 # =========================
