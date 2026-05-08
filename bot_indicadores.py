@@ -5603,254 +5603,6 @@ def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_conte
     )
 
 
-
-# =========================
-# ANÁLISE GEOGRÁFICA — FATURAMENTOS NORMAIS
-# =========================
-
-COORDENADAS_FILIAIS = {
-    normalizar_texto("VALINHOS/SP"): {"lat": -22.9706, "lon": -46.9958, "label": "Valinhos/SP", "uf": "SP", "estado": "São Paulo"},
-    normalizar_texto("VALINHOS"): {"lat": -22.9706, "lon": -46.9958, "label": "Valinhos/SP", "uf": "SP", "estado": "São Paulo"},
-
-    normalizar_texto("CANOAS/RS"): {"lat": -29.9177, "lon": -51.1839, "label": "Canoas/RS", "uf": "RS", "estado": "Rio Grande do Sul"},
-    normalizar_texto("CANOAS"): {"lat": -29.9177, "lon": -51.1839, "label": "Canoas/RS", "uf": "RS", "estado": "Rio Grande do Sul"},
-
-    normalizar_texto("CURITIBA/PR"): {"lat": -25.4284, "lon": -49.2733, "label": "Curitiba/PR", "uf": "PR", "estado": "Paraná"},
-    normalizar_texto("CURITIBA"): {"lat": -25.4284, "lon": -49.2733, "label": "Curitiba/PR", "uf": "PR", "estado": "Paraná"},
-
-    normalizar_texto("DUQUE DE CAXIAS/RJ"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ", "uf": "RJ", "estado": "Rio de Janeiro"},
-    normalizar_texto("DUQUE DE CAXIAS"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ", "uf": "RJ", "estado": "Rio de Janeiro"},
-    normalizar_texto("CAXIAS/RJ"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ", "uf": "RJ", "estado": "Rio de Janeiro"},
-    normalizar_texto("CAXIAS"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ", "uf": "RJ", "estado": "Rio de Janeiro"},
-}
-
-
-# GeoJSON público com os estados brasileiros.
-# Usado apenas para pintar os estados no mapa.
-GEOJSON_ESTADOS_BRASIL_URL = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
-
-
-def eh_faturamento_normal_geografico(indicador):
-    """
-    Define se o indicador deve exibir a análise geográfica.
-
-    A regra é:
-    - precisa ser um indicador de faturamento;
-    - não pode ser Tecfil;
-    - não pode ser Pneus Velhos Moto, pois essa estrutura é especial;
-    - não pode ser despesa, qualidade ou resultado financeiro.
-    """
-    try:
-        if eh_tecfil(indicador) or eh_moto_margem(indicador):
-            return False
-
-        if eh_despesa(indicador) or eh_qualidade(indicador) or eh_resultado_financeiro(indicador):
-            return False
-
-        cfg = INDICADORES.get(indicador, {})
-        categoria = normalizar_texto(str(cfg.get("categoria", "")))
-        grupo_01 = normalizar_texto(str(cfg.get("GRUPO 01", "")))
-        tipo = normalizar_texto(str(cfg.get("TIPO", "")))
-
-        return categoria == "FATURAMENTO" or grupo_01 == "FATURAMENTO" or "FATURAMENTO" in normalizar_texto(indicador) or tipo == "FATURAMENTOS"
-    except Exception:
-        return False
-
-
-def preparar_analise_geografica_faturamento(df_filiais, indicador, ano):
-    """
-    Consolida o faturamento por filial real e calcula participação no total.
-    """
-    try:
-        if df_filiais is None or df_filiais.empty:
-            return pd.DataFrame()
-
-        comp = comparativo_filiais(df_filiais, ano, indicador)
-
-        if comp is None or comp.empty or "FILIAL" not in comp.columns:
-            return pd.DataFrame()
-
-        valor_col = "Realizado" if "Realizado" in comp.columns else None
-        if valor_col is None:
-            return pd.DataFrame()
-
-        geo = comp[["FILIAL", valor_col]].copy()
-        geo = geo.rename(columns={valor_col: "Faturamento"})
-        geo["Faturamento"] = pd.to_numeric(geo["Faturamento"], errors="coerce").fillna(0)
-        geo = geo[geo["Faturamento"] > 0].copy()
-
-        if geo.empty:
-            return pd.DataFrame()
-
-        coords = []
-        for filial_nome in geo["FILIAL"]:
-            chave = normalizar_texto(str(filial_nome))
-            coord = COORDENADAS_FILIAIS.get(chave)
-            coords.append(coord)
-
-        geo["_coord"] = coords
-        geo = geo[geo["_coord"].notna()].copy()
-
-        if geo.empty:
-            return pd.DataFrame()
-
-        geo["Latitude"] = geo["_coord"].apply(lambda c: c["lat"])
-        geo["Longitude"] = geo["_coord"].apply(lambda c: c["lon"])
-        geo["Filial Mapa"] = geo["_coord"].apply(lambda c: c["label"])
-        geo["UF"] = geo["_coord"].apply(lambda c: c.get("uf"))
-        geo["Estado"] = geo["_coord"].apply(lambda c: c.get("estado"))
-
-        total = geo["Faturamento"].sum()
-        geo["Participação"] = geo["Faturamento"] / total if total > 0 else pd.NA
-
-        geo = geo.sort_values("Faturamento", ascending=False).reset_index(drop=True)
-        geo["Texto Mapa"] = geo.apply(
-            lambda r: f"{r['Filial Mapa']}<br>{fmt_brl(r['Faturamento'])}<br>{fmt_pct(r['Participação'])} do total",
-            axis=1
-        )
-        geo["Texto Marcador"] = geo.apply(
-            lambda r: f"{fmt_brl(r['Faturamento'])}<br>{fmt_pct(r['Participação'])}",
-            axis=1
-        )
-
-        return geo[["Filial Mapa", "UF", "Estado", "Faturamento", "Participação", "Latitude", "Longitude", "Texto Mapa", "Texto Marcador"]]
-    except Exception:
-        return pd.DataFrame()
-
-
-def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
-    """
-    Renderiza a seção visual de análise geográfica.
-    """
-    geo = preparar_analise_geografica_faturamento(df_filiais, indicador, ano)
-
-    if geo is None or geo.empty:
-        return
-
-    total_faturamento = geo["Faturamento"].sum()
-
-    titulo_secao(
-        "Análise geográfica",
-        "Distribuição do faturamento por filial e participação percentual no total."
-    )
-
-    c_geo1, c_geo2, c_geo3 = st.columns([1.2, 1, 1])
-    with c_geo1:
-        kpi_metric("Faturamento Geral", fmt_brl(total_faturamento))
-    with c_geo2:
-        maior = geo.iloc[0]
-        kpi_metric("Maior participação", f"{maior['Filial Mapa']}", nota=f"{fmt_pct(maior['Participação'])} do total", nota_status="info")
-    with c_geo3:
-        kpi_metric("Filiais no mapa", fmt_num(len(geo)))
-
-    sizeref = max(geo["Faturamento"].max() / 58, 1)
-
-    fig = go.Figure()
-
-    # Camada 1: pintura dos estados com base no faturamento consolidado por UF.
-    estados = (
-        geo.groupby(["Estado", "UF"], as_index=False)
-        .agg({"Faturamento": "sum"})
-        .sort_values("Faturamento", ascending=False)
-    )
-    estados["Participação"] = estados["Faturamento"] / total_faturamento if total_faturamento > 0 else pd.NA
-    estados["Hover"] = estados.apply(
-        lambda r: f"{r['Estado']} ({r['UF']})<br>{fmt_brl(r['Faturamento'])}<br>{fmt_pct(r['Participação'])} do total",
-        axis=1
-    )
-
-    fig.add_trace(
-        go.Choropleth(
-            geojson=GEOJSON_ESTADOS_BRASIL_URL,
-            locations=estados["Estado"],
-            z=estados["Faturamento"],
-            featureidkey="properties.name",
-            colorscale=[
-                [0.00, "#EAF8F1"],
-                [0.45, "#7AD7A4"],
-                [1.00, "#00A350"],
-            ],
-            marker_line_color="#FFFFFF",
-            marker_line_width=1.2,
-            showscale=True,
-            colorbar=dict(
-                title="Faturamento",
-                tickprefix="R$ ",
-                thickness=12,
-                len=0.55,
-                x=0.96,
-            ),
-            hovertext=estados["Hover"],
-            hovertemplate="<b>%{hovertext}</b><extra></extra>",
-            name="Estados",
-        )
-    )
-
-    # Camada 2: marcadores das filiais sobre os estados pintados.
-    fig.add_trace(
-        go.Scattergeo(
-            lon=geo["Longitude"],
-            lat=geo["Latitude"],
-            mode="markers+text",
-            text=geo["Texto Marcador"],
-            textposition="top center",
-            textfont=dict(size=11, color="#111827"),
-            marker=dict(
-                size=geo["Faturamento"],
-                sizemode="area",
-                sizeref=sizeref,
-                sizemin=18,
-                color=COR_LARANJA,
-                line=dict(width=2, color="#FFFFFF"),
-                opacity=0.92,
-            ),
-            hovertemplate="<b>%{hovertext}</b><extra></extra>",
-            hovertext=geo["Texto Mapa"],
-            name="Filiais",
-        )
-    )
-
-    fig.update_layout(
-        height=520,
-        margin=dict(l=0, r=0, t=10, b=0),
-        showlegend=False,
-        paper_bgcolor="rgba(0,0,0,0)",
-        geo=dict(
-            scope="south america",
-            projection_type="mercator",
-            lataxis_range=[-34, 6],
-            lonaxis_range=[-75, -33],
-            showland=True,
-            landcolor="#F8FAFC",
-            showcountries=True,
-            countrycolor="#CBD5E1",
-            showsubunits=True,
-            subunitcolor="#E2E8F0",
-            showocean=True,
-            oceancolor="#EEF6F3",
-            showlakes=True,
-            lakecolor="#EEF6F3",
-            bgcolor="rgba(0,0,0,0)",
-        ),
-    )
-
-    st.plotly_chart(fig, use_container_width=True, key=f"mapa_geo_faturamento_{indicador}_{ano}")
-
-    ranking_geo = geo[["Filial Mapa", "UF", "Faturamento", "Participação"]].rename(columns={
-        "Filial Mapa": "Filial",
-        "Participação": "% do total",
-    })
-
-    st.dataframe(
-        ranking_geo.style.format({
-            "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-            "% do total": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-        }),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-
 def renderizar_semaforo_projecao(info):
     gap = info.get("gap_projetado")
     media_atual = info.get("media_atual")
@@ -8817,7 +8569,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 13.0 — mapa com estados")
+    st.caption("v5.0 etapa 12.7 — Tecfil sem filial")
 
 
 
@@ -8933,34 +8685,31 @@ st.markdown(
 
 
 if eh_gabriel():
-    tab0, tab1, tab2, tab3, tab_geo, tab4, tab5, tab6 = st.tabs([
+    tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
         "📈 MoM",
         "🔁 YoY",
-        "🗺️ Mapa",
         "📌 Projeção",
         "🧠 Análise",
         "📤 Opções"
     ])
 elif eh_admin():
-    tab0, tab1, tab2, tab3, tab_geo, tab6 = st.tabs([
+    tab0, tab1, tab2, tab3, tab6 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
         "📈 MoM",
         "🔁 YoY",
-        "🗺️ Mapa",
         "📤 Opções"
     ])
     tab4 = None
     tab5 = None
 else:
-    tab0, tab1, tab2, tab3, tab_geo = st.tabs([
+    tab0, tab1, tab2, tab3 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
         "📈 MoM",
-        "🔁 YoY",
-        "🗺️ Mapa"
+        "🔁 YoY"
     ])
     tab4 = None
     tab5 = None
@@ -11225,34 +10974,6 @@ with tab3:
                     uniformtext_mode="show",
                 )
                 st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais")
-
-
-# =========================
-# ABA MAPA — ANÁLISE GEOGRÁFICA
-# =========================
-with tab_geo:
-    titulo_secao(
-        "Mapa — Análise geográfica",
-        f"{indicador} — {filial}: distribuição geográfica do faturamento por filial, com estados pintados por participação."
-    )
-
-    anos_mapa = sorted(df["ANO"].dropna().unique())
-    ano_mapa = int(anos_mapa[-1]) if anos_mapa else None
-
-    if not eh_faturamento_normal_geografico(indicador):
-        st.info(
-            "A análise geográfica está disponível apenas para indicadores de faturamento normal. "
-            "Indicadores especiais, despesas, qualidade, Tecfil e Resultado Financeiro não usam este mapa."
-        )
-    elif filial != "Geral":
-        st.info(
-            "Para visualizar o mapa, selecione a filial como Geral. "
-            "O mapa compara a participação das filiais no faturamento total."
-        )
-    elif ano_mapa is None:
-        st.info("Não há ano disponível para montar a análise geográfica.")
-    else:
-        renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, ano_mapa)
 
 
 # =========================
