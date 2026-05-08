@@ -1067,13 +1067,19 @@ def atingimento_despesa_manutencao(realizado, limite):
 
 def cor_despesa_manutencao(v):
     """
-    Para Despesa Manutenção e Despesa Hora Extra:
-    verde quando despesa/pago <= limite, laranja quando passar do limite.
-    Como o valor formatado é Despesa ou Pago / Limite, verde até 100%.
+    Regra de cor para indicadores de limite.
+
+    - Quando o valor for uso do limite em razão direta, verde até 100%.
+    - Quando o valor for Resultado % no formato (realizado / limite - 1),
+      verde quando <= 0 e laranja quando > 0.
+
+    Como após os ajustes principais a tela usa Resultado % para manutenção/HE,
+    a regra prática fica:
+    verde para valor <= 0 ou dentro do limite; laranja quando positivo/excedente.
     """
     if pd.isna(v):
         return ""
-    return f"color: {COR_VERDE}; font-weight:bold" if v <= 1 else f"color: {COR_LARANJA}; font-weight:bold"
+    return f"color: {COR_VERDE}; font-weight:bold" if v <= 0 else f"color: {COR_LARANJA}; font-weight:bold"
 
 def agora_br():
     return datetime.now(TZ_BR)
@@ -3036,7 +3042,9 @@ def tabela_completa_ano(d, ano, indicador):
                 salario = sub["SALARIO_CALC"].values[0]
                 he_folha = pago_he / salario if salario > 0 else None
                 saldo = limite - pago_he
-                resultado_pct = pago_he / limite if limite > 0 else None
+                # Fórmula conforme planilha:
+                # Result.% = (Pago em Hora Extra / Limite) - 1
+                resultado_pct = (pago_he / limite - 1) if limite > 0 else None
             else:
                 limite = None
                 pago_he = None
@@ -3060,7 +3068,9 @@ def tabela_completa_ano(d, ano, indicador):
         total_salario = base_ano["SALARIO_CALC"].sum() if "SALARIO_CALC" in base_ano.columns else 0
         total_he_folha = total_pago / total_salario if total_salario > 0 else None
         total_saldo = total_limite - total_pago
-        total_resultado = total_pago / total_limite if total_limite > 0 else None
+        # Fórmula conforme planilha:
+        # Result.% = (Pago em Hora Extra / Limite) - 1
+        total_resultado = (total_pago / total_limite - 1) if total_limite > 0 else None
 
         rows.append({
             "Mês": "TOTAL",
@@ -3300,7 +3310,9 @@ def calcular_mom(d, indicador):
             .reset_index(drop=True)
         )
         base["HE da Folha"] = base["REALIZADO_CALC"] / base["SALARIO_CALC"].replace(0, pd.NA)
-        base["Resultado %"] = base["REALIZADO_CALC"] / base["META_CALC"].replace(0, pd.NA)
+        # Fórmula conforme planilha:
+        # Result.% = (Pago em Hora Extra / Limite) - 1
+        base["Resultado %"] = (base["REALIZADO_CALC"] / base["META_CALC"].replace(0, pd.NA)) - 1
         base["Gap"] = base["META_CALC"] - base["REALIZADO_CALC"]
         base["MoM_%"] = base["REALIZADO_CALC"].pct_change() * 100
         base = base.replace([float("inf"), float("-inf")], pd.NA)
@@ -3703,7 +3715,9 @@ def comparativo_filiais(d, ano, indicador):
 
         comp["HE da Folha"] = comp["Pago em Hora Extra"] / comp["Salário"].replace(0, pd.NA)
         comp["Saldo do Limite"] = comp["Limite"] - comp["Pago em Hora Extra"]
-        comp["Resultado %"] = comp["Pago em Hora Extra"] / comp["Limite"].replace(0, pd.NA)
+        # Fórmula conforme planilha:
+        # Result.% = (Pago em Hora Extra / Limite) - 1
+        comp["Resultado %"] = (comp["Pago em Hora Extra"] / comp["Limite"].replace(0, pd.NA)) - 1
 
         # Compatibilidade com blocos antigos
         comp["Realizado"] = comp["Pago em Hora Extra"]
@@ -8551,7 +8565,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 12.3 — PDF hora extra seguro")
+    st.caption("v5.0 etapa 12.5 — sem aba MoM")
 
 
 
@@ -8667,35 +8681,32 @@ st.markdown(
 
 
 if eh_gabriel():
-    tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
-        "📈 MoM",
         "🔁 YoY",
         "📌 Projeção",
         "🧠 Análise",
         "📤 Opções"
     ])
 elif eh_admin():
-    tab0, tab1, tab2, tab3, tab6 = st.tabs([
+    tab0, tab1, tab2, tab5 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
-        "📈 MoM",
         "🔁 YoY",
         "📤 Opções"
     ])
+    tab3 = None
     tab4 = None
-    tab5 = None
 else:
-    tab0, tab1, tab2, tab3 = st.tabs([
+    tab0, tab1, tab2 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
-        "📈 MoM",
         "🔁 YoY"
     ])
+    tab3 = None
     tab4 = None
     tab5 = None
-    tab6 = None
 
 
 
@@ -9383,6 +9394,64 @@ with tab0:
             hide_index=True,
         )
 
+    elif eh_despesa_hora_extra(indicador):
+        periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
+
+        limite_total = base_kpi["META_CALC"].sum()
+        pago_total = base_kpi["REALIZADO_CALC"].sum()
+        salario_total = base_kpi["SALARIO_CALC"].sum() if "SALARIO_CALC" in base_kpi.columns else 0
+        resultado_pct_total = (pago_total / limite_total - 1) if limite_total > 0 else None
+
+        if not periodo_cmp.empty and len(periodo_cmp) == 2:
+            ytd_valor = periodo_cmp.iloc[1]["Realizado"]
+            delta_ytd = periodo_cmp.iloc[1]["Variação Realizado"]
+            periodo_label = periodo_cmp.iloc[1]["Período"]
+        else:
+            ytd_valor = None
+            delta_ytd = None
+            periodo_label = "-"
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1:
+            kpi_metric("Limite Ano", fmt_brl(limite_total))
+        with c2:
+            kpi_metric("Pago em Hora Extra Ano", fmt_brl(pago_total))
+        with c3:
+            kpi_metric("Salário Ano", fmt_brl(salario_total))
+        with c4:
+            kpi_metric("Result. %", fmt_pct(resultado_pct_total))
+        with c5:
+            kpi_metric(f"{rotulo_ytd_kpi(indicador)} {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
+
+        titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
+
+        df_dashboard_ano = tabela_completa_ano(df, ano_kpi, indicador)
+        dados_chart = df_dashboard_ano[df_dashboard_ano["Mês"] != "TOTAL"].dropna(subset=["Pago em Hora Extra"])
+
+        if not dados_chart.empty:
+            fig_dash = grafico_realizado_meta(df_dashboard_ano, ano_kpi, indicador=indicador)
+            st.plotly_chart(fig_dash, use_container_width=True, key="grafico_dashboard_hora_extra")
+
+        titulo_secao("Comparativo ano a ano", "Resumo histórico consolidado do indicador selecionado.")
+        df_yoy_dashboard = calcular_yoy(df, indicador)
+
+        st.dataframe(
+            df_yoy_dashboard[["ANO", "Limite", "Pago em Hora Extra", "Salário", "HE da Folha", "Saldo do Limite", "Resultado %"]].style
+            .format({
+                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
+                "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                "HE da Folha": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
+                "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+            })
+            .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
+            .map(cor_despesa_manutencao, subset=["Resultado %"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
     else:
         periodo_cmp = comparar_mesmo_periodo(df, indicador, ano_kpi)
         realizado_total = base_kpi["REALIZADO_CALC"].sum()
@@ -9794,468 +9863,9 @@ with tab1:
 
 
 # =========================
-# ABA MOM
-# =========================
-
-with tab2:
-    titulo_secao("MoM — Variação mês a mês", f"{indicador} — {filial}: leitura da evolução mensal e dos movimentos entre meses.")
-    df_mom = calcular_mom(df, indicador).sort_values("MÊS_ORDEM").copy()
-
-    if eh_moto_margem(indicador):
-        linhas_finais = []
-
-        for ano in sorted(df_mom["ANO"].dropna().unique()):
-            base_ano = df_mom[df_mom["ANO"] == ano].copy()
-
-            # Pneus Velhos Moto: anos anteriores a 2026 não têm meta.
-            if int(ano) < 2026:
-                base_ano["META"] = pd.NA
-
-            linhas_finais.append(
-                base_ano[["ANO", "MÊS", "Mês", "META", "Compra", "Realizado", "Margem Bruta", "Ating.", "Acumulado"]]
-            )
-
-            resumo_total = resumo_moto_por_grupo(df[df["ANO"] == ano])
-            meta_total = resumo_total["Meta %"] if int(ano) >= 2026 else pd.NA
-
-            linhas_finais.append(pd.DataFrame([{
-                "ANO": ano,
-                "MÊS": None,
-                "Mês": f"TOTAL {ano}",
-                "META": meta_total,
-                "Compra": resumo_total["Compra"],
-                "Realizado": resumo_total["Faturamento"],
-                "Margem Bruta": resumo_total["Margem Bruta"],
-                "Ating.": resumo_total["Tx. Sucesso"],
-                "Acumulado": resumo_total["Margem Bruta"],
-            }]))
-
-        df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
-
-        def destacar_total(row):
-            if str(row["Mês"]).startswith("TOTAL"):
-                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
-            return ["" for _ in row]
-
-        st.dataframe(
-            df_mom_tela.rename(columns={
-                "META": "Meta %",
-                "Realizado": "Faturamento",
-                "Ating.": "Tx. Sucesso"
-            }).style
-            .apply(destacar_total, axis=1)
-            .format({
-                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Compra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Margem Bruta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-            })
-            .apply(cor_tx_sucesso_moto_por_linha, axis=1),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    elif eh_qualidade(indicador):
-        linhas_finais_qualidade = []
-
-        for ano_q in sorted(df_mom["ANO"].dropna().unique()):
-            base_ano_q = df_mom[df_mom["ANO"] == ano_q].copy()
-
-            linhas_finais_qualidade.append(
-                base_ano_q[[
-                    "ANO", "MÊS", "Mês", "Meta", "Qtd. Coletas", "Qtd. Sucesso",
-                    "Diferença", "Resultado %", "Acumulado", "MoM_%"
-                ]]
-            )
-
-            resumo_total = resumo_qualidade_por_grupo(df[df["ANO"] == ano_q], indicador)
-
-            linhas_finais_qualidade.append(pd.DataFrame([{
-                "ANO": ano_q,
-                "MÊS": None,
-                "Mês": f"TOTAL {ano_q}",
-                "Meta": resumo_total["Meta"],
-                "Qtd. Coletas": resumo_total["Qtd. Coletas"],
-                "Qtd. Sucesso": resumo_total["Qtd. Sucesso"],
-                "Diferença": resumo_total["Diferença"],
-                "Resultado %": resumo_total["Resultado %"],
-                "Acumulado": resumo_total["Diferença"],
-                "MoM_%": None,
-            }]))
-
-        df_mom_qualidade_tela = pd.concat(linhas_finais_qualidade, ignore_index=True)
-
-        def destacar_total(row):
-            if str(row["Mês"]).startswith("TOTAL"):
-                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
-            return ["" for _ in row]
-
-        rot = rotulos_qualidade(indicador)
-        col_qtd_sucesso = rot["qtd_sucesso"]
-        df_mom_qualidade_tela = preparar_tabela_qualidade_exibicao(df_mom_qualidade_tela, indicador)
-        cols_exibir = [c for c in colunas_qualidade_exibicao(indicador, incluir_ano=True, incluir_mom=True, incluir_acumulado=False) if c in df_mom_qualidade_tela.columns]
-        styler_mom_q = (
-            df_mom_qualidade_tela[cols_exibir].style
-            .apply(destacar_total, axis=1)
-            .format({
-                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else "—"),
-                "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                col_qtd_sucesso: lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Acumulado": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "MoM_%": fmt_mom_seguro,
-            })
-            .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
-            .map(cor_variacao, subset=["MoM_%"])
-        )
-        styler_mom_q = aplicar_estilo_diferenca_qualidade(styler_mom_q, indicador, subset=["Diferença", "Acumulado"])
-        st.dataframe(
-            styler_mom_q,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    elif eh_tecfil(indicador):
-        linhas_finais_tecfil = []
-
-        for ano_tecfil in sorted(df_mom["ANO"].dropna().unique()):
-            base_ano_tecfil = df_mom[df_mom["ANO"] == ano_tecfil].copy()
-
-            linhas_finais_tecfil.append(
-                base_ano_tecfil[[
-                    "ANO", "MÊS", "Mês", "Meta KG", "Meta R$", "Realizado KG", "Realizado R$",
-                    "% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$", "MoM_%"
-                ]]
-            )
-
-            resumo_total = resumo_tecfil_por_grupo(df[df["ANO"] == ano_tecfil])
-
-            linhas_finais_tecfil.append(pd.DataFrame([{
-                "ANO": ano_tecfil,
-                "MÊS": None,
-                "Mês": f"TOTAL {ano_tecfil}",
-                "Meta KG": resumo_total["Meta KG"],
-                "Meta R$": resumo_total["Meta R$"],
-                "Realizado KG": resumo_total["Realizado KG"],
-                "Realizado R$": resumo_total["Realizado R$"],
-                "% Dif. KG": resumo_total["% Dif. KG"],
-                "% Dif. R$": resumo_total["% Dif. R$"],
-                "Dif. KG": resumo_total["Dif. KG"],
-                "Dif. R$": resumo_total["Dif. R$"],
-                "Acum. KG": resumo_total["Dif. KG"],
-                "Acum. R$": resumo_total["Dif. R$"],
-                "MoM_%": None,
-            }]))
-
-        df_mom_tecfil_tela = pd.concat(linhas_finais_tecfil, ignore_index=True)
-
-        def destacar_total(row):
-            if str(row["Mês"]).startswith("TOTAL"):
-                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
-            return ["" for _ in row]
-
-        st.dataframe(
-            df_mom_tecfil_tela.style
-            .apply(destacar_total, axis=1)
-            .format({
-                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Realizado KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "Realizado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "% Dif. KG": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Acum. KG": lambda v: fmt_num(v) if pd.notna(v) else "—",
-                "Acum. R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "MoM_%": fmt_mom_seguro,
-            })
-            .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$"])
-            .map(cor_variacao, subset=["MoM_%"]),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    elif eh_resultado_financeiro(indicador):
-        linhas_finais_rf = []
-
-        for ano_rf in sorted(df_mom["ANO"].dropna().unique()):
-            base_ano_rf = df_mom[df_mom["ANO"] == ano_rf].copy()
-
-            linhas_finais_rf.append(
-                base_ano_rf[[
-                    "ANO", "MÊS", "Mês", "Meta %", "Despesa", "Receita",
-                    "Resultado R$", "Resultado %", "Acumulado", "MoM_%"
-                ]]
-            )
-
-            resumo_total = resumo_resultado_financeiro_por_grupo(df[df["ANO"] == ano_rf])
-
-            linhas_finais_rf.append(pd.DataFrame([{
-                "ANO": ano_rf,
-                "MÊS": None,
-                "Mês": f"TOTAL {ano_rf}",
-                "Meta %": resumo_total["Meta %"],
-                "Despesa": resumo_total["Despesa"],
-                "Receita": resumo_total["Receita"],
-                "Resultado R$": resumo_total["Resultado R$"],
-                "Resultado %": resumo_total["Resultado %"],
-                "Acumulado": resumo_total["Resultado R$"],
-                "MoM_%": None,
-            }]))
-
-        df_mom_rf_tela = pd.concat(linhas_finais_rf, ignore_index=True)
-
-        def destacar_total(row):
-            if str(row["Mês"]).startswith("TOTAL"):
-                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
-            return ["" for _ in row]
-
-        st.dataframe(
-            df_mom_rf_tela.style
-            .apply(destacar_total, axis=1)
-            .format({
-                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
-                "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
-                "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "MoM_%": fmt_mom_seguro,
-            })
-            .apply(cor_resultado_financeiro_por_linha, axis=1)
-            .map(cor_variacao, subset=["MoM_%"]),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    elif eh_despesa_geral(indicador):
-        linhas_finais_geral = []
-
-        for ano_geral in sorted(df_mom["ANO"].dropna().unique()):
-            base_ano_geral = df_mom[df_mom["ANO"] == ano_geral].copy()
-
-            linhas_finais_geral.append(
-                base_ano_geral[[
-                    "ANO", "MÊS", "Mês", "Limite %", "Despesa", "Receita",
-                    "Resultado R$", "Tx. Sucesso", "Acumulado", "MoM_%"
-                ]]
-            )
-
-            resumo_total = resumo_despesa_geral_por_grupo(df[df["ANO"] == ano_geral])
-
-            linhas_finais_geral.append(pd.DataFrame([{
-                "ANO": ano_geral,
-                "MÊS": None,
-                "Mês": f"TOTAL {ano_geral}",
-                "Limite %": resumo_total["Limite %"],
-                "Despesa": resumo_total["Despesa"],
-                "Receita": resumo_total["Receita"],
-                "Resultado R$": resumo_total["Resultado R$"],
-                "Tx. Sucesso": resumo_total["Tx. Sucesso"],
-                "Acumulado": resumo_total["Resultado R$"],
-                "MoM_%": None,
-            }]))
-
-        df_mom_geral_tela = pd.concat(linhas_finais_geral, ignore_index=True)
-
-        def destacar_total(row):
-            if str(row["Mês"]).startswith("TOTAL"):
-                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
-            return ["" for _ in row]
-
-        st.dataframe(
-            df_mom_geral_tela.style
-            .apply(destacar_total, axis=1)
-            .format({
-                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
-                "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
-                "Tx. Sucesso": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
-                "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "MoM_%": fmt_mom_seguro,
-            })
-            .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
-            .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1)
-            .map(cor_variacao, subset=["MoM_%"]),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    elif eh_despesa_hora_extra(indicador):
-        linhas_finais_he = []
-
-        for ano_he in sorted(df_mom["ANO"].dropna().unique()):
-            base_ano_he = df_mom[df_mom["ANO"] == ano_he].copy()
-
-            linhas_finais_he.append(
-                base_ano_he[[
-                    "ANO", "MÊS", "Mês", "Limite", "Pago em Hora Extra",
-                    "Salário", "HE da Folha", "Saldo do Limite", "Resultado %", "MoM_%"
-                ]]
-            )
-
-            total_limite = base_ano_he["Limite"].sum()
-            total_pago = base_ano_he["Pago em Hora Extra"].sum()
-            total_salario = base_ano_he["Salário"].sum()
-            total_he_folha = total_pago / total_salario if total_salario > 0 else None
-            total_saldo = total_limite - total_pago
-            total_resultado = total_pago / total_limite if total_limite > 0 else None
-
-            linhas_finais_he.append(pd.DataFrame([{
-                "ANO": ano_he,
-                "MÊS": None,
-                "Mês": f"TOTAL {ano_he}",
-                "Limite": total_limite,
-                "Pago em Hora Extra": total_pago,
-                "Salário": total_salario,
-                "HE da Folha": total_he_folha,
-                "Saldo do Limite": total_saldo,
-                "Resultado %": total_resultado,
-                "MoM_%": None,
-            }]))
-
-        df_mom_he_tela = pd.concat(linhas_finais_he, ignore_index=True)
-
-        def destacar_total(row):
-            if str(row["Mês"]).startswith("TOTAL"):
-                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
-            return ["" for _ in row]
-
-        st.dataframe(
-            df_mom_he_tela.style
-            .apply(destacar_total, axis=1)
-            .format({
-                "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
-                "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
-                "Resultado %": lambda v: f"{v:.0%}" if pd.notna(v) else "—",
-                "MoM_%": fmt_mom_seguro,
-            })
-            .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
-            .map(cor_despesa_manutencao, subset=["Resultado %"])
-            .map(cor_variacao, subset=["MoM_%"]),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    else:
-        linhas_finais = []
-
-        for ano in sorted(df_mom["ANO"].dropna().unique()):
-            base_ano = df_mom[df_mom["ANO"] == ano].copy()
-
-            linhas_finais.append(base_ano[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating.", "MoM_%"]])
-
-            total_meta = base_ano["META"].sum()
-            total_realizado = base_ano["Realizado"].sum()
-
-            if eh_despesa_manutencao(indicador):
-                # Despesa Manutenção:
-                # Resultado R$ = Limite - Despesa
-                # Resultado % = 1 - (Despesa / Limite)
-                total_gap = total_meta - total_realizado
-                total_ating = 1 - (total_realizado / total_meta) if total_meta > 0 else None
-
-            elif eh_despesa(indicador):
-                total_gap = total_meta - total_realizado
-                total_ating = total_meta / total_realizado if total_realizado > 0 else None
-
-            else:
-                total_gap = total_realizado - total_meta
-                total_ating = total_realizado / total_meta if total_meta > 0 else None
-
-            linhas_finais.append(pd.DataFrame([{
-                "ANO": ano,
-                "MÊS": None,
-                "Mês": f"TOTAL {ano}",
-                "META": total_meta,
-                "Realizado": total_realizado,
-                "Gap": total_gap,
-                "Ating.": total_ating,
-                "MoM_%": None,
-            }]))
-
-        df_mom_tela = pd.concat(linhas_finais, ignore_index=True)
-
-        def destacar_total(row):
-            if str(row["Mês"]).startswith("TOTAL"):
-                return ["background-color: #FFF3E8; font-weight: bold; border-top: 2px solid #F26522;" for _ in row]
-            return ["" for _ in row]
-
-        if eh_despesa_manutencao(indicador):
-            df_mom_tela_exibir = df_mom_tela.rename(columns={
-                "META": "Limite",
-                "Realizado": "Despesa",
-                "Gap": "Resultado R$",
-                "Ating.": "Resultado %",
-                "MoM_%": "MoM_%",
-            })
-
-            st.dataframe(
-                df_mom_tela_exibir.style
-                .apply(destacar_total, axis=1)
-                .format({
-                    "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                    "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
-                    "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "—",
-                    "MoM_%": fmt_mom_seguro,
-                })
-                .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
-                .map(lambda v: f"color: {COR_VERDE}; font-weight:bold" if pd.notna(v) and v >= 0 else (f"color: {COR_LARANJA}; font-weight:bold" if pd.notna(v) else ""), subset=["Resultado %"])
-                .map(cor_variacao, subset=["MoM_%"]),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-        else:
-            st.dataframe(
-                df_mom_tela.style
-                .apply(destacar_total, axis=1)
-                .format({
-                    "ANO": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                    "MÊS": lambda v: f"{int(v)}" if pd.notna(v) else "",
-                    "META": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
-                    "Gap": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "—",
-                    "Ating.": lambda v: f"{v:.0%}" if pd.notna(v) else "—",
-                    "MoM_%": fmt_mom_seguro,
-                })
-                .map(lambda v: cor_gap_valor(v, eh_despesa(indicador)), subset=["Gap"])
-                .map(cor_atingimento, subset=["Ating."])
-                .map(cor_variacao, subset=["MoM_%"]),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-
-
-# =========================
 # ABA YOY
 # =========================
-with tab3:
+with tab2:
     titulo_secao("YoY — Comparativo ano a ano", f"{indicador} — {filial}: visão histórica consolidada e comparativo por ano.")
     df_yoy = calcular_yoy(df, indicador)
 
@@ -10922,24 +10532,24 @@ with tab3:
 # =========================
 # ABA PROJEÇÃO — SOMENTE GABRIEL
 # =========================
-if eh_gabriel() and tab4 is not None:
-    with tab4:
+if eh_gabriel() and tab3 is not None:
+    with tab3:
         renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha)
 
 
 # =========================
 # ABA ANÁLISE — SOMENTE GABRIEL
 # =========================
-if eh_gabriel() and tab5 is not None:
-    with tab5:
+if eh_gabriel() and tab4 is not None:
+    with tab4:
         renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, df_comparativo_filiais)
 
 
 # =========================
 # ABA OPÇÕES — ADMIN E GABRIEL
 # =========================
-if (eh_admin() or eh_gabriel()) and tab6 is not None:
-    with tab6:
+if (eh_admin() or eh_gabriel()) and tab5 is not None:
+    with tab5:
         titulo_secao("Opções", f"{indicador} — {filial}: PDF, e-mail e administração da base.")
 
         if eh_admin():
