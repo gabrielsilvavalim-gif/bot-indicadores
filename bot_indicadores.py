@@ -5603,6 +5603,207 @@ def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_conte
     )
 
 
+
+# =========================
+# ANÁLISE GEOGRÁFICA — FATURAMENTOS NORMAIS
+# =========================
+
+COORDENADAS_FILIAIS = {
+    normalizar_texto("VALINHOS/SP"): {"lat": -22.9706, "lon": -46.9958, "label": "Valinhos/SP"},
+    normalizar_texto("VALINHOS"): {"lat": -22.9706, "lon": -46.9958, "label": "Valinhos/SP"},
+
+    normalizar_texto("CANOAS/RS"): {"lat": -29.9177, "lon": -51.1839, "label": "Canoas/RS"},
+    normalizar_texto("CANOAS"): {"lat": -29.9177, "lon": -51.1839, "label": "Canoas/RS"},
+
+    normalizar_texto("CURITIBA/PR"): {"lat": -25.4284, "lon": -49.2733, "label": "Curitiba/PR"},
+    normalizar_texto("CURITIBA"): {"lat": -25.4284, "lon": -49.2733, "label": "Curitiba/PR"},
+
+    normalizar_texto("DUQUE DE CAXIAS/RJ"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ"},
+    normalizar_texto("DUQUE DE CAXIAS"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ"},
+    normalizar_texto("CAXIAS/RJ"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ"},
+    normalizar_texto("CAXIAS"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ"},
+}
+
+
+def eh_faturamento_normal_geografico(indicador):
+    """
+    Define se o indicador deve exibir a análise geográfica.
+
+    A regra é:
+    - precisa ser um indicador de faturamento;
+    - não pode ser Tecfil;
+    - não pode ser Pneus Velhos Moto, pois essa estrutura é especial;
+    - não pode ser despesa, qualidade ou resultado financeiro.
+    """
+    try:
+        if eh_tecfil(indicador) or eh_moto_margem(indicador):
+            return False
+
+        if eh_despesa(indicador) or eh_qualidade(indicador) or eh_resultado_financeiro(indicador):
+            return False
+
+        cfg = INDICADORES.get(indicador, {})
+        categoria = normalizar_texto(str(cfg.get("categoria", "")))
+        grupo_01 = normalizar_texto(str(cfg.get("GRUPO 01", "")))
+        tipo = normalizar_texto(str(cfg.get("TIPO", "")))
+
+        return categoria == "FATURAMENTO" or grupo_01 == "FATURAMENTO" or "FATURAMENTO" in normalizar_texto(indicador) or tipo == "FATURAMENTOS"
+    except Exception:
+        return False
+
+
+def preparar_analise_geografica_faturamento(df_filiais, indicador, ano):
+    """
+    Consolida o faturamento por filial real e calcula participação no total.
+    """
+    try:
+        if df_filiais is None or df_filiais.empty:
+            return pd.DataFrame()
+
+        comp = comparativo_filiais(df_filiais, ano, indicador)
+
+        if comp is None or comp.empty or "FILIAL" not in comp.columns:
+            return pd.DataFrame()
+
+        valor_col = "Realizado" if "Realizado" in comp.columns else None
+        if valor_col is None:
+            return pd.DataFrame()
+
+        geo = comp[["FILIAL", valor_col]].copy()
+        geo = geo.rename(columns={valor_col: "Faturamento"})
+        geo["Faturamento"] = pd.to_numeric(geo["Faturamento"], errors="coerce").fillna(0)
+        geo = geo[geo["Faturamento"] > 0].copy()
+
+        if geo.empty:
+            return pd.DataFrame()
+
+        coords = []
+        for filial_nome in geo["FILIAL"]:
+            chave = normalizar_texto(str(filial_nome))
+            coord = COORDENADAS_FILIAIS.get(chave)
+            coords.append(coord)
+
+        geo["_coord"] = coords
+        geo = geo[geo["_coord"].notna()].copy()
+
+        if geo.empty:
+            return pd.DataFrame()
+
+        geo["Latitude"] = geo["_coord"].apply(lambda c: c["lat"])
+        geo["Longitude"] = geo["_coord"].apply(lambda c: c["lon"])
+        geo["Filial Mapa"] = geo["_coord"].apply(lambda c: c["label"])
+
+        total = geo["Faturamento"].sum()
+        geo["Participação"] = geo["Faturamento"] / total if total > 0 else pd.NA
+
+        geo = geo.sort_values("Faturamento", ascending=False).reset_index(drop=True)
+        geo["Texto Mapa"] = geo.apply(
+            lambda r: f"{r['Filial Mapa']}<br>{fmt_brl(r['Faturamento'])}<br>{fmt_pct(r['Participação'])} do total",
+            axis=1
+        )
+        geo["Texto Marcador"] = geo.apply(
+            lambda r: f"{fmt_brl(r['Faturamento'])}<br>{fmt_pct(r['Participação'])}",
+            axis=1
+        )
+
+        return geo[["Filial Mapa", "Faturamento", "Participação", "Latitude", "Longitude", "Texto Mapa", "Texto Marcador"]]
+    except Exception:
+        return pd.DataFrame()
+
+
+def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
+    """
+    Renderiza a seção visual de análise geográfica.
+    """
+    geo = preparar_analise_geografica_faturamento(df_filiais, indicador, ano)
+
+    if geo is None or geo.empty:
+        return
+
+    total_faturamento = geo["Faturamento"].sum()
+
+    titulo_secao(
+        "Análise geográfica",
+        "Distribuição do faturamento por filial e participação percentual no total."
+    )
+
+    c_geo1, c_geo2, c_geo3 = st.columns([1.2, 1, 1])
+    with c_geo1:
+        kpi_metric("Faturamento Geral", fmt_brl(total_faturamento))
+    with c_geo2:
+        maior = geo.iloc[0]
+        kpi_metric("Maior participação", f"{maior['Filial Mapa']}", nota=f"{fmt_pct(maior['Participação'])} do total", nota_status="info")
+    with c_geo3:
+        kpi_metric("Filiais no mapa", fmt_num(len(geo)))
+
+    sizeref = max(geo["Faturamento"].max() / 58, 1)
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scattergeo(
+            lon=geo["Longitude"],
+            lat=geo["Latitude"],
+            mode="markers+text",
+            text=geo["Texto Marcador"],
+            textposition="top center",
+            textfont=dict(size=11, color="#111827"),
+            marker=dict(
+                size=geo["Faturamento"],
+                sizemode="area",
+                sizeref=sizeref,
+                sizemin=18,
+                color=COR_LARANJA,
+                line=dict(width=2, color="#FFFFFF"),
+                opacity=0.88,
+            ),
+            hovertemplate="<b>%{hovertext}</b><extra></extra>",
+            hovertext=geo["Texto Mapa"],
+            name="Faturamento",
+        )
+    )
+
+    fig.update_layout(
+        height=520,
+        margin=dict(l=0, r=0, t=10, b=0),
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+        geo=dict(
+            scope="south america",
+            projection_type="mercator",
+            lataxis_range=[-34, 6],
+            lonaxis_range=[-75, -33],
+            showland=True,
+            landcolor="#F8FAFC",
+            showcountries=True,
+            countrycolor="#CBD5E1",
+            showsubunits=True,
+            subunitcolor="#E2E8F0",
+            showocean=True,
+            oceancolor="#EEF6F3",
+            showlakes=True,
+            lakecolor="#EEF6F3",
+            bgcolor="rgba(0,0,0,0)",
+        ),
+    )
+
+    st.plotly_chart(fig, use_container_width=True, key=f"mapa_geo_faturamento_{indicador}_{ano}")
+
+    ranking_geo = geo[["Filial Mapa", "Faturamento", "Participação"]].rename(columns={
+        "Filial Mapa": "Filial",
+        "Participação": "% do total",
+    })
+
+    st.dataframe(
+        ranking_geo.style.format({
+            "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+            "% do total": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
 def renderizar_semaforo_projecao(info):
     gap = info.get("gap_projetado")
     media_atual = info.get("media_atual")
@@ -8569,7 +8770,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 12.7 — Final")
+    st.caption("v5.0 etapa 12.8 — análise geográfica")
 
 
 
@@ -9502,6 +9703,9 @@ with tab0:
             )
         with c5:
             kpi_metric(f"{rotulo_ytd_kpi(indicador)} {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-", delta_ytd)
+
+        if filial == "Geral" and eh_faturamento_normal_geografico(indicador):
+            renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, ano_kpi)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
