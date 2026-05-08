@@ -5522,7 +5522,8 @@ def status_geral_indicador(df, indicador, ano):
 
 
 def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_contexto=None):
-    status, status_titulo, status_desc = status_geral_indicador(df_contexto, indicador, ano) if df_contexto is not None else ("info", "Em acompanhamento", "")
+    # Status geral removido da capa conforme solicitado.
+    # A capa fica apenas com o título, descrição e filtros contextuais.
     st.markdown(
         f"""
         <div class="premium-hero">
@@ -5531,11 +5532,6 @@ def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_conte
                     <div class="premium-hero-title">Painel executivo</div>
                     <div class="premium-hero-main">{indicador} | {filial}</div>
                     <div class="premium-hero-sub">Leitura consolidada para acompanhamento de metas, tendência e desempenho.</div>
-                </div>
-                <div class="premium-status {status}">
-                    <div class="premium-status-label">Status geral</div>
-                    <div class="premium-status-value">{status_titulo}</div>
-                    <div style="font-size:11px;color:#6B7280;font-weight:650;margin-top:3px;">{status_desc}</div>
                 </div>
             </div>
             <div class="premium-hero-pills">
@@ -8500,7 +8496,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 11.6 — manutenção resultado e PDF")
+    st.caption("v5.0 etapa 11.8 — sem status geral")
 
 
 
@@ -9367,12 +9363,20 @@ with tab0:
         with c3:
             kpi_metric(f"{rotulo_gap_kpi(indicador)} Ano", fmt_brl(gap_total))
         with c4:
-            nota_esp, status_esp = nota_atingimento_esperado(
-                ating_total,
-                ano_kpi,
-                data_geracao_planilha,
-                despesa=eh_despesa_manutencao(indicador)
-            )
+            if eh_despesa_manutencao(indicador):
+                # Para Despesa Manutenção, não exibir "Esperado".
+                # O card deve mostrar apenas o Resultado % calculado:
+                # Resultado % = 1 - (Despesa / Limite)
+                nota_esp = None
+                status_esp = "info"
+            else:
+                nota_esp, status_esp = nota_atingimento_esperado(
+                    ating_total,
+                    ano_kpi,
+                    data_geracao_planilha,
+                    despesa=False
+                )
+
             kpi_metric(
                 ("Resultado %" if eh_despesa_manutencao(indicador) else "Atingimento da meta"),
                 fmt_pct(ating_total),
