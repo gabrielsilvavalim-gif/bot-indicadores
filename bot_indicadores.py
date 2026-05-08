@@ -8569,7 +8569,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 12.7 — Tecfil sem filial")
+    st.caption("v5.0 etapa 12.7 — Final")
 
 
 
