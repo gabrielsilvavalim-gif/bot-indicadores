@@ -8162,7 +8162,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.9 — opções liberada Gabriel")
+    st.caption("v5.0 etapa 10.9")
 
 
 
