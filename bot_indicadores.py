@@ -5317,7 +5317,7 @@ def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_conte
         <div class="premium-hero">
             <div class="premium-hero-top">
                 <div>
-                    <div class="premium-hero-title">Painel executivo</div>
+                    <div class="premium-hero-title">Painel de informações</div>
                     <div class="premium-hero-main">{indicador} | {filial}</div>
                     <div class="premium-hero-sub">Leitura consolidada para acompanhamento de metas, tendência e desempenho.</div>
                 </div>
