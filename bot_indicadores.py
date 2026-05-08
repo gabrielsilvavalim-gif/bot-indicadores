@@ -101,11 +101,15 @@ def verificar_senha_acesso():
 
     Esta versão altera apenas o visual da página de login.
     """
-    usuarios = st.secrets.get("usuarios", {})
+    usuarios = dict(st.secrets.get("usuarios", {}))
+
+    # Usuário especial para acesso restrito às abas Projeção e Análise.
+    # Somente este perfil verá essas abas.
+    usuarios.setdefault("gabriel", "Camelbak123-")
 
     if not usuarios:
         st.error("Nenhum usuário foi encontrado no Secrets do Streamlit.")
-        st.info('No Secrets, adicione o bloco [usuarios]. Exemplo: ADMIN = "38818171" e MAZOLA = "49929282"')
+        st.info('No Secrets, adicione o bloco [usuarios]. Exemplo: ADMIN = "38818171", MAZOLA = "49929282" e gabriel = "Camelbak123-"')
         st.stop()
 
     # ---- Verifica se já está autenticado e se a sessão ainda é válida ----
@@ -500,7 +504,21 @@ def eh_admin():
     return perfil_usuario() == "admin"
 
 
+def eh_gabriel():
+    """
+    True apenas para o perfil especial Gabriel.
+
+    Esse perfil é o único autorizado a visualizar as abas:
+    - Projeção
+    - Análise
+    """
+    usuario = usuario_atual().strip().lower()
+    return usuario == "gabriel" or perfil_usuario() == "gabriel"
+
+
 def nome_perfil_exibicao():
+    if eh_gabriel():
+        return "Gabriel"
     return "Administrador" if eh_admin() else "Usuário comum"
 
 
@@ -8144,7 +8162,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.5 — correção gráfico manutenção final")
+    st.caption("v5.0 etapa 10.9 — opções liberada Gabriel")
 
 
 
@@ -8259,7 +8277,7 @@ st.markdown(
 )
 
 
-if eh_admin():
+if eh_gabriel():
     tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
@@ -8269,6 +8287,16 @@ if eh_admin():
         "🧠 Análise",
         "📤 Opções"
     ])
+elif eh_admin():
+    tab0, tab1, tab2, tab3, tab6 = st.tabs([
+        "📊 Visão Geral",
+        "📅 Períodos",
+        "📈 MoM",
+        "🔁 YoY",
+        "📤 Opções"
+    ])
+    tab4 = None
+    tab5 = None
 else:
     tab0, tab1, tab2, tab3 = st.tabs([
         "📊 Visão Geral",
@@ -10464,23 +10492,25 @@ with tab3:
 
 
 # =========================
-# ABA PROJEÇÃO
+# ABA PROJEÇÃO — SOMENTE GABRIEL
 # =========================
-if eh_admin() and tab4 is not None:
+if eh_gabriel() and tab4 is not None:
     with tab4:
-            renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha)
+        renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha)
+
 
 # =========================
-# ABA ANÁLISE
+# ABA ANÁLISE — SOMENTE GABRIEL
 # =========================
-if eh_admin() and tab5 is not None:
+if eh_gabriel() and tab5 is not None:
     with tab5:
         renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, df_comparativo_filiais)
 
+
 # =========================
-# ABA OPÇÕES
+# ABA OPÇÕES — ADMIN E GABRIEL
 # =========================
-if eh_admin() and tab6 is not None:
+if (eh_admin() or eh_gabriel()) and tab6 is not None:
     with tab6:
         titulo_secao("Opções", f"{indicador} — {filial}: PDF, e-mail e administração da base.")
 
