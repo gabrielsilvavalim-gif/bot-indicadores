@@ -8770,7 +8770,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 12.8 — análise geográfica")
+    st.caption("v5.0 etapa 12.9 — aba mapa")
 
 
 
@@ -8886,31 +8886,34 @@ st.markdown(
 
 
 if eh_gabriel():
-    tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab0, tab1, tab2, tab3, tab_geo, tab4, tab5, tab6 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
         "📈 MoM",
         "🔁 YoY",
+        "🗺️ Mapa",
         "📌 Projeção",
         "🧠 Análise",
         "📤 Opções"
     ])
 elif eh_admin():
-    tab0, tab1, tab2, tab3, tab6 = st.tabs([
+    tab0, tab1, tab2, tab3, tab_geo, tab6 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
         "📈 MoM",
         "🔁 YoY",
+        "🗺️ Mapa",
         "📤 Opções"
     ])
     tab4 = None
     tab5 = None
 else:
-    tab0, tab1, tab2, tab3 = st.tabs([
+    tab0, tab1, tab2, tab3, tab_geo = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
         "📈 MoM",
-        "🔁 YoY"
+        "🔁 YoY",
+        "🗺️ Mapa"
     ])
     tab4 = None
     tab5 = None
@@ -9703,9 +9706,6 @@ with tab0:
             )
         with c5:
             kpi_metric(f"{rotulo_ytd_kpi(indicador)} {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-", delta_ytd)
-
-        if filial == "Geral" and eh_faturamento_normal_geografico(indicador):
-            renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, ano_kpi)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -11178,6 +11178,34 @@ with tab3:
                     uniformtext_mode="show",
                 )
                 st.plotly_chart(fig_filiais, use_container_width=True, key="grafico_filiais")
+
+
+# =========================
+# ABA MAPA — ANÁLISE GEOGRÁFICA
+# =========================
+with tab_geo:
+    titulo_secao(
+        "Mapa — Análise geográfica",
+        f"{indicador} — {filial}: distribuição geográfica do faturamento por filial."
+    )
+
+    anos_mapa = sorted(df["ANO"].dropna().unique())
+    ano_mapa = int(anos_mapa[-1]) if anos_mapa else None
+
+    if not eh_faturamento_normal_geografico(indicador):
+        st.info(
+            "A análise geográfica está disponível apenas para indicadores de faturamento normal. "
+            "Indicadores especiais, despesas, qualidade, Tecfil e Resultado Financeiro não usam este mapa."
+        )
+    elif filial != "Geral":
+        st.info(
+            "Para visualizar o mapa, selecione a filial como Geral. "
+            "O mapa compara a participação das filiais no faturamento total."
+        )
+    elif ano_mapa is None:
+        st.info("Não há ano disponível para montar a análise geográfica.")
+    else:
+        renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, ano_mapa)
 
 
 # =========================
