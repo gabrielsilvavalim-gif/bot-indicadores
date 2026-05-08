@@ -329,7 +329,102 @@ def verificar_senha_acesso():
                 font-weight: 700;
                 text-align: left;
             }
-        </style>
+        
+
+/* Padronização final dos KPIs — mesmo tamanho em todos os cenários */
+div[data-testid="column"] .kpi-card {
+    width:100% !important;
+    height:118px !important;
+    min-height:118px !important;
+    max-height:118px !important;
+}
+
+div[data-testid="stMetric"] {
+    background:#FFFFFF !important;
+    border:1px solid #E5E7EB !important;
+    border-radius:16px !important;
+    padding:16px 16px 14px 16px !important;
+    height:118px !important;
+    min-height:118px !important;
+    max-height:118px !important;
+    box-sizing:border-box !important;
+    box-shadow:0 4px 14px rgba(17,24,39,0.07) !important;
+    position:relative !important;
+    overflow:hidden !important;
+}
+
+div[data-testid="stMetric"]::before {
+    content:"";
+    position:absolute;
+    left:0;
+    top:0;
+    height:5px;
+    width:100%;
+    background:linear-gradient(90deg, #F26522 0%, #00A350 100%) !important;
+}
+
+div[data-testid="stMetricLabel"] {
+    min-height:28px !important;
+    max-height:28px !important;
+}
+
+div[data-testid="stMetricLabel"] p {
+    font-size:11px !important;
+    color:#6B7280 !important;
+    font-weight:850 !important;
+    text-transform:uppercase !important;
+    letter-spacing:.02em !important;
+    line-height:1.15 !important;
+    margin:0 !important;
+    overflow:hidden !important;
+    display:-webkit-box !important;
+    -webkit-line-clamp:2 !important;
+    -webkit-box-orient:vertical !important;
+}
+
+div[data-testid="stMetricValue"] div {
+    font-size:clamp(17px, 1.35vw, 22px) !important;
+    font-weight:900 !important;
+    color:#111827 !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+    text-overflow:ellipsis !important;
+    font-variant-numeric:tabular-nums !important;
+}
+
+div[data-testid="stMetricDelta"] {
+    min-height:20px !important;
+    max-height:20px !important;
+    font-size:11px !important;
+    font-weight:850 !important;
+}
+
+
+
+/* Linha auxiliar dentro dos KPIs */
+.kpi-note {
+    position:absolute;
+    left:16px;
+    right:16px;
+    bottom:10px;
+    font-size:11px;
+    font-weight:800;
+    line-height:1.15;
+    color:#6B7280;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.kpi-note.good { color:#00A350; }
+.kpi-note.warn { color:#F26522; }
+.kpi-note.info { color:#6B7280; }
+
+.kpi-card.has-note .kpi-delta {
+    display:none;
+}
+
+</style>
         """,
         unsafe_allow_html=True,
     )
@@ -945,6 +1040,8 @@ def rotulo_realizado(indicador):
 
 
 def rotulo_gap(indicador):
+    if eh_despesa_manutencao(indicador):
+        return "Resultado R$"
     return "Saldo do Limite" if eh_despesa_com_limite(indicador) else "Gap"
 
 
@@ -2361,22 +2458,32 @@ def tabela_pneus_moto_ano(d, ano):
             "Acumulado": acumulado if acumulado != 0 else None,
         })
 
-    resumo_total = resumo_moto_por_grupo(base_ano) if not base_ano.empty else {
-        "Meta %": None,
-        "Compra": 0,
-        "Faturamento": 0,
-        "Margem Bruta": 0,
-        "Tx. Sucesso": None
-    }
+    # TOTAL do Pneus Moto seguindo exatamente a fórmula do Excel:
+    # Meta Total = SOMARPRODUTO(Meta mensal ; Faturamento mensal) / SOMA(Faturamento mensal)
+    tabela_mensal_tmp = pd.DataFrame(rows)
+
+    compra_total = pd.to_numeric(tabela_mensal_tmp.get("Compra"), errors="coerce").fillna(0).sum()
+    faturamento_total = pd.to_numeric(tabela_mensal_tmp.get("Faturamento"), errors="coerce").fillna(0).sum()
+    margem_total = faturamento_total - compra_total
+    tx_total = margem_total / faturamento_total if faturamento_total > 0 else None
+
+    metas_mensais = pd.to_numeric(tabela_mensal_tmp.get("Meta"), errors="coerce")
+    faturamentos_mensais = pd.to_numeric(tabela_mensal_tmp.get("Faturamento"), errors="coerce")
+
+    mask_meta_total = metas_mensais.notna() & faturamentos_mensais.notna() & (faturamentos_mensais != 0)
+    if mask_meta_total.any() and faturamentos_mensais[mask_meta_total].sum() > 0:
+        meta_total = (metas_mensais[mask_meta_total] * faturamentos_mensais[mask_meta_total]).sum() / faturamentos_mensais[mask_meta_total].sum()
+    else:
+        meta_total = None
 
     rows.append({
         "Mês": "TOTAL",
-        "Meta": resumo_total["Meta %"],
-        "Compra": resumo_total["Compra"],
-        "Faturamento": resumo_total["Faturamento"],
-        "Margem Bruta": resumo_total["Margem Bruta"],
-        "Tx. Sucesso": resumo_total["Tx. Sucesso"],
-        "Acumulado": resumo_total["Margem Bruta"],
+        "Meta": meta_total,
+        "Compra": compra_total,
+        "Faturamento": faturamento_total,
+        "Margem Bruta": margem_total,
+        "Tx. Sucesso": tx_total,
+        "Acumulado": margem_total,
     })
 
     tabela = pd.DataFrame(rows)
@@ -2391,19 +2498,35 @@ def tabela_pneus_moto_ano(d, ano):
 
 def meta_ponderada_moto(grupo):
     """
-    Meta total do ano/mês para Pneus Velhos Moto.
-    Fórmula equivalente ao Excel:
-    SOMARPRODUTO(FATURAMENTO; META %) / SOMA(FATURAMENTO)
+    Meta total do ano/mês/período para Pneus Velhos Moto.
 
-    Exemplo:
-    Meta Total = (Faturamento Jan x Meta Jan + Faturamento Fev x Meta Fev + ...) / Faturamento Total
+    Fórmula correta conforme Excel:
+    =SEERRO(((Meta%_Jan*Faturamento_Jan)+...)/(Faturamento_Jan+...);0)
+
+    Em termos matemáticos:
+    Meta Total = SOMARPRODUTO(Meta % ; Faturamento) / SOMA(Faturamento)
+
+    Observação:
+    - A meta total NÃO é média simples.
+    - A meta total é ponderada pelo faturamento de cada mês/linha.
+    - Meses sem faturamento não influenciam no peso da meta.
     """
-    faturamento = pd.to_numeric(grupo.get("FATURAMENTO_MOTO_CALC"), errors="coerce").fillna(0)
-    meta_pct = pd.to_numeric(grupo.get("META_PERCENTUAL_CALC"), errors="coerce").fillna(0)
-    total_faturamento = faturamento.sum()
+    if grupo is None or grupo.empty:
+        return None
+
+    faturamento = pd.to_numeric(grupo.get("FATURAMENTO_MOTO_CALC"), errors="coerce")
+    meta_pct = pd.to_numeric(grupo.get("META_PERCENTUAL_CALC"), errors="coerce")
+
+    valido = faturamento.notna() & meta_pct.notna() & (faturamento != 0)
+    faturamento_valido = faturamento[valido]
+    meta_valida = meta_pct[valido]
+
+    total_faturamento = faturamento_valido.sum()
+
     if total_faturamento > 0:
-        return (faturamento * meta_pct).sum() / total_faturamento
-    return meta_pct.mean() if len(meta_pct) else None
+        return (meta_valida * faturamento_valido).sum() / total_faturamento
+
+    return None
 
 
 def resumo_moto_por_grupo(grupo):
@@ -4530,6 +4653,94 @@ def dias_uteis_ate_data(data_base):
         return None
 
 
+
+def dias_uteis_ano(ano):
+    """Total de dias úteis no ano, considerando feriados nacionais."""
+    try:
+        ano = int(ano)
+        feriados = feriados_brasil_nacionais(ano)
+        total = 0
+        for mes in range(1, 13):
+            ultimo = calendar.monthrange(ano, mes)[1]
+            for dia in range(1, ultimo + 1):
+                d = date(ano, mes, dia)
+                if d.weekday() < 5 and d not in feriados:
+                    total += 1
+        return total
+    except Exception:
+        return None
+
+
+def dias_uteis_ano_ate_data(data_base):
+    """Dias úteis decorridos no ano até a data-base, considerando feriados nacionais."""
+    try:
+        if data_base is None:
+            return None
+
+        ano = int(data_base.year)
+        feriados = feriados_brasil_nacionais(ano)
+        total = 0
+
+        inicio = date(ano, 1, 1)
+        fim = date(ano, int(data_base.month), int(data_base.day))
+
+        atual = inicio
+        while atual <= fim:
+            if atual.weekday() < 5 and atual not in feriados:
+                total += 1
+            atual += timedelta(days=1)
+
+        return total
+    except Exception:
+        return None
+
+
+def atingimento_esperado_ano(ano, data_geracao_planilha):
+    """
+    Calcula quanto da meta anual já deveria estar cumprido pela proporção
+    de dias úteis decorridos no ano.
+
+    Exemplo de leitura:
+    estamos em 30,5% da meta; pelo calendário útil, era para estar em 34,0%.
+    """
+    try:
+        data_base = parse_data_geracao(data_geracao_planilha)
+        if data_base is None or int(data_base.year) != int(ano):
+            return None
+
+        total = dias_uteis_ano(ano)
+        decorridos = dias_uteis_ano_ate_data(data_base)
+
+        if not total or not decorridos:
+            return None
+
+        return decorridos / total
+    except Exception:
+        return None
+
+
+def nota_atingimento_esperado(atingimento_atual, ano, data_geracao_planilha, despesa=False):
+    """
+    Monta nota curta para o card:
+    Era p/ estar X%; estamos Y p.p. acima/abaixo.
+    """
+    esperado = atingimento_esperado_ano(ano, data_geracao_planilha)
+
+    if esperado is None or atingimento_atual is None or pd.isna(atingimento_atual):
+        return None, "info"
+
+    diferenca = atingimento_atual - esperado
+
+    if despesa:
+        # Para despesa/limite, menor costuma ser melhor. Mantém leitura neutra.
+        return f"Esperado: {fmt_pct(esperado)}", "info"
+
+    if diferenca >= 0:
+        return f"Esperado: {fmt_pct(esperado)} | {abs(diferenca):.1%} acima", "good"
+
+    return f"Esperado: {fmt_pct(esperado)} | {abs(diferenca):.1%} abaixo", "warn"
+
+
 def valor_principal_para_analise(df_mensal, indicador):
     """
     Escolhe a coluna principal para análise executiva.
@@ -5317,7 +5528,7 @@ def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_conte
         <div class="premium-hero">
             <div class="premium-hero-top">
                 <div>
-                    <div class="premium-hero-title">Painel de informações</div>
+                    <div class="premium-hero-title">Painel executivo</div>
                     <div class="premium-hero-main">{indicador} | {filial}</div>
                     <div class="premium-hero-sub">Leitura consolidada para acompanhamento de metas, tendência e desempenho.</div>
                 </div>
@@ -5884,19 +6095,91 @@ def card_html(titulo, valor, delta=None):
     )
 
 
-def kpi_metric(titulo, valor, delta=None):
+def kpi_metric(titulo, valor, delta=None, nota=None, nota_status="info"):
     """
-    KPI padrão da refatoração v5.0.
-    Usa st.metric(), conforme especificação, mantendo suporte a delta percentual.
-    """
-    delta_texto = None
-    if delta is not None and pd.notna(delta):
-        try:
-            delta_texto = f"{float(delta):+.1%}"
-        except Exception:
-            delta_texto = None
+    KPI padrão visual Mazola.
 
-    st.metric(label=titulo, value=valor, delta=delta_texto)
+    Corrigido para todos os cards ficarem exatamente com o mesmo tamanho.
+    Permite uma nota curta no rodapé do card, sem aumentar a altura.
+    """
+    delta_html = '<div class="kpi-delta empty">0.0%</div>'
+    note_html = ""
+    classe_extra = ""
+
+    if nota:
+        classe_extra = " has-note"
+        note_html = f'<div class="kpi-note {nota_status}">{nota}</div>'
+    elif delta is not None and pd.notna(delta):
+        try:
+            delta_float = float(delta)
+            sinal = "+" if delta_float >= 0 else ""
+            cor = COR_VERDE if delta_float >= 0 else COR_LARANJA
+            fundo = "rgba(0,163,80,0.10)" if delta_float >= 0 else "rgba(242,101,34,0.10)"
+            delta_html = (
+                f'<div class="kpi-delta" style="background:{fundo}; color:{cor};">'
+                f'{sinal}{delta_float:.1%}'
+                f'</div>'
+            )
+        except Exception:
+            delta_html = '<div class="kpi-delta empty">0.0%</div>'
+
+    st.markdown(
+        f"""
+        <div class="kpi-card{classe_extra}">
+            <div class="kpi-label">{titulo}</div>
+            <div class="kpi-value">{valor}</div>
+            {delta_html}
+            {note_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+
+def rotulo_realizado_kpi(indicador):
+    """
+    Rótulo do card de realizado na Visão Geral.
+
+    Para Faturamento Especial, a leitura executiva é melhor como Faturamento,
+    não Realizado.
+    """
+    if normalizar_texto(indicador) == normalizar_texto("Faturamento Especial"):
+        return "Faturamento"
+    return rotulo_realizado(indicador)
+
+
+def rotulo_gap_kpi(indicador):
+    """
+    Rótulo do card de diferença/resultado na Visão Geral.
+
+    Para Faturamento Especial, usar Resultado R$ em vez de Gap.
+    """
+    if normalizar_texto(indicador) == normalizar_texto("Faturamento Especial"):
+        return "Resultado R$"
+    return rotulo_gap(indicador)
+
+
+
+def rotulo_ytd_kpi(indicador):
+    """
+    Define o rótulo do card YTD deixando claro o que está sendo analisado.
+    """
+    if eh_moto_margem(indicador):
+        return "YTD Fat."
+    if eh_tecfil(indicador):
+        return "YTD Fat."
+    if eh_despesa_geral(indicador):
+        return "YTD Desp."
+    if eh_despesa_manutencao(indicador):
+        return "YTD Desp."
+    if eh_despesa_hora_extra(indicador):
+        return "YTD HE"
+    if eh_resultado_financeiro(indicador):
+        return "YTD Resultado"
+    if eh_faturamento(indicador):
+        return "YTD Fat."
+    return "YTD"
 
 
 def mes_ano_label(serie_meses, ano):
@@ -6425,9 +6708,34 @@ class PDFRelatorio(FPDF):
             return
 
         if eh_despesa_manutencao(self.indicador):
-            headers = ["Mês", "Despesa", "Limite", "Saldo", "Uso"]
-        else:
-            headers = ["Mês", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
+            headers = ["Mês", "Limite", "Despesa", "Result. R$", "Result. %", "Acumul."]
+            widths = [26, 32, 32, 34, 26, 34]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 7)
+            for _, row in df_completa.iterrows():
+                is_total = row["Mês"] == "TOTAL"
+                fill = is_total
+                if is_total:
+                    self.set_fill_color(255, 243, 232)
+                    self.fonte("B", 7)
+                else:
+                    self.set_fill_color(255, 255, 255)
+                    self.fonte("", 7)
+
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1, align="C", fill=fill)
+                self.cell(widths[1], 6, fmt_brl(row.get("Limite")), border=1, align="R", fill=fill)
+                self.cell(widths[2], 6, fmt_brl(row.get("Despesa")), border=1, align="R", fill=fill)
+                self.cell(widths[3], 6, fmt_brl(row.get("Result. R$")), border=1, align="R", fill=fill)
+                self.cell(widths[4], 6, fmt_pct(row.get("Result. %")), border=1, align="R", fill=fill)
+                self.cell(widths[5], 6, fmt_brl(row.get("Acumulado")), border=1, align="R", fill=fill)
+                self.ln()
+            return
+
+        headers = ["Mês", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
         widths = [30, 40, 40, 40, 35]
 
         for h, w in zip(headers, widths):
@@ -7224,11 +7532,15 @@ st.markdown(
 .kpi-card {
     position: relative;
     border:1px solid #E5E7EB;
-    border-radius:12px;
-    padding:11px 14px 34px 14px;
+    border-radius:16px;
+    padding:16px 16px 32px 16px;
     background:#FFFFFF;
-    min-height:96px;
-    box-shadow:0 1px 4px rgba(0,0,0,0.06);
+    height:118px;
+    min-height:118px;
+    max-height:118px;
+    box-sizing:border-box;
+    box-shadow:0 4px 14px rgba(17,24,39,0.07);
+    overflow:hidden;
 }
 
 .kpi-card::before {
@@ -7236,38 +7548,64 @@ st.markdown(
     position:absolute;
     left:0;
     top:0;
-    height:4px;
+    height:5px;
     width:100%;
-    border-radius:12px 12px 0 0;
-    background:#F26522;
+    border-radius:16px 16px 0 0;
+    background:linear-gradient(90deg, #F26522 0%, #00A350 100%);
 }
 
 .kpi-label {
+    min-height:28px;
+    max-height:28px;
     font-size:11px;
-    color:#404040;
-    margin-bottom:7px;
-    white-space:nowrap;
+    color:#6B7280;
+    margin-bottom:6px;
+    font-weight:850;
+    text-transform:uppercase;
+    letter-spacing:.02em;
+    line-height:1.15;
+    overflow:hidden;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
 }
 
 .kpi-value {
-    font-size:17px;
-    font-weight:700;
+    min-height:34px;
+    display:flex;
+    align-items:center;
+    font-size:clamp(17px, 1.35vw, 22px);
+    font-weight:900;
     color:#111827;
-    line-height:1.15;
+    line-height:1.05;
     white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
     font-variant-numeric: tabular-nums;
 }
 
 .kpi-delta {
     position:absolute;
-    left:14px;
-    bottom:9px;
-    display:inline-block;
-    padding:3px 8px;
+    left:16px;
+    bottom:10px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding:4px 9px;
     border-radius:999px;
     font-size:11px;
-    font-weight:600;
+    font-weight:850;
     width:fit-content;
+    min-height:20px;
+}
+
+.kpi-delta.empty {
+    visibility:hidden;
+}
+
+.kpi-card:hover {
+    border-color:rgba(242,101,34,0.35);
+    box-shadow:0 6px 18px rgba(17,24,39,0.10);
 }
 
 div[data-testid="stDataFrame"] {
@@ -8162,7 +8500,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 10.9")
+    st.caption("v5.0 etapa 11.6 — manutenção resultado e PDF")
 
 
 
@@ -8354,6 +8692,9 @@ def _periodo_por_mes(mes, modo):
         sem = 1 if mes <= 6 else 2
         return "1º Sem (Jan a Jun)" if sem == 1 else "2º Sem (Jul a Dez)"
 
+    if modo == "Ano Completo":
+        return "Ano Completo (Jan a Dez)"
+
     return MESES_MAPA.get(mes, str(mes))
 
 
@@ -8379,7 +8720,7 @@ def montar_resumo_periodo(df_mensal, indicador, modo):
     """
     Monta resumo acumulado por Trimestre ou Semestre sem alterar as fórmulas-base.
     """
-    if df_mensal is None or df_mensal.empty or modo not in ["Trimestre", "Semestre"]:
+    if df_mensal is None or df_mensal.empty or modo not in ["Trimestre", "Semestre", "Ano Completo"]:
         return pd.DataFrame()
 
     if "Mês" not in df_mensal.columns:
@@ -8409,9 +8750,10 @@ def montar_resumo_periodo(df_mensal, indicador, modo):
             meta_col = "Meta" if "Meta" in sub.columns else "Meta %"
             meta_pond = None
             if faturamento and faturamento > 0 and meta_col in sub.columns:
-                fat = pd.to_numeric(sub.get("Faturamento"), errors="coerce").fillna(0)
-                meta = pd.to_numeric(sub.get(meta_col), errors="coerce").fillna(0)
-                meta_pond = (fat * meta).sum() / fat.sum() if fat.sum() > 0 else None
+                fat = pd.to_numeric(sub.get("Faturamento"), errors="coerce")
+                meta = pd.to_numeric(sub.get(meta_col), errors="coerce")
+                mask = fat.notna() & meta.notna() & (fat != 0)
+                meta_pond = (fat[mask] * meta[mask]).sum() / fat[mask].sum() if mask.any() and fat[mask].sum() > 0 else None
 
             tx = margem / faturamento if faturamento and faturamento > 0 else None
             acumulado += margem if margem is not None and pd.notna(margem) else 0
@@ -8591,11 +8933,12 @@ def renderizar_tabela_periodo_acumulado(df_periodo, indicador, modo):
         st.info(f"Sem dados suficientes para montar o resumo por {modo.lower()}.")
         return
 
-    st.markdown(f"#### Resumo acumulado por {modo.lower()}")
+    titulo_modo = "ano completo" if modo == "Ano Completo" else modo.lower()
+    st.markdown(f"#### Resumo acumulado por {titulo_modo}")
     st.caption("Os valores são acumulados a partir da própria tabela mensal do ano selecionado, sem alterar as fórmulas-base do indicador.")
 
     fmt = {
-        "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "",
+        "Meta": lambda v: (fmt_pct(v) if eh_moto_margem(indicador) or eh_qualidade(indicador) else fmt_brl(v)) if pd.notna(v) else "",
         "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "",
         "Gap (R$)": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
         "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "",
@@ -8639,9 +8982,32 @@ def renderizar_tabela_periodo_acumulado(df_periodo, indicador, modo):
             if col in df_periodo.columns:
                 styler = styler.map(lambda v: cor_gap_valor(v, False), subset=[col])
 
-        for col in ["Atingimento", "Resultado %", "Result. %", "Tx. Sucesso"]:
-            if col in df_periodo.columns:
-                styler = styler.map(lambda v: f"color: {COR_VERDE}; font-weight:bold" if pd.notna(v) and v >= 0 else (f"color: {COR_LARANJA}; font-weight:bold" if pd.notna(v) else ""), subset=[col])
+        # Regra especial para Despesa Geral:
+        # Tx. Sucesso = Despesa / Receita.
+        # Se Tx. Sucesso passar do Limite %, está ruim e deve ficar laranja.
+        if eh_despesa_geral(indicador) and "Tx. Sucesso" in df_periodo.columns and "Limite %" in df_periodo.columns:
+            def cor_tx_periodo_despesa_geral(row):
+                estilos = ["" for _ in row.index]
+
+                tx = row.get("Tx. Sucesso")
+                limite = row.get("Limite %")
+
+                if pd.notna(tx) and pd.notna(limite) and "Tx. Sucesso" in row.index:
+                    idx = list(row.index).index("Tx. Sucesso")
+                    estilos[idx] = (
+                        f"color: {COR_VERDE}; font-weight:bold"
+                        if tx <= limite
+                        else f"color: {COR_LARANJA}; font-weight:bold"
+                    )
+
+                return estilos
+
+            styler = styler.apply(cor_tx_periodo_despesa_geral, axis=1)
+
+        else:
+            for col in ["Atingimento", "Resultado %", "Result. %", "Tx. Sucesso"]:
+                if col in df_periodo.columns:
+                    styler = styler.map(lambda v: f"color: {COR_VERDE}; font-weight:bold" if pd.notna(v) and v >= 0 else (f"color: {COR_LARANJA}; font-weight:bold" if pd.notna(v) else ""), subset=[col])
     except Exception:
         pass
 
@@ -8685,7 +9051,7 @@ with tab0:
         with c4:
             kpi_metric("Tx. Sucesso", fmt_pct(resumo_ano_moto["Tx. Sucesso"]))
         with c5:
-            kpi_metric(f"YTD Fat. {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
+            kpi_metric(f"{rotulo_ytd_kpi(indicador)} {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -8832,7 +9198,7 @@ with tab0:
         with c4:
             kpi_metric("Realizado R$ Ano", fmt_brl(resumo_ano_tecfil["Realizado R$"]))
         with c5:
-            kpi_metric(f"YTD Fat. {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
+            kpi_metric(f"{rotulo_ytd_kpi(indicador)} {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -8886,7 +9252,7 @@ with tab0:
         with c4:
             kpi_metric("Resultado %", fmt_pct(resumo_ano_rf["Resultado %"]))
         with c5:
-            kpi_metric(f"YTD Fat. {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
+            kpi_metric(f"{rotulo_ytd_kpi(indicador)} {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -8937,7 +9303,7 @@ with tab0:
         with c4:
             kpi_metric("Tx. Sucesso", fmt_pct(resumo_ano_geral["Tx. Sucesso"]))
         with c5:
-            kpi_metric(f"YTD Fat. {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
+            kpi_metric(f"{rotulo_ytd_kpi(indicador)} {periodo_label}", fmt_brl(ytd_valor) if ytd_valor is not None else "-", delta_ytd)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -8971,7 +9337,13 @@ with tab0:
         realizado_total = base_kpi["REALIZADO_CALC"].sum()
         meta_total = base_kpi["META_CALC"].sum()
 
-        if eh_despesa(indicador):
+        if eh_despesa_manutencao(indicador):
+            # Despesa Manutenção:
+            # Resultado R$ = Limite - Despesa
+            # Resultado % = 1 - (Despesa / Limite)
+            gap_total = meta_total - realizado_total
+            ating_total = 1 - (realizado_total / meta_total) if meta_total > 0 else None
+        elif eh_despesa(indicador):
             gap_total = meta_total - realizado_total
             ating_total = meta_total / realizado_total if realizado_total > 0 else None
         else:
@@ -8991,13 +9363,24 @@ with tab0:
         with c1:
             kpi_metric(f"{rotulo_meta(indicador)} Ano", fmt_brl(meta_total))
         with c2:
-            kpi_metric(f"{rotulo_realizado(indicador)} Ano", fmt_brl(realizado_total))
+            kpi_metric(f"{rotulo_realizado_kpi(indicador)} Ano", fmt_brl(realizado_total))
         with c3:
-            kpi_metric(f"{rotulo_gap(indicador)} Ano", fmt_brl(gap_total))
+            kpi_metric(f"{rotulo_gap_kpi(indicador)} Ano", fmt_brl(gap_total))
         with c4:
-            kpi_metric(("Uso do limite" if eh_despesa_manutencao(indicador) else "Atingimento da meta"), fmt_pct(ating_total))
+            nota_esp, status_esp = nota_atingimento_esperado(
+                ating_total,
+                ano_kpi,
+                data_geracao_planilha,
+                despesa=eh_despesa_manutencao(indicador)
+            )
+            kpi_metric(
+                ("Resultado %" if eh_despesa_manutencao(indicador) else "Atingimento da meta"),
+                fmt_pct(ating_total),
+                nota=nota_esp,
+                nota_status=status_esp
+            )
         with c5:
-            kpi_metric(f"YTD {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-", delta_ytd)
+            kpi_metric(f"{rotulo_ytd_kpi(indicador)} {periodo_label}", fmt_brl(realizado_ytd) if realizado_ytd is not None else "-", delta_ytd)
 
         titulo_secao("Evolução mensal", "Acompanhamento visual do indicador ao longo do ano.")
 
@@ -9100,17 +9483,17 @@ with tab0:
 # ABA PERÍODOS
 # =========================
 with tab1:
-    titulo_secao("Períodos", f"{indicador} — {filial}: acompanhamento mensal, trimestral e semestral com tabela detalhada e gráfico interativo.")
+    titulo_secao("Períodos", f"{indicador} — {filial}: acompanhamento mensal, trimestral, semestral e anual com tabela detalhada e gráfico interativo.")
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos) - 1)
 
     modo_periodo = st.radio(
         "Tipo de visualização",
-        ["Mensal", "Trimestre", "Semestre"],
+        ["Mensal", "Trimestre", "Semestre", "Ano Completo"],
         horizontal=True,
         key=f"modo_periodo_por_ano_{indicador}_{filial}_{ano_selecionado}",
-        help="Use Trimestre ou Semestre para visualizar o acumulado do período selecionado. As fórmulas não mudam; os valores apenas são acumulados."
+        help="Use Trimestre, Semestre ou Ano Completo para visualizar o acumulado do período selecionado. As fórmulas não mudam; os valores apenas são acumulados."
     )
 
     if eh_moto_margem(indicador):
@@ -9118,7 +9501,7 @@ with tab1:
     else:
         df_completa = tabela_completa_ano(df, ano_selecionado, indicador)
 
-    if modo_periodo in ["Trimestre", "Semestre"]:
+    if modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
         df_periodo_acumulado = montar_resumo_periodo(df_completa, indicador, modo_periodo)
         renderizar_tabela_periodo_acumulado(df_periodo_acumulado, indicador, modo_periodo)
         st.divider()
