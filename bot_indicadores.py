@@ -5609,20 +5609,25 @@ def renderizar_capa_premium(indicador, filial, ano, periodo, data_base, df_conte
 # =========================
 
 COORDENADAS_FILIAIS = {
-    normalizar_texto("VALINHOS/SP"): {"lat": -22.9706, "lon": -46.9958, "label": "Valinhos/SP"},
-    normalizar_texto("VALINHOS"): {"lat": -22.9706, "lon": -46.9958, "label": "Valinhos/SP"},
+    normalizar_texto("VALINHOS/SP"): {"lat": -22.9706, "lon": -46.9958, "label": "Valinhos/SP", "uf": "SP", "estado": "São Paulo"},
+    normalizar_texto("VALINHOS"): {"lat": -22.9706, "lon": -46.9958, "label": "Valinhos/SP", "uf": "SP", "estado": "São Paulo"},
 
-    normalizar_texto("CANOAS/RS"): {"lat": -29.9177, "lon": -51.1839, "label": "Canoas/RS"},
-    normalizar_texto("CANOAS"): {"lat": -29.9177, "lon": -51.1839, "label": "Canoas/RS"},
+    normalizar_texto("CANOAS/RS"): {"lat": -29.9177, "lon": -51.1839, "label": "Canoas/RS", "uf": "RS", "estado": "Rio Grande do Sul"},
+    normalizar_texto("CANOAS"): {"lat": -29.9177, "lon": -51.1839, "label": "Canoas/RS", "uf": "RS", "estado": "Rio Grande do Sul"},
 
-    normalizar_texto("CURITIBA/PR"): {"lat": -25.4284, "lon": -49.2733, "label": "Curitiba/PR"},
-    normalizar_texto("CURITIBA"): {"lat": -25.4284, "lon": -49.2733, "label": "Curitiba/PR"},
+    normalizar_texto("CURITIBA/PR"): {"lat": -25.4284, "lon": -49.2733, "label": "Curitiba/PR", "uf": "PR", "estado": "Paraná"},
+    normalizar_texto("CURITIBA"): {"lat": -25.4284, "lon": -49.2733, "label": "Curitiba/PR", "uf": "PR", "estado": "Paraná"},
 
-    normalizar_texto("DUQUE DE CAXIAS/RJ"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ"},
-    normalizar_texto("DUQUE DE CAXIAS"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ"},
-    normalizar_texto("CAXIAS/RJ"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ"},
-    normalizar_texto("CAXIAS"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ"},
+    normalizar_texto("DUQUE DE CAXIAS/RJ"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ", "uf": "RJ", "estado": "Rio de Janeiro"},
+    normalizar_texto("DUQUE DE CAXIAS"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ", "uf": "RJ", "estado": "Rio de Janeiro"},
+    normalizar_texto("CAXIAS/RJ"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ", "uf": "RJ", "estado": "Rio de Janeiro"},
+    normalizar_texto("CAXIAS"): {"lat": -22.7856, "lon": -43.3117, "label": "Duque de Caxias/RJ", "uf": "RJ", "estado": "Rio de Janeiro"},
 }
+
+
+# GeoJSON público com os estados brasileiros.
+# Usado apenas para pintar os estados no mapa.
+GEOJSON_ESTADOS_BRASIL_URL = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
 
 
 def eh_faturamento_normal_geografico(indicador):
@@ -5692,6 +5697,8 @@ def preparar_analise_geografica_faturamento(df_filiais, indicador, ano):
         geo["Latitude"] = geo["_coord"].apply(lambda c: c["lat"])
         geo["Longitude"] = geo["_coord"].apply(lambda c: c["lon"])
         geo["Filial Mapa"] = geo["_coord"].apply(lambda c: c["label"])
+        geo["UF"] = geo["_coord"].apply(lambda c: c.get("uf"))
+        geo["Estado"] = geo["_coord"].apply(lambda c: c.get("estado"))
 
         total = geo["Faturamento"].sum()
         geo["Participação"] = geo["Faturamento"] / total if total > 0 else pd.NA
@@ -5706,7 +5713,7 @@ def preparar_analise_geografica_faturamento(df_filiais, indicador, ano):
             axis=1
         )
 
-        return geo[["Filial Mapa", "Faturamento", "Participação", "Latitude", "Longitude", "Texto Mapa", "Texto Marcador"]]
+        return geo[["Filial Mapa", "UF", "Estado", "Faturamento", "Participação", "Latitude", "Longitude", "Texto Mapa", "Texto Marcador"]]
     except Exception:
         return pd.DataFrame()
 
@@ -5740,6 +5747,46 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
 
     fig = go.Figure()
 
+    # Camada 1: pintura dos estados com base no faturamento consolidado por UF.
+    estados = (
+        geo.groupby(["Estado", "UF"], as_index=False)
+        .agg({"Faturamento": "sum"})
+        .sort_values("Faturamento", ascending=False)
+    )
+    estados["Participação"] = estados["Faturamento"] / total_faturamento if total_faturamento > 0 else pd.NA
+    estados["Hover"] = estados.apply(
+        lambda r: f"{r['Estado']} ({r['UF']})<br>{fmt_brl(r['Faturamento'])}<br>{fmt_pct(r['Participação'])} do total",
+        axis=1
+    )
+
+    fig.add_trace(
+        go.Choropleth(
+            geojson=GEOJSON_ESTADOS_BRASIL_URL,
+            locations=estados["Estado"],
+            z=estados["Faturamento"],
+            featureidkey="properties.name",
+            colorscale=[
+                [0.00, "#EAF8F1"],
+                [0.45, "#7AD7A4"],
+                [1.00, "#00A350"],
+            ],
+            marker_line_color="#FFFFFF",
+            marker_line_width=1.2,
+            showscale=True,
+            colorbar=dict(
+                title="Faturamento",
+                tickprefix="R$ ",
+                thickness=12,
+                len=0.55,
+                x=0.96,
+            ),
+            hovertext=estados["Hover"],
+            hovertemplate="<b>%{hovertext}</b><extra></extra>",
+            name="Estados",
+        )
+    )
+
+    # Camada 2: marcadores das filiais sobre os estados pintados.
     fig.add_trace(
         go.Scattergeo(
             lon=geo["Longitude"],
@@ -5755,11 +5802,11 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
                 sizemin=18,
                 color=COR_LARANJA,
                 line=dict(width=2, color="#FFFFFF"),
-                opacity=0.88,
+                opacity=0.92,
             ),
             hovertemplate="<b>%{hovertext}</b><extra></extra>",
             hovertext=geo["Texto Mapa"],
-            name="Faturamento",
+            name="Filiais",
         )
     )
 
@@ -5789,7 +5836,7 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
 
     st.plotly_chart(fig, use_container_width=True, key=f"mapa_geo_faturamento_{indicador}_{ano}")
 
-    ranking_geo = geo[["Filial Mapa", "Faturamento", "Participação"]].rename(columns={
+    ranking_geo = geo[["Filial Mapa", "UF", "Faturamento", "Participação"]].rename(columns={
         "Filial Mapa": "Filial",
         "Participação": "% do total",
     })
@@ -8770,7 +8817,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 12.9 — aba mapa")
+    st.caption("v5.0 etapa 13.0 — mapa com estados")
 
 
 
@@ -11186,7 +11233,7 @@ with tab3:
 with tab_geo:
     titulo_secao(
         "Mapa — Análise geográfica",
-        f"{indicador} — {filial}: distribuição geográfica do faturamento por filial."
+        f"{indicador} — {filial}: distribuição geográfica do faturamento por filial, com estados pintados por participação."
     )
 
     anos_mapa = sorted(df["ANO"].dropna().unique())
