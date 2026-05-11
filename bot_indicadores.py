@@ -9876,6 +9876,41 @@ with tab1:
         df_completa = tabela_pneus_moto_ano(df, ano_selecionado)
     else:
         df_completa = tabela_completa_ano(df, ano_selecionado, indicador)
+            # =========================
+    # GRÁFICO DA ABA PERÍODOS CONFORME MODO SELECIONADO
+    # =========================
+    df_grafico_periodo = pd.DataFrame()
+    titulo_grafico_periodo = ""
+
+    if modo_periodo == "Mensal":
+        df_grafico_periodo = df_completa.copy()
+        titulo_grafico_periodo = f"Evolução mensal — {ano_selecionado}"
+
+    elif modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
+        df_grafico_periodo = montar_resumo_periodo(df_completa, indicador, modo_periodo).copy()
+        titulo_grafico_periodo = f"Resumo por {modo_periodo.lower()} — {ano_selecionado}"
+            # =========================
+    # GRÁFICO ACIMA DA TABELA
+    # =========================
+    if not df_grafico_periodo.empty:
+        st.markdown("#### Gráfico do período selecionado")
+        st.caption("O gráfico abaixo acompanha exatamente o tipo de visualização escolhido acima.")
+
+        fig_periodo = grafico_realizado_meta(
+            df_grafico_periodo,
+            ano_selecionado,
+            titulo=titulo_grafico_periodo,
+            indicador=indicador
+        )
+
+        if fig_periodo is not None:
+            st.plotly_chart(
+                fig_periodo,
+                use_container_width=True,
+                key=f"grafico_periodos_{indicador}_{filial}_{ano_selecionado}_{modo_periodo}"
+            )
+
+        st.divider()
 
     if modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
         df_periodo_acumulado = montar_resumo_periodo(df_completa, indicador, modo_periodo)
@@ -10079,49 +10114,6 @@ with tab1:
                     hide_index=True,
                 )
 
-    st.divider()
-    if eh_moto_margem(indicador):
-        dados_chart = df_completa[(df_completa["Mês"] != "TOTAL") & (df_completa["Faturamento"].notna())]
-        if not dados_chart.empty:
-            fig_ano = go.Figure()
-
-            cores_tx = [
-                COR_VERDE if pd.notna(tx) and pd.notna(meta) and tx >= meta else COR_LARANJA
-                for tx, meta in zip(dados_chart["Tx. Sucesso"], dados_chart["Meta"])
-            ]
-
-            fig_ano.add_bar(
-                x=mes_ano_label(dados_chart["Mês"], ano_kpi if "ano_kpi" in globals() else ano_selecionado),
-                y=dados_chart["Tx. Sucesso"],
-                name="Tx. Sucesso",
-                marker_color=cores_tx,
-                text=[fmt_pct(v) for v in dados_chart["Tx. Sucesso"]],
-                textposition="outside",
-            )
-
-            if ano_selecionado >= 2026:
-                fig_ano.add_scatter(
-                    x=mes_ano_label(dados_chart["Mês"], ano_kpi if "ano_kpi" in globals() else ano_selecionado),
-                    y=dados_chart["Meta"],
-                    name="Meta %",
-                    mode="lines+markers",
-                    line=dict(color=COR_AZUL, width=3, dash="dot"),
-                    marker=dict(size=7),
-                )
-
-            fig_ano.update_layout(
-                title=f"Pneus Moto — Taxa de Sucesso x Meta — {ano_selecionado}",
-                height=420,
-                legend=dict(orientation="h", y=-0.18),
-                yaxis_title="%",
-                yaxis_tickformat=".0%",
-            )
-
-            st.plotly_chart(fig_ano, use_container_width=True, key="grafico_por_ano_moto")
-    else:
-        fig_ano = grafico_realizado_meta(df_completa, ano_selecionado, indicador=indicador)
-        if fig_ano is not None:
-            st.plotly_chart(fig_ano, use_container_width=True, key="grafico_por_ano")
 
 
 # =========================
