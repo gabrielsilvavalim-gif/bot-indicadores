@@ -8995,18 +8995,7 @@ st.markdown(
 )
 
 
-if eh_gabriel():
-    tab0, tab1, tab2, tab3, tab_geo, tab4, tab5, tab6 = st.tabs([
-        "📊 Visão Geral",
-        "📅 Períodos",
-        "📈 MoM",
-        "🔁 YoY",
-        "🗺️ Mapa",
-        "📌 Projeção",
-        "🧠 Análise",
-        "📤 Opções"
-    ])
-elif eh_admin():
+if eh_admin():
     tab0, tab1, tab2, tab3, tab_geo, tab6 = st.tabs([
         "📊 Visão Geral",
         "📅 Períodos",
@@ -9015,8 +9004,6 @@ elif eh_admin():
         "🗺️ Mapa",
         "📤 Opções"
     ])
-    tab4 = None
-    tab5 = None
 else:
     tab0, tab1, tab2, tab3, tab_geo = st.tabs([
         "📊 Visão Geral",
@@ -9025,9 +9012,10 @@ else:
         "🔁 YoY",
         "🗺️ Mapa"
     ])
-    tab4 = None
-    tab5 = None
     tab6 = None
+
+tab4 = None
+tab5 = None
 
 
 
@@ -11298,11 +11286,6 @@ with tab_geo:
             "A análise geográfica está disponível apenas para indicadores de faturamento normal. "
             "Indicadores especiais, despesas, qualidade, Tecfil e Resultado Financeiro não usam este mapa."
         )
-    elif filial != "Geral":
-        st.info(
-            "Para visualizar o mapa, selecione a filial como Geral. "
-            "O mapa compara a participação das filiais no faturamento total."
-        )
     elif not anos_mapa:
         st.info("Não há ano disponível para montar a análise geográfica.")
     else:
@@ -11317,20 +11300,6 @@ with tab_geo:
         renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, int(ano_mapa))
 
 
-# =========================
-# ABA PROJEÇÃO — SOMENTE GABRIEL
-# =========================
-if eh_gabriel() and tab4 is not None:
-    with tab4:
-        renderizar_projecao_executiva(df, indicador, filial, data_geracao_planilha)
-
-
-# =========================
-# ABA ANÁLISE — SOMENTE GABRIEL
-# =========================
-if eh_gabriel() and tab5 is not None:
-    with tab5:
-        renderizar_analise_executiva(df, indicador, filial, data_geracao_planilha, df_comparativo_filiais)
 
 
 # =========================
