@@ -8821,7 +8821,7 @@ with st.sidebar:
                 st.session_state.pop(chave, None)
             st.rerun()
 
-    st.caption("v5.0 etapa 13.3 — KPIs comparativos padronizados")
+    st.caption("v5.0 etapa 13.3 — Versão Final")
 
 
 
