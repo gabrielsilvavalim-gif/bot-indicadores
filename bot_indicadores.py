@@ -59,6 +59,7 @@ FILIAL_CODIGO_NOME = {
     "5": "CURITIBA/PR",
     "6": "DUQUE DE CAXIAS/RJ",
 }
+FILIAIS_REAIS = ["CANOAS/RS", "CURITIBA/PR", "DUQUE DE CAXIAS/RJ", "VALINHOS/SP"]
 
 
 def _verificar_senha(senha_digitada, senha_armazenada):
