@@ -579,10 +579,13 @@ div[data-testid="stMetricDelta"] {
         senha_ok = (
             dados_usuario is not None
             and dados_usuario["ativo"] == "SIM"
+            and dados_usuario["tipo"] == "MAZOLA"
             and _verificar_senha(senha_digitada_limpa, dados_usuario["senha"])
         )
 
-        if senha_ok:
+        if dados_usuario is not None and dados_usuario["tipo"] != "MAZOLA" and _verificar_senha(senha_digitada_limpa, dados_usuario["senha"]):
+            st.warning("⚠️ Este acesso ainda não está disponível para o seu perfil. Entre em contato com o administrador.")
+        elif senha_ok:
             # Monta lista de filiais permitidas
             codigo_filial = dados_usuario["filial"]
             is_adm = dados_usuario["adm"].startswith("S")  # "SIM" ou "S"
