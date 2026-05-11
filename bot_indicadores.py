@@ -9854,12 +9854,14 @@ with tab0:
                 hide_index=True,
             )
 
-
 # =========================
 # ABA PERÍODOS
 # =========================
 with tab1:
-    titulo_secao("Períodos", f"{indicador} — {filial}: acompanhamento mensal, trimestral, semestral e anual com tabela detalhada e gráfico interativo.")
+    titulo_secao(
+        "Períodos",
+        f"{indicador} — {filial}: acompanhamento mensal, trimestral, semestral e anual com tabela detalhada e gráfico interativo."
+    )
 
     anos = sorted(df["ANO"].dropna().unique())
     ano_selecionado = st.selectbox("Selecione o ano", anos, index=len(anos) - 1)
@@ -9876,8 +9878,9 @@ with tab1:
         df_completa = tabela_pneus_moto_ano(df, ano_selecionado)
     else:
         df_completa = tabela_completa_ano(df, ano_selecionado, indicador)
-            # =========================
-    # GRÁFICO DA ABA PERÍODOS CONFORME MODO SELECIONADO
+
+    # =========================
+    # BASE DO GRÁFICO CONFORME O MODO SELECIONADO
     # =========================
     df_grafico_periodo = pd.DataFrame()
     titulo_grafico_periodo = ""
@@ -9885,12 +9888,20 @@ with tab1:
     if modo_periodo == "Mensal":
         df_grafico_periodo = df_completa.copy()
         titulo_grafico_periodo = f"Evolução mensal — {ano_selecionado}"
-
     elif modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
         df_grafico_periodo = montar_resumo_periodo(df_completa, indicador, modo_periodo).copy()
         titulo_grafico_periodo = f"Resumo por {modo_periodo.lower()} — {ano_selecionado}"
-            # =========================
-    # GRÁFICO ACIMA DA TABELA
+
+    # =========================
+    # 1) TABELA ACUMULADA EM CIMA
+    # =========================
+    if modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
+        df_periodo_acumulado = montar_resumo_periodo(df_completa, indicador, modo_periodo)
+        renderizar_tabela_periodo_acumulado(df_periodo_acumulado, indicador, modo_periodo)
+        st.divider()
+
+    # =========================
+    # 2) GRÁFICO NO MEIO
     # =========================
     if not df_grafico_periodo.empty:
         st.markdown("#### Gráfico do período selecionado")
@@ -9912,10 +9923,10 @@ with tab1:
 
         st.divider()
 
+    # =========================
+    # 3) DETALHAMENTO MENSAL EMBAIXO
+    # =========================
     if modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
-        df_periodo_acumulado = montar_resumo_periodo(df_completa, indicador, modo_periodo)
-        renderizar_tabela_periodo_acumulado(df_periodo_acumulado, indicador, modo_periodo)
-        st.divider()
         st.markdown("#### Detalhamento mensal")
         st.caption("Abaixo permanece a abertura mensal original para conferência dos valores que formam o acumulado.")
 
@@ -9941,96 +9952,82 @@ with tab1:
         )
     else:
         df_completa_tela = df_completa.copy()
-        if eh_qualidade(indicador):
-            rot = rotulos_qualidade(indicador)
-            col_qtd_sucesso = rot["qtd_sucesso"]
-            df_completa_tela = preparar_tabela_qualidade_exibicao(df_completa_tela, indicador)
-            cols_exibir = [c for c in colunas_qualidade_exibicao(indicador) if c in df_completa_tela.columns]
-            styler_q = (
-                df_completa_tela[cols_exibir].style
-                .format({
-                    "Meta": lambda v: fmt_num(v) if modelo_qualidade(indicador) == "parametro_coleta_critico" and pd.notna(v) else (fmt_pct(v) if pd.notna(v) else ""),
-                    "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "",
-                    col_qtd_sucesso: lambda v: fmt_num(v) if pd.notna(v) else "",
-                    "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "",
-                    "Resultado": lambda v: fmt_num(v) if pd.notna(v) else "",
-                    "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "",
-                    "Acumulado": lambda v: fmt_num(v) if pd.notna(v) else "",
-                })
-                .apply(lambda row: cor_resultado_qualidade_por_linha(row, indicador), axis=1)
-            )
-            styler_q = aplicar_estilo_diferenca_qualidade(styler_q, indicador, subset=["Diferença", "Acumulado"])
+
+        if eh_despesa_hora_extra(indicador):
+            df_completa_tela = df_completa_tela.rename(columns={
+                "Meta": "Limite",
+                "Realizado": "Pago em Hora Extra",
+                "Gap": "Saldo do Limite",
+                "Atingimento": "Resultado %",
+            })
+
+            colunas_exibir = [
+                c for c in [
+                    "Mês", "Limite", "Pago em Hora Extra", "Saldo do Limite", "Resultado %", "Acumulado"
+                ] if c in df_completa_tela.columns
+            ]
+
             st.dataframe(
-                styler_q,
+                df_completa_tela[colunas_exibir].style
+                .format({
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Saldo do Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                })
+                .map(lambda v: cor_gap_valor(v, False), subset=[c for c in ["Saldo do Limite"] if c in colunas_exibir])
+                .map(cor_despesa_manutencao, subset=[c for c in ["Resultado %"] if c in colunas_exibir]),
                 use_container_width=True,
                 hide_index=True,
             )
-        elif eh_tecfil(indicador):
+
+        elif eh_despesa_manutencao(indicador):
+            df_completa_tela = df_completa_tela.rename(columns={
+                "Meta": "Limite",
+                "Realizado": "Despesa",
+                "Gap": "Resultado R$",
+                "Atingimento": "Uso do Limite",
+            })
+
+            colunas_exibir = [
+                c for c in [
+                    "Mês", "Limite", "Despesa", "Resultado R$", "Uso do Limite", "Acumulado"
+                ] if c in df_completa_tela.columns
+            ]
+
             st.dataframe(
-                df_completa_tela.style
+                df_completa_tela[colunas_exibir].style
                 .format({
-                    "Meta KG": lambda v: fmt_num(v) if pd.notna(v) else "",
-                    "Meta R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Realizado KG": lambda v: fmt_num(v) if pd.notna(v) else "",
-                    "Realizado R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "% Dif. KG": lambda v: fmt_pct(v) if pd.notna(v) else "",
-                    "% Dif. R$": lambda v: fmt_pct(v) if pd.notna(v) else "",
-                    "Dif. KG": lambda v: fmt_num(v) if pd.notna(v) else "",
-                    "Dif. R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Acum. KG": lambda v: fmt_num(v) if pd.notna(v) else "",
-                    "Acum. R$": lambda v: fmt_brl(v) if pd.notna(v) else "",
+                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Resultado R$": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Uso do Limite": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 })
-                .map(cor_tecfil_resultado, subset=["% Dif. KG", "% Dif. R$", "Dif. KG", "Dif. R$", "Acum. KG", "Acum. R$"]),
+                .map(lambda v: cor_gap_valor(v, False), subset=[c for c in ["Resultado R$"] if c in colunas_exibir])
+                .map(cor_despesa_manutencao, subset=[c for c in ["Uso do Limite"] if c in colunas_exibir]),
                 use_container_width=True,
                 hide_index=True,
             )
-        elif eh_resultado_financeiro(indicador):
-            st.dataframe(
-                df_completa_tela.style
-                .format({
-                    "Meta %": lambda v: fmt_pct(v) if pd.notna(v) else "",
-                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
-                    "Resultado %": lambda v: f"{v:.1%}" if pd.notna(v) else "",
-                    "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                })
-                .apply(cor_resultado_financeiro_por_linha, axis=1),
-                use_container_width=True,
-                hide_index=True,
-            )
-        elif eh_despesa_geral(indicador):
-            st.dataframe(
-                df_completa_tela.style
-                .format({
-                    "Limite %": lambda v: fmt_pct(v) if pd.notna(v) else "",
-                    "Despesa": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Receita": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Resultado R$": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
-                    "Tx. Sucesso": lambda v: f"{v:.1%}" if pd.notna(v) else "",
-                    "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                })
-                .map(lambda v: cor_gap_valor(v, False), subset=["Resultado R$"])
-                .apply(cor_tx_sucesso_despesa_geral_por_linha, axis=1),
-                use_container_width=True,
-                hide_index=True,
-            )
-        elif eh_despesa_hora_extra(indicador):
+
+        else:
             st.dataframe(
                 df_completa_tela.style
                 .format({
-                    "Limite": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Pago em Hora Extra": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "Salário": lambda v: fmt_brl(v) if pd.notna(v) else "",
-                    "HE da Folha": lambda v: f"{v:.1%}" if pd.notna(v) else "",
-                    "Saldo do Limite": lambda v: f"R$ {v:+,.0f}".replace(",", ".") if pd.notna(v) else "",
-                    "Resultado %": lambda v: f"{v:.0%}" if pd.notna(v) else "",
+                    "Meta": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Realizado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Gap": lambda v: fmt_brl(v) if pd.notna(v) else "—",
+                    "Atingimento": lambda v: fmt_pct(v) if pd.notna(v) else "—",
+                    "Acumulado": lambda v: fmt_brl(v) if pd.notna(v) else "—",
                 })
-                .map(lambda v: cor_gap_valor(v, False), subset=["Saldo do Limite"])
-                .map(cor_despesa_manutencao, subset=["Resultado %"]),
+                .map(cor_gap_valor, subset=[c for c in ["Gap"] if c in df_completa_tela.columns])
+                .map(cor_atingimento, subset=[c for c in ["Atingimento"] if c in df_completa_tela.columns]),
                 use_container_width=True,
                 hide_index=True,
             )
+
+             
         elif eh_despesa_manutencao(indicador):
             # Estrutura solicitada para Despesa Manutenção:
             # Mês | Limite | Despesa | Result. R$ | Result. % | Acumulado
