@@ -103,13 +103,9 @@ def verificar_senha_acesso():
     """
     usuarios = dict(st.secrets.get("usuarios", {}))
 
-    # Usuário especial para acesso restrito às abas Projeção e Análise.
-    # Somente este perfil verá essas abas.
-    usuarios.setdefault("gabriel", "Camelbak123-")
-
     if not usuarios:
         st.error("Nenhum usuário foi encontrado no Secrets do Streamlit.")
-        st.info('No Secrets, adicione o bloco [usuarios]. Exemplo: ADMIN = "38818171", MAZOLA = "49929282" e gabriel = "Camelbak123-"')
+        st.info('No Secrets, adicione o bloco [usuarios]. Exemplo: ADMIN = "sua_senha", MAZOLA = "sua_senha"')
         st.stop()
 
     # ---- Verifica se já está autenticado e se a sessão ainda é válida ----
