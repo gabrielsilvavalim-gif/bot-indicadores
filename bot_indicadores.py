@@ -639,7 +639,7 @@ def validar_colunas_base(df_base):
         "GRUPO 02",
         "GRUPO 03",
         "FILIAL",
-        "REFERNCIA",
+        "REFERÊNCIA",
         "META",
         "VALOR REF 01",
     ]
@@ -715,12 +715,12 @@ def aplicar_filtro_base(df, cfg, filial):
         d = d[d["FILIAL"].apply(normalizar_texto) == normalizar_texto(filial)]
 
     d = d.copy()
-    d["REFERNCIA"] = pd.to_datetime(d["REFERNCIA"], errors="coerce")
-    d = d[d["REFERNCIA"].notna()].copy()
+    d["REFERÊNCIA"] = pd.to_datetime(d["REFERÊNCIA"], errors="coerce")
+    d = d[d["REFERÊNCIA"].notna()].copy()
 
-    d["ANO"] = d["REFERNCIA"].dt.year
-    d["MS"] = d["REFERNCIA"].dt.month
-    d["DIA"] = d["REFERNCIA"].dt.day
+    d["ANO"] = d["REFERÊNCIA"].dt.year
+    d["MS"] = d["REFERÊNCIA"].dt.month
+    d["DIA"] = d["REFERÊNCIA"].dt.day
     d["MS_ORDEM"] = d["ANO"] * 100 + d["MS"]
     d["MS_NOME"] = d["MS"].map(MESES_MAPA) + "/" + d["ANO"].astype(str)
 
@@ -1132,7 +1132,7 @@ def consolidar_tecfil(df_raw, filial, indicador):
     base = pd.DataFrame({
         "TIPO_TECFIL": d[col_tipo],
         "FILIAL_ORIGEM": d[col_filial],
-        "REFERNCIA": d[col_ref],
+        "REFERÊNCIA": d[col_ref],
         "META_RAW": pd.to_numeric(d[col_meta], errors="coerce").fillna(0),
         "REAL_RAW": pd.to_numeric(d[col_real], errors="coerce").fillna(0),
     })
@@ -1174,15 +1174,15 @@ def consolidar_tecfil(df_raw, filial, indicador):
     if base.empty:
         return pd.DataFrame()
 
-    base["REFERNCIA"] = pd.to_datetime(base["REFERNCIA"], errors="coerce")
-    base = base[base["REFERNCIA"].notna()].copy()
+    base["REFERÊNCIA"] = pd.to_datetime(base["REFERÊNCIA"], errors="coerce")
+    base = base[base["REFERÊNCIA"].notna()].copy()
 
     if base.empty:
         return pd.DataFrame()
 
-    base["ANO"] = base["REFERNCIA"].dt.year
-    base["MS"] = base["REFERNCIA"].dt.month
-    base["DIA"] = base["REFERNCIA"].dt.day
+    base["ANO"] = base["REFERÊNCIA"].dt.year
+    base["MS"] = base["REFERÊNCIA"].dt.month
+    base["DIA"] = base["REFERÊNCIA"].dt.day
     base["MS_ORDEM"] = base["ANO"] * 100 + base["MS"]
     base["MS_NOME"] = base["MS"].map(MESES_MAPA) + "/" + base["ANO"].astype(str)
 
@@ -1192,7 +1192,7 @@ def consolidar_tecfil(df_raw, filial, indicador):
         | base["TIPO_NORM"].str.contains("R$", na=False)
     ].copy()
 
-    chaves = ["FILIAL", "REFERNCIA", "ANO", "MS", "DIA", "MS_ORDEM", "MS_NOME"]
+    chaves = ["FILIAL", "REFERÊNCIA", "ANO", "MS", "DIA", "MS_ORDEM", "MS_NOME"]
 
     kg_agg = (
         kg.groupby(chaves, as_index=False)
@@ -1391,7 +1391,7 @@ def consolidar_parametro_coleta_critico(df_raw, filial):
     if d_limite.empty and d_param.empty:
         return pd.DataFrame()
 
-    chaves = ["FILIAL", "REFERNCIA", "ANO", "MS", "DIA", "MS_ORDEM", "MS_NOME"]
+    chaves = ["FILIAL", "REFERÊNCIA", "ANO", "MS", "DIA", "MS_ORDEM", "MS_NOME"]
 
     if not d_param.empty:
         base_param = d_param[chaves].copy()
@@ -1730,7 +1730,7 @@ def filtrar(df, indicador, filial):
 
         base = pd.concat(partes, ignore_index=True)
         agrupado = (
-            base.groupby(["FILIAL", "REFERNCIA", "ANO", "MS", "DIA", "MS_ORDEM", "MS_NOME"], as_index=False)
+            base.groupby(["FILIAL", "REFERÊNCIA", "ANO", "MS", "DIA", "MS_ORDEM", "MS_NOME"], as_index=False)
             .agg({"META_CALC": "sum", "REALIZADO_CALC": "sum"})
         )
         agrupado["RESULTADO_RS"] = agrupado["REALIZADO_CALC"] - agrupado["META_CALC"]
@@ -7016,7 +7016,7 @@ def diagnosticar_sem_dados(df_raw, indicador, filial):
 
     if eh_qualidade(indicador):
         st.warning("Nenhum dado encontrado para os filtros selecionados.")
-        st.caption("Para Qualidade, confira se existem linhas com TIPO = QUALIDADE, os grupos informados, REFERNCIA vlida, META, VALOR REF 01 e VALOR REF 02.")
+        st.caption("Para Qualidade, confira se existem linhas com TIPO = QUALIDADE, os grupos informados, REFERÊNCIA vlida, META, VALOR REF 01 e VALOR REF 02.")
         st.stop()
 
     if eh_tecfil(indicador):
