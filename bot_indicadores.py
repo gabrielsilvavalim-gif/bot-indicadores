@@ -5888,9 +5888,18 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
         config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
     )
 
+    filial_por_estado = (
+        geo.groupby("Estado")["Filial Mapa"]
+        .apply(lambda x: ", ".join(sorted(x.unique())))
+        .reset_index()
+        .rename(columns={"Filial Mapa": "Filial"})
+    )
+
     ranking_geo = estados[["Estado", "UF", "Faturamento", "Participação"]].rename(columns={
         "Participação": "% do total",
     })
+    ranking_geo = filial_por_estado.merge(ranking_geo, on="Estado", how="right")
+    ranking_geo = ranking_geo[["Filial", "Estado", "UF", "Faturamento", "% do total"]]
 
     st.dataframe(
         ranking_geo.style.format({
