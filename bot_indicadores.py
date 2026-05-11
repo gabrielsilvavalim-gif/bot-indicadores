@@ -9889,7 +9889,8 @@ with tab1:
     elif modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
         df_grafico_periodo = montar_resumo_periodo(df_completa, indicador, modo_periodo).copy()
         titulo_grafico_periodo = f"Resumo por {modo_periodo.lower()} — {ano_selecionado}"
-        if modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
+
+    if modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
         df_periodo_acumulado = montar_resumo_periodo(df_completa, indicador, modo_periodo)
         renderizar_tabela_periodo_acumulado(df_periodo_acumulado, indicador, modo_periodo)
         st.divider()
