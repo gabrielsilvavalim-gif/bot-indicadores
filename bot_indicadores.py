@@ -122,27 +122,33 @@ def _carregar_base_login():
 def _buscar_usuario_login(login_digitado):
     """Busca o usuário na BaseLogin e retorna a linha como dict ou None."""
     df = _carregar_base_login()
-    if df is None or df.empty:
-        return None
 
-    df.columns = [str(c).strip() for c in df.columns]
-    col_login = df.columns[0]   # coluna A
-    col_senha = df.columns[1]   # coluna B
-    col_tipo  = df.columns[2]   # coluna C — Mazola/Cliente
-    col_adm   = df.columns[3]   # coluna D — Adm? SIM/NÃO
-    col_filial = df.columns[4]  # coluna E — filial permitida
-    col_ativo  = df.columns[7]  # coluna H — Ativo? SIM/NÃO
+    if df is None:
+        st.error("Não foi possível carregar a BaseLogin.xlsx do Drive. Verifique se o arquivo existe na pasta correta.")
+        st.stop()
+
+    if df.empty:
+        st.error("A planilha BaseLogin.xlsx está vazia.")
+        st.stop()
+
+    # Usa posição das colunas (A=0, B=1, ...) para não depender do nome do cabeçalho
+    def _val(row, idx, padrao=""):
+        try:
+            v = row.iloc[idx]
+            return "" if pd.isna(v) else str(v).strip()
+        except Exception:
+            return padrao
 
     login_lower = str(login_digitado).strip().lower()
     for _, row in df.iterrows():
-        if str(row[col_login]).strip().lower() == login_lower:
+        if _val(row, 0).lower() == login_lower:
             return {
-                "login":  str(row[col_login]).strip(),
-                "senha":  str(row[col_senha]).strip(),
-                "tipo":   str(row.get(col_tipo, "MAZOLA")).strip().upper(),
-                "adm":    str(row.get(col_adm, "NÃO")).strip().upper(),
-                "filial": str(row.get(col_filial, "T")).strip().upper(),
-                "ativo":  str(row.get(col_ativo, "SIM")).strip().upper(),
+                "login":  _val(row, 0),
+                "senha":  _val(row, 1),
+                "tipo":   _val(row, 2, "MAZOLA").upper(),
+                "adm":    _val(row, 3, "NAO").upper(),
+                "filial": _val(row, 4, "T").upper(),
+                "ativo":  _val(row, 7, "SIM").upper(),
             }
     return None
 
@@ -578,7 +584,8 @@ div[data-testid="stMetricDelta"] {
         if senha_ok:
             # Monta lista de filiais permitidas
             codigo_filial = dados_usuario["filial"]
-            if dados_usuario["adm"] == "SIM" or codigo_filial == "T":
+            is_adm = dados_usuario["adm"].startswith("S")  # "SIM" ou "S"
+            if is_adm or codigo_filial == "T" or codigo_filial == "":
                 filiais_perm = ["Geral"] + FILIAIS_REAIS
             elif codigo_filial in FILIAL_CODIGO_NOME:
                 filiais_perm = [FILIAL_CODIGO_NOME[codigo_filial]]
@@ -587,7 +594,7 @@ div[data-testid="stMetricDelta"] {
 
             st.session_state["acesso_liberado"] = True
             st.session_state["usuario_logado"] = dados_usuario["login"]
-            st.session_state["usuario_adm"] = dados_usuario["adm"] == "SIM"
+            st.session_state["usuario_adm"] = is_adm
             st.session_state["filiais_permitidas"] = filiais_perm
             st.session_state["tentativas_login"] = 0
             st.session_state["bloqueado_ate"] = 0
