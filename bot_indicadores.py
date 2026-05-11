@@ -9889,9 +9889,11 @@ with tab1:
     elif modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
         df_grafico_periodo = montar_resumo_periodo(df_completa, indicador, modo_periodo).copy()
         titulo_grafico_periodo = f"Resumo por {modo_periodo.lower()} — {ano_selecionado}"
-            # =========================
-    # GRÁFICO ACIMA DA TABELA
-    # =========================
+        if modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
+        df_periodo_acumulado = montar_resumo_periodo(df_completa, indicador, modo_periodo)
+        renderizar_tabela_periodo_acumulado(df_periodo_acumulado, indicador, modo_periodo)
+        st.divider()
+
     if not df_grafico_periodo.empty:
         st.markdown("#### Gráfico do período selecionado")
         st.caption("O gráfico abaixo acompanha exatamente o tipo de visualização escolhido acima.")
@@ -9913,9 +9915,6 @@ with tab1:
         st.divider()
 
     if modo_periodo in ["Trimestre", "Semestre", "Ano Completo"]:
-        df_periodo_acumulado = montar_resumo_periodo(df_completa, indicador, modo_periodo)
-        renderizar_tabela_periodo_acumulado(df_periodo_acumulado, indicador, modo_periodo)
-        st.divider()
         st.markdown("#### Detalhamento mensal")
         st.caption("Abaixo permanece a abertura mensal original para conferência dos valores que formam o acumulado.")
 
