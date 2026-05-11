@@ -53,29 +53,21 @@ LIMITE_TENTATIVAS = 3             # Bloqueia após 3 tentativas erradas
 TEMPO_BLOQUEIO_MINUTOS = 30       # Bloqueio dura 30 minutos
 
 
+FILIAL_CODIGO_NOME = {
+    "1": "VALINHOS/SP",
+    "4": "CANOAS/RS",
+    "5": "CURITIBA/PR",
+    "6": "DUQUE DE CAXIAS/RJ",
+}
+
+
 def _verificar_senha(senha_digitada, senha_armazenada):
-    """
-    Verifica se a senha digitada bate com a armazenada nos Secrets.
-
-    Suporta dois formatos:
-    1. Hash bcrypt (recomendado): começa com $2a$, $2b$ ou $2y$.
-    2. Texto puro (legado): comparação timing-safe via hmac.compare_digest.
-
-    Para gerar um hash bcrypt, rode no Python online:
-
-        import bcrypt
-        senha = "MinhaSenhaForte2026!"
-        print(bcrypt.hashpw(senha.encode(), bcrypt.gensalt(rounds=12)).decode())
-
-    Cole o hash no Secrets em [usuarios].
-    """
     if senha_armazenada is None:
         return False
 
     senha_armazenada_str = str(senha_armazenada).strip()
     senha_digitada_str = str(senha_digitada).strip()
 
-    # Detecta se é hash bcrypt
     if BCRYPT_DISPONIVEL and senha_armazenada_str.startswith(("$2a$", "$2b$", "$2y$")):
         try:
             return bcrypt.checkpw(
@@ -85,34 +77,89 @@ def _verificar_senha(senha_digitada, senha_armazenada):
         except Exception:
             return False
 
-    # Fallback: comparação timing-safe em texto puro
     return hmac.compare_digest(senha_digitada_str, senha_armazenada_str)
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _carregar_base_login():
+    """Carrega a planilha BaseLogin.xlsx do Google Drive. Cache de 2 minutos."""
+    try:
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=["https://www.googleapis.com/auth/drive.readonly"],
+        )
+        service = build("drive", "v3", credentials=credentials)
+
+        pasta_id = str(st.secrets.get("DRIVE_FOLDER_ID", "")).strip()
+        nome_query = "BaseLogin.xlsx"
+        query_partes = [f"name = '{nome_query}'", "trashed = false"]
+        if pasta_id:
+            query_partes.append(f"'{pasta_id}' in parents")
+
+        resultado = service.files().list(
+            q=" and ".join(query_partes),
+            spaces="drive",
+            fields="files(id, name)",
+            pageSize=1,
+        ).execute()
+
+        arquivos = resultado.get("files", [])
+        if not arquivos:
+            return None
+
+        request = service.files().get_media(fileId=arquivos[0]["id"])
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        buf.seek(0)
+        return pd.read_excel(buf, dtype=str)
+    except Exception:
+        return None
+
+
+def _buscar_usuario_login(login_digitado):
+    """Busca o usuário na BaseLogin e retorna a linha como dict ou None."""
+    df = _carregar_base_login()
+    if df is None or df.empty:
+        return None
+
+    df.columns = [str(c).strip() for c in df.columns]
+    col_login = df.columns[0]   # coluna A
+    col_senha = df.columns[1]   # coluna B
+    col_tipo  = df.columns[2]   # coluna C — Mazola/Cliente
+    col_adm   = df.columns[3]   # coluna D — Adm? SIM/NÃO
+    col_filial = df.columns[4]  # coluna E — filial permitida
+    col_ativo  = df.columns[7]  # coluna H — Ativo? SIM/NÃO
+
+    login_lower = str(login_digitado).strip().lower()
+    for _, row in df.iterrows():
+        if str(row[col_login]).strip().lower() == login_lower:
+            return {
+                "login":  str(row[col_login]).strip(),
+                "senha":  str(row[col_senha]).strip(),
+                "tipo":   str(row.get(col_tipo, "MAZOLA")).strip().upper(),
+                "adm":    str(row.get(col_adm, "NÃO")).strip().upper(),
+                "filial": str(row.get(col_filial, "T")).strip().upper(),
+                "ativo":  str(row.get(col_ativo, "SIM")).strip().upper(),
+            }
+    return None
+
+
+def filiais_permitidas_usuario():
+    """Retorna a lista de filiais que o usuário logado pode visualizar."""
+    return st.session_state.get("filiais_permitidas", ["Geral"] + FILIAIS_REAIS)
+
+
 def verificar_senha_acesso():
-    """
-    Libera o acesso ao painel usando usuários configurados no Streamlit Secrets.
-
-    Mantém:
-    - bcrypt;
-    - bloqueio por tentativas;
-    - timeout de sessão;
-    - comparação segura de senha.
-
-    Esta versão altera apenas o visual da página de login.
-    """
-    usuarios = dict(st.secrets.get("usuarios", {}))
-
-    if not usuarios:
-        st.error("Nenhum usuário foi encontrado no Secrets do Streamlit.")
-        st.info('No Secrets, adicione o bloco [usuarios]. Exemplo: ADMIN = "sua_senha", MAZOLA = "sua_senha"')
-        st.stop()
+    """Autentica o usuário lendo credenciais e permissões da BaseLogin.xlsx no Drive."""
 
     # ---- Verifica se já está autenticado e se a sessão ainda é válida ----
     if st.session_state.get("acesso_liberado", False):
         ultimo_acesso = st.session_state.get("ultimo_acesso", 0)
         if time.time() - ultimo_acesso > LIMITE_SESSAO_MINUTOS * 60:
-            for chave in ["acesso_liberado", "usuario_logado", "ultimo_acesso"]:
+            for chave in ["acesso_liberado", "usuario_logado", "ultimo_acesso", "filiais_permitidas", "usuario_adm"]:
                 st.session_state.pop(chave, None)
             st.warning("⏰ Sua sessão expirou por inatividade. Faça login novamente.")
         else:
@@ -520,25 +567,28 @@ div[data-testid="stMetricDelta"] {
         usuario_digitado_limpo = str(usuario_digitado).strip()
         senha_digitada_limpa = str(senha_digitada).strip()
 
-        usuario_encontrado = None
-        senha_correta = None
-
-        # Comparação de usuário case-insensitive
-        for usuario_secrets, senha_secrets in usuarios.items():
-            if str(usuario_secrets).strip().lower() == usuario_digitado_limpo.lower():
-                usuario_encontrado = str(usuario_secrets).strip()
-                senha_correta = senha_secrets
-                break
+        dados_usuario = _buscar_usuario_login(usuario_digitado_limpo)
 
         senha_ok = (
-            usuario_encontrado is not None
-            and senha_correta is not None
-            and _verificar_senha(senha_digitada_limpa, senha_correta)
+            dados_usuario is not None
+            and dados_usuario["ativo"] == "SIM"
+            and _verificar_senha(senha_digitada_limpa, dados_usuario["senha"])
         )
 
         if senha_ok:
+            # Monta lista de filiais permitidas
+            codigo_filial = dados_usuario["filial"]
+            if dados_usuario["adm"] == "SIM" or codigo_filial == "T":
+                filiais_perm = ["Geral"] + FILIAIS_REAIS
+            elif codigo_filial in FILIAL_CODIGO_NOME:
+                filiais_perm = [FILIAL_CODIGO_NOME[codigo_filial]]
+            else:
+                filiais_perm = ["Geral"] + FILIAIS_REAIS
+
             st.session_state["acesso_liberado"] = True
-            st.session_state["usuario_logado"] = usuario_encontrado
+            st.session_state["usuario_logado"] = dados_usuario["login"]
+            st.session_state["usuario_adm"] = dados_usuario["adm"] == "SIM"
+            st.session_state["filiais_permitidas"] = filiais_perm
             st.session_state["tentativas_login"] = 0
             st.session_state["bloqueado_ate"] = 0
             st.session_state["ultimo_acesso"] = time.time()
@@ -591,8 +641,8 @@ def perfil_usuario():
 
 
 def eh_admin():
-    """True apenas para perfil administrador."""
-    return perfil_usuario() == "admin"
+    """True para admins vindos da BaseLogin ou do perfil Secrets."""
+    return st.session_state.get("usuario_adm", False) or perfil_usuario() == "admin"
 
 
 def eh_gabriel():
@@ -8744,7 +8794,12 @@ with st.sidebar:
         st.session_state["filial_tecf_il_travada"] = filial
     else:
         st.markdown('<div class="sidebar-section-title">Unidade analisada</div>', unsafe_allow_html=True)
-        filial = st.selectbox("Filial", ["Geral"] + FILIAIS_REAIS)
+        opcoes_filial = filiais_permitidas_usuario()
+        if len(opcoes_filial) == 1:
+            filial = opcoes_filial[0]
+            st.markdown(f'<div class="sidebar-info-card" style="padding:8px 12px;">📍 {filial}</div>', unsafe_allow_html=True)
+        else:
+            filial = st.selectbox("Filial", opcoes_filial)
 
     bloco_selecionado = st.session_state.get("bloco_principal_indicador", "-")
     grupo_selecionado = st.session_state.get("grupo_indicador", "-")
