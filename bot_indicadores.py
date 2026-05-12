@@ -6133,18 +6133,28 @@ def renderizar_analise_geografica_resultado_financeiro(df_filiais, indicador, an
     # KPIs
     comp = comparativo_filiais(df_filiais, ano, indicador)
     meta_media = None
-    resultado_pct_medio = None
+    resultado_pct_geral = None
     if comp is not None and not comp.empty:
         if "Meta %" in comp.columns:
-            meta_media = pd.to_numeric(comp["Meta %"], errors="coerce").mean()
-        if "Resultado %" in comp.columns:
-            resultado_pct_medio = pd.to_numeric(comp["Resultado %"], errors="coerce").mean()
+            # Meta ponderada por Receita
+            receita_col = pd.to_numeric(comp.get("Receita", pd.Series(dtype=float)), errors="coerce").fillna(0)
+            meta_col    = pd.to_numeric(comp["Meta %"], errors="coerce")
+            mask = receita_col > 0
+            if mask.any() and receita_col[mask].sum() > 0:
+                meta_media = (receita_col[mask] * meta_col[mask]).sum() / receita_col[mask].sum()
+            else:
+                meta_media = meta_col.mean()
+        if "Resultado R$" in comp.columns and "Receita" in comp.columns:
+            # Resultado % calculado do total: 1 - (Despesa total / Receita total)
+            total_receita = pd.to_numeric(comp["Receita"], errors="coerce").fillna(0).sum()
+            total_despesa = pd.to_numeric(comp.get("Despesa", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+            resultado_pct_geral = 1 - (total_despesa / total_receita) if total_receita > 0 else None
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        kpi_metric("Meta média", fmt_pct(meta_media) if meta_media is not None else "-")
+        kpi_metric("Meta (pond.)", fmt_pct(meta_media) if meta_media is not None and pd.notna(meta_media) else "-")
     with c2:
-        kpi_metric("Resultado % médio", fmt_pct(resultado_pct_medio) if resultado_pct_medio is not None else "-")
+        kpi_metric("Resultado % Geral", fmt_pct(resultado_pct_geral) if resultado_pct_geral is not None and pd.notna(resultado_pct_geral) else "-")
     with c3:
         kpi_metric("Estados no mapa", str(geo["UF"].nunique()))
 
