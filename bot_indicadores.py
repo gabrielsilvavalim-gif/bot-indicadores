@@ -6347,22 +6347,48 @@ def renderizar_analise_geografica_qualidade(df_filiais, indicador, ano):
 
         st.caption("📌 Os percentuais exibidos nos estados representam a participação de cada estado no total de coletas do período.")
 
-        # Tabela — renomeia Qtd. Sucesso para nome amigável conforme indicador
+        # Tabela — exibe colunas corretas conforme tipo de qualidade
         tabela_geo = geo.copy()
-        if "Qtd. Coletas" in tabela_geo.columns:
-            tabela_geo = tabela_geo.rename(columns={"Qtd. Coletas": "Qtd. Coletada"})
-        if "Qtd. Sucesso" in tabela_geo.columns:
-            tabela_geo = tabela_geo.rename(columns={"Qtd. Sucesso": "Coletas Normais/Bom"})
 
-        cols_exibir = ["Filial Mapa", "Estado", "UF"] + [c for c in ["Meta", "Qtd. Coletada", "Coletas Normais/Bom", "Diferença", "Resultado %"] if c in tabela_geo.columns]
+        # Detecta qual tipo de qualidade é pelo indicador
+        nome_indicador = indicador.lower()
+
+        if "avaliacao" in nome_indicador or "equipe" in nome_indicador:
+            # Avaliação de Equipe
+            cols_exibir = ["Filial Mapa", "Estado", "UF", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]
+            formato = {
+                "Meta": lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "-",
+            }
+        elif "critico" in nome_indicador:
+            # Parâmetro de Coleta Crítico — usa colunas diferentes
+            cols_exibir = ["Filial Mapa", "Estado", "UF"]
+            # Tenta mapear as colunas corretas do comparativo
+            comp_cols = [c for c in comp.columns if c not in ["FILIAL", "_valor", "_coord", "Latitude", "Longitude", "Participação"]]
+            cols_exibir += [c for c in ["Meta_Compat", "Qtd. Coletas", "Realizado", "Gap", "Atingimento"] if c in comp_cols]
+            formato = {
+                c: (lambda v, col=c: fmt_pct(v) if pd.notna(v) and ("%" in col or "Ating" in col or "Meta" in col) else fmt_num(v) if pd.notna(v) else "-")
+                for c in cols_exibir if c not in ["Filial Mapa", "Estado", "UF"]
+            }
+        else:
+            # Parâmetro de Coleta (padrão)
+            cols_exibir = ["Filial Mapa", "Estado", "UF", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]
+            formato = {
+                "Meta": lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "-",
+            }
+
+        # Filtra apenas colunas que existem
+        cols_exibir = [c for c in cols_exibir if c in tabela_geo.columns]
+
         st.dataframe(
-            tabela_geo[cols_exibir].style.format({
-                "Meta":                lambda v: fmt_pct(v) if pd.notna(v) else "-",
-                "Resultado %":         lambda v: fmt_pct(v) if pd.notna(v) else "-",
-                "Qtd. Coletada":       lambda v: fmt_num(v) if pd.notna(v) else "-",
-                "Coletas Normais/Bom": lambda v: fmt_num(v) if pd.notna(v) else "-",
-                "Diferença":           lambda v: fmt_num(v) if pd.notna(v) else "-",
-            }),
+            tabela_geo[cols_exibir].style.format(formato),
             use_container_width=True,
             hide_index=True,
         )
