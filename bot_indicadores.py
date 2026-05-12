@@ -1232,11 +1232,11 @@ def fmt_var_pct_seguro(v):
 
 def fmt_mom_seguro(v):
     if v is None or pd.isna(v):
-        return "—"
+        return "-"
     try:
         return f"{float(v):+.1f}%"
     except Exception:
-        return "—"
+        return "-"
 
 
 def fmt_brl(v):
