@@ -7680,7 +7680,91 @@ class PDFRelatorio(FPDF):
             self.ln()
 
 
-def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
+def gerar_imagem_mapa_pdf(df_filiais, indicador, ano):
+    """Gera o mapa geográfico de faturamento como imagem PNG para uso no PDF."""
+    try:
+        import io
+        geo = preparar_analise_geografica_faturamento(df_filiais, indicador, ano)
+        if geo is None or geo.empty:
+            return None, None
+
+        total_faturamento = geo["Faturamento"].sum()
+
+        estados = (
+            geo.groupby(["Estado", "UF"], as_index=False)
+            .agg({"Faturamento": "sum"})
+            .sort_values("Faturamento", ascending=False)
+        )
+        estados["Participação"] = estados["Faturamento"] / total_faturamento if total_faturamento > 0 else pd.NA
+        estados["lat"] = estados["UF"].map(lambda uf: CENTROIDES_ESTADOS_MAPA.get(uf, {}).get("lat"))
+        estados["lon"] = estados["UF"].map(lambda uf: CENTROIDES_ESTADOS_MAPA.get(uf, {}).get("lon"))
+        estados["Texto Estado"] = estados.apply(
+            lambda r: f"{r['UF']} {fmt_pct(r['Participação'])}", axis=1
+        )
+
+        fig = go.Figure()
+        fig.add_trace(go.Choropleth(
+            geojson=GEOJSON_ESTADOS_BRASIL_URL,
+            locations=estados["Estado"],
+            z=estados["Faturamento"],
+            featureidkey="properties.name",
+            colorscale=[[0.00, "#EAF8F1"], [0.45, "#7AD7A4"], [1.00, "#00A350"]],
+            marker_line_color="#FFFFFF",
+            marker_line_width=1.4,
+            showscale=False,
+            name="Estados",
+        ))
+        fig.add_trace(go.Scattergeo(
+            lon=estados["lon"],
+            lat=estados["lat"],
+            mode="text",
+            text=estados["Texto Estado"],
+            textfont=dict(size=11, color="#111827"),
+            hoverinfo="skip",
+        ))
+        fig.update_layout(
+            height=420, width=700,
+            margin=dict(l=0, r=0, t=10, b=0),
+            showlegend=False,
+            paper_bgcolor="white",
+            geo=dict(
+                scope="south america",
+                projection_type="mercator",
+                lataxis_range=[-34, 6],
+                lonaxis_range=[-75, -33],
+                showland=True,
+                landcolor="#F8FAFC",
+                showcountries=False,
+                showsubunits=True,
+                subunitcolor="#D1D5DB",
+                showocean=True,
+                oceancolor="#EEF6F3",
+                showframe=False,
+                coastlinecolor="#CBD5E1",
+                fitbounds="locations",
+            ),
+        )
+
+        img_bytes = fig.to_image(format="png", width=700, height=420, scale=1.5)
+
+        # Monta tabela de ranking
+        filial_por_estado = (
+            geo.groupby("Estado")["Filial Mapa"]
+            .apply(lambda x: ", ".join(sorted(x.unique())))
+            .reset_index()
+            .rename(columns={"Filial Mapa": "Filial"})
+        )
+        ranking = estados[["Estado", "UF", "Faturamento", "Participação"]].copy()
+        ranking = filial_por_estado.merge(ranking, on="Estado", how="right")
+        ranking = ranking[["Filial", "Estado", "UF", "Faturamento", "Participação"]]
+
+        return io.BytesIO(img_bytes), ranking
+
+    except Exception:
+        return None, None
+
+
+def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado, df_filiais_comp=None):
     pdf = PDFRelatorio(indicador, filial)
     resumo = montar_resumo_pdf(df, indicador, ano_selecionado)
     texto_explicativo = gerar_texto_explicativo_pdf(resumo, indicador)
@@ -7754,8 +7838,38 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
     if filial == "Geral":
         pdf.add_page()
         pdf.secao(f"7. Comparativo entre Filiais - {ano_selecionado}")
-        df_filiais = comparativo_filiais(df_todas, ano_selecionado, indicador)
-        if not df_filiais.empty:
+        base_filiais = df_filiais_comp if (df_filiais_comp is not None and not df_filiais_comp.empty) else df_todas
+        df_filiais = comparativo_filiais(base_filiais, ano_selecionado, indicador)
+
+        if eh_faturamento_simples(indicador):
+            img_buf, ranking_geo = gerar_imagem_mapa_pdf(base_filiais, indicador, ano_selecionado)
+            if img_buf is not None:
+                page_w = pdf.w - pdf.l_margin - pdf.r_margin
+                img_h = page_w * 420 / 700
+                pdf.image(img_buf, x=pdf.l_margin, y=pdf.get_y(), w=page_w, h=img_h)
+                pdf.ln(img_h + 4)
+            if ranking_geo is not None and not ranking_geo.empty:
+                pdf.fonte("B", 8)
+                pdf.set_fill_color(240, 240, 240)
+                headers_geo = ["Filial", "Estado", "UF", "Faturamento", "% do Total"]
+                widths_geo  = [50, 48, 14, 40, 30]
+                for h, w in zip(headers_geo, widths_geo):
+                    pdf.cell(w, 7, pdf.safe(h), border=1, fill=True, align="C")
+                pdf.ln()
+                pdf.fonte("", 8)
+                for _, row in ranking_geo.iterrows():
+                    pdf.cell(widths_geo[0], 6, pdf.safe(str(row.get("Filial", ""))), border=1)
+                    pdf.cell(widths_geo[1], 6, pdf.safe(str(row.get("Estado", ""))), border=1)
+                    pdf.cell(widths_geo[2], 6, pdf.safe(str(row.get("UF", ""))), border=1, align="C")
+                    pdf.cell(widths_geo[3], 6, fmt_brl(row.get("Faturamento")), border=1, align="R")
+                    pdf.cell(widths_geo[4], 6, fmt_pct(row.get("Participação")), border=1, align="R")
+                    pdf.ln()
+            elif not df_filiais.empty:
+                pdf.tabela_filiais(df_filiais)
+            else:
+                pdf.fonte("", 10)
+                pdf.multi_cell(0, 6, pdf.safe("Sem dados geograficos disponiveis."))
+        elif not df_filiais.empty:
             pdf.tabela_filiais(df_filiais)
         else:
             pdf.fonte("", 10)
@@ -11420,7 +11534,7 @@ if (eh_admin() or eh_gabriel()) and tab6 is not None:
         nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
 
         with st.spinner("Gerando PDF..."):
-            pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard)
+            pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard, df_filiais_comp=df_comparativo_filiais)
 
         st.markdown("### Arquivos e envio")
         col_op1, col_op2 = st.columns(2)
@@ -11439,6 +11553,13 @@ if (eh_admin() or eh_gabriel()) and tab6 is not None:
             st.info("Use a opção abaixo para enviar o relatório diretamente por e-mail.")
 
         with st.expander("✉️ Enviar por e-mail", expanded=True):
+            _hora_agora = agora_br().hour
+            if _hora_agora < 12:
+                _saudacao = "Bom dia"
+            elif _hora_agora < 18:
+                _saudacao = "Boa tarde"
+            else:
+                _saudacao = "Boa noite"
             with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
                 email_destino = st.text_input("E-mail do destinatário")
                 assunto_email = st.text_input(
@@ -11448,7 +11569,8 @@ if (eh_admin() or eh_gabriel()) and tab6 is not None:
                 corpo_email = st.text_area(
                     "Mensagem",
                     value=(
-                        f"Olá,\n\n"
+                        f"{_saudacao}, Prezados,\n\n"
+                        f"Estimo que estejam bem.\n\n"
                         f"Segue o relatório de {indicador} com os resultados de {filial} para o ano de {ano_pdf_dashboard}.\n\n"
                         f"Principais informações do relatório:\n"
                         f"- Desempenho mensal\n"
