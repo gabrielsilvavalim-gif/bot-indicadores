@@ -11447,7 +11447,15 @@ if (eh_admin() or eh_gabriel()) and tab6 is not None:
                 )
                 corpo_email = st.text_area(
                     "Mensagem",
-                    value=f"Olá,\\n\\nSegue o relatório de {indicador} com os resultados de {filial} para o ano de {ano_pdf_dashboard}.\\n\\nPrincipais informações do relatório:\\n- Desempenho mensal\\n- Variação mês a mês (MoM)\\n- Comparativo ano a ano (YoY)\\n\\nAtenciosamente.",
+                    value=(
+                        f"Olá,\n\n"
+                        f"Segue o relatório de {indicador} com os resultados de {filial} para o ano de {ano_pdf_dashboard}.\n\n"
+                        f"Principais informações do relatório:\n"
+                        f"- Desempenho mensal\n"
+                        f"- Variação mês a mês (MoM)\n"
+                        f"- Comparativo ano a ano (YoY)\n\n"
+                        f"Atenciosamente."
+                    ),
                     height=140
                 )
 
