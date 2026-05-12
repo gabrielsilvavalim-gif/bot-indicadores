@@ -12364,110 +12364,6 @@ if tab6 is not None:
 
                 st.info("Usuários comuns não veem essa área e ficam travados na importação pelo Google Drive.")
 
-        # ── Relatório Geral ──────────────────────────────────────────────
-        with st.expander("📊 Relatório Geral (compilado)", expanded=False):
-            st.caption("Gera um único PDF com resumo executivo + tabela mensal de cada indicador selecionado.")
-
-            _todos_inds_pdf_geral = [
-                ind for ind in INDICADORES
-                if (
-                    eh_faturamento_simples(ind)
-                    or eh_moto_margem(ind)
-                    or eh_resultado_financeiro(ind)
-                    or eh_despesa_geral(ind)
-                    or eh_despesa_manutencao(ind)
-                    or eh_despesa_hora_extra(ind)
-                    or eh_qualidade(ind)
-                )
-            ]
-
-            _anos_geral = sorted(df["ANO"].dropna().unique(), reverse=True)
-            _ano_geral = st.selectbox(
-                "Ano do relatório geral",
-                _anos_geral,
-                index=0,
-                key=f"ano_pdf_geral_{filial}",
-            )
-
-            _inds_geral = st.multiselect(
-                "Indicadores a incluir",
-                options=_todos_inds_pdf_geral,
-                default=_todos_inds_pdf_geral[:5] if len(_todos_inds_pdf_geral) >= 5 else _todos_inds_pdf_geral,
-                key=f"multiselect_pdf_geral_{filial}",
-            )
-
-            _col_g1, _col_g2 = st.columns(2)
-
-            with _col_g1:
-                if st.button("📄 Gerar Relatório Geral", use_container_width=True, key=f"btn_gerar_pdf_geral_{filial}"):
-                    if not _inds_geral:
-                        st.warning("Selecione ao menos um indicador.")
-                    else:
-                        with st.spinner(f"Gerando relatório com {len(_inds_geral)} indicador(es)..."):
-                            try:
-                                _pdf_geral_bytes = gerar_pdf_geral(df_raw, filial, int(_ano_geral), _inds_geral)
-                                st.session_state["pdf_geral_bytes"] = _pdf_geral_bytes
-                                st.session_state["pdf_geral_nome"] = f"relatorio_geral_{filial}_{_ano_geral}.pdf".replace(" ", "_").replace("/", "-")
-                                st.success("Relatório gerado! Use o botão abaixo para baixar.")
-                            except Exception as _eg:
-                                st.error(f"Erro ao gerar relatório geral: {_eg}")
-
-            with _col_g2:
-                if st.session_state.get("pdf_geral_bytes"):
-                    st.download_button(
-                        label="⬇️ Baixar Relatório Geral",
-                        data=st.session_state["pdf_geral_bytes"],
-                        file_name=st.session_state.get("pdf_geral_nome", "relatorio_geral.pdf"),
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key=f"download_pdf_geral_{filial}",
-                    )
-
-            # Enviar relatório geral por e-mail
-            if st.session_state.get("pdf_geral_bytes"):
-                st.markdown("---")
-                _hora_g = agora_br().hour
-                _saud_g = "Bom dia" if _hora_g < 12 else ("Boa tarde" if _hora_g < 18 else "Boa noite")
-                with st.form(key=f"form_email_geral_{filial}_{_ano_geral}"):
-                    st.markdown("**✉️ Enviar Relatório Geral por e-mail**")
-                    _email_geral = st.text_input("E-mail do destinatário", key=f"email_geral_{filial}")
-                    _assunto_geral = st.text_input(
-                        "Assunto",
-                        value=f"Relatório Geral de Indicadores | {filial} | {_ano_geral}",
-                        key=f"assunto_geral_{filial}",
-                    )
-                    _corpo_geral = st.text_area(
-                        "Mensagem",
-                        value=(
-                            f"{_saud_g}, Prezados, estimo que estejam bem!\n\n"
-                            f"Segue o relatório geral de indicadores com os resultados de {filial} para o ano de {_ano_geral}.\n\n"
-                            f"O relatório contém:\n"
-                            f"- Resumo executivo com todos os indicadores\n"
-                            f"- Tabela mensal por indicador\n\n"
-                            f"Atenciosamente."
-                        ),
-                        height=130,
-                        key=f"corpo_geral_{filial}",
-                    )
-                    if st.form_submit_button("Enviar e-mail", use_container_width=True):
-                        if not _email_geral or "@" not in _email_geral:
-                            st.warning("Informe um e-mail válido.")
-                        else:
-                            with st.spinner("Enviando..."):
-                                _ok_g, _msg_g = enviar_email_relatorio(
-                                    destinatario=_email_geral,
-                                    assunto=_assunto_geral,
-                                    corpo=_corpo_geral,
-                                    nome_arquivo=st.session_state.get("pdf_geral_nome", "relatorio_geral.pdf"),
-                                    pdf_bytes=st.session_state["pdf_geral_bytes"],
-                                )
-                            if _ok_g:
-                                st.success(_msg_g)
-                            else:
-                                st.error(_msg_g)
-
-        st.markdown("---")
-
         _tem_pdf = (
             eh_faturamento_simples(indicador)
             or eh_moto_margem(indicador)
@@ -12511,43 +12407,18 @@ if tab6 is not None:
                 else:
                     _saudacao = "Boa noite"
 
-                # Lista de todos os indicadores que têm PDF disponível
-                _todos_inds_pdf = [
-                    ind for ind in INDICADORES
-                    if (
-                        eh_faturamento_simples(ind)
-                        or eh_moto_margem(ind)
-                        or eh_resultado_financeiro(ind)
-                        or eh_despesa_geral(ind)
-                        or eh_despesa_manutencao(ind)
-                        or eh_despesa_hora_extra(ind)
-                        or eh_qualidade(ind)
-                    )
-                ]
-
                 with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
                     email_destino = st.text_input("E-mail do destinatário")
                     assunto_email = st.text_input(
                         "Assunto",
-                        value=f"Relatório de Indicadores | {filial} | {ano_pdf_dashboard}"
+                        value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
                     )
-
-                    # Seleção de indicadores a incluir no e-mail
-                    _default_selecionados = [indicador] if indicador in _todos_inds_pdf else []
-                    _inds_email = st.multiselect(
-                        "Indicadores a incluir no e-mail (um PDF por indicador)",
-                        options=_todos_inds_pdf,
-                        default=_default_selecionados,
-                        key=f"multiselect_inds_email_{indicador}_{filial}_{ano_pdf_dashboard}",
-                    )
-
-                    _lista_nomes = ", ".join(_inds_email) if _inds_email else indicador
                     corpo_email = st.text_area(
                         "Mensagem",
                         value=(
                             f"{_saudacao}, Prezados, estimo que estejam bem!\n\n"
-                            f"Seguem os relatórios de {_lista_nomes} com os resultados de {filial} para o ano de {ano_pdf_dashboard}.\n\n"
-                            f"Principais informações dos relatórios:\n"
+                            f"Segue o relatório de {indicador} com os resultados de {filial} para o ano de {ano_pdf_dashboard}.\n\n"
+                            f"Principais informações do relatório:\n"
                             f"- Desempenho mensal\n"
                             f"- Variação mês a mês (MoM)\n"
                             f"- Comparativo ano a ano (YoY)\n\n"
@@ -12561,53 +12432,16 @@ if tab6 is not None:
                     if enviar_email:
                         if not email_destino or "@" not in email_destino:
                             st.warning("Informe um e-mail válido.")
-                        elif not _inds_email:
-                            st.warning("Selecione ao menos um indicador para enviar.")
                         else:
-                            _anexos_email = []
-                            with st.spinner(f"Gerando {len(_inds_email)} PDF(s) e enviando..."):
-                                for _ind_email in _inds_email:
-                                    try:
-                                        _df_ind = filtrar(df_raw, _ind_email, filial)
-                                        _df_todas_ind = filtrar(df_raw, _ind_email, "Geral")
-                                        if _df_ind.empty:
-                                            continue
-                                        _ano_ind = int(_df_ind["ANO"].max())
-                                        # Monta comparativo de filiais para esse indicador
-                                        _partes_comp_email = []
-                                        for _fil_comp in FILIAIS_REAIS:
-                                            try:
-                                                _df_fil_comp = filtrar(df_raw, _ind_email, _fil_comp)
-                                                if _df_fil_comp is not None and not _df_fil_comp.empty:
-                                                    _partes_comp_email.append(_df_fil_comp)
-                                            except Exception:
-                                                pass
-                                        _df_comp_email = (
-                                            pd.concat(_partes_comp_email, ignore_index=True)
-                                            if _partes_comp_email else pd.DataFrame()
-                                        )
-                                        _pdf_ind = gerar_pdf(
-                                            _df_ind, _df_todas_ind, _ind_email, filial,
-                                            _ano_ind, df_filiais_comp=_df_comp_email
-                                        )
-                                        _nome_ind = (
-                                            f"relatorio_{_ind_email}_{filial}_{_ano_ind}.pdf"
-                                            .replace(" ", "_").replace("/", "-")
-                                        )
-                                        _anexos_email.append((_nome_ind, _pdf_ind))
-                                    except Exception as _e_pdf:
-                                        st.warning(f"Não foi possível gerar PDF para {_ind_email}: {_e_pdf}")
-
-                                if _anexos_email:
-                                    ok, msg_envio = enviar_email_relatorio(
-                                        destinatario=email_destino,
-                                        assunto=assunto_email,
-                                        corpo=corpo_email,
-                                        anexos=_anexos_email,
-                                    )
-                                    if ok:
-                                        st.success(msg_envio)
-                                    else:
-                                        st.error(msg_envio)
-                                else:
-                                    st.error("Nenhum PDF foi gerado. Verifique os dados disponíveis.")
+                            with st.spinner("Enviando e-mail..."):
+                                ok, msg_envio = enviar_email_relatorio(
+                                    destinatario=email_destino,
+                                    assunto=assunto_email,
+                                    corpo=corpo_email,
+                                    nome_arquivo=nome_pdf_dashboard,
+                                    pdf_bytes=pdf_bytes_dashboard,
+                                )
+                            if ok:
+                                st.success(msg_envio)
+                            else:
+                                st.error(msg_envio)
