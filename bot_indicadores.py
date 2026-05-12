@@ -8439,6 +8439,158 @@ def gerar_imagem_mapa_pdf(df_filiais, indicador, ano):
         return None, None
 
 
+def _fmt_kpi_geral(valor, indicador, campo):
+    """Formata um KPI do resumo para exibição no relatório geral."""
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return "-"
+    try:
+        v = float(valor)
+        # Atingimento / Resultado % → sempre %
+        if campo in ("ating_ano", "ating_mes"):
+            return fmt_pct(v)
+        # Meta % (valores < 5 provavelmente são proporções como 0.85)
+        if campo in ("meta_ano", "meta_mes"):
+            if eh_faturamento_simples(indicador) or eh_despesa_manutencao(indicador) or eh_despesa_hora_extra(indicador):
+                return fmt_brl(v)
+            return fmt_pct(v)
+        # Realizado
+        if eh_qualidade(indicador) and campo in ("realizado_ano", "realizado_mes"):
+            return fmt_num(v)
+        return fmt_brl(v)
+    except Exception:
+        return str(valor)
+
+
+def gerar_pdf_geral(df_raw, filial, ano, indicadores_lista):
+    """
+    Gera um PDF compilado com resumo executivo + tabela mensal de cada indicador.
+    """
+
+    class PDFGeral(PDFRelatorio):
+        def __init__(self, filial, ano):
+            super().__init__("Relatório Geral", filial)
+            self.ano_relatorio = ano
+
+        def header(self):
+            self.configurar_fontes()
+            if os.path.exists(LOGO_ARQUIVO):
+                try:
+                    self.image(LOGO_ARQUIVO, 10, 6, 34)
+                except Exception:
+                    pass
+            self.fonte("B", 13)
+            self.cell(0, 9, self.safe("Relatório Geral - Análise de Indicadores Mazola Ambiental"), align="C", new_x="LMARGIN", new_y="NEXT")
+            self.fonte("", 9)
+            self.cell(0, 5, self.safe(f"Filial: {self.filial} | Ano: {self.ano_relatorio}"), align="C", new_x="LMARGIN", new_y="NEXT")
+            self.cell(0, 5, self.safe(f"Gerado em: {agora_br().strftime('%d/%m/%Y %H:%M')}"), align="C", new_x="LMARGIN", new_y="NEXT")
+            self.ln(4)
+            self.set_draw_color(200, 200, 200)
+            self.line(10, self.get_y(), 200, self.get_y())
+            self.ln(4)
+
+    pdf = PDFGeral(filial, ano)
+
+    # ── Coleta dados de todos os indicadores ────────────────────────────
+    dados_inds = {}
+    for ind in indicadores_lista:
+        try:
+            df_ind = filtrar(df_raw, ind, filial)
+            if df_ind.empty:
+                continue
+            resumo = montar_resumo_pdf(df_ind, ind, ano)
+            dados_inds[ind] = (df_ind, resumo)
+        except Exception:
+            pass
+
+    # ── Página 1: Resumo Executivo ───────────────────────────────────────
+    pdf.add_page()
+    pdf.secao("Resumo Executivo")
+
+    # Tabela: Indicador | Realizado (Ano) | Meta | Atingimento
+    col_widths_res = [80, 38, 38, 34]
+    headers_res = ["Indicador", "Realizado (Ano)", "Meta", "Atingimento"]
+
+    pdf.fonte("B", 9)
+    pdf.set_fill_color(30, 58, 95)
+    pdf.set_text_color(255, 255, 255)
+    for w, h in zip(col_widths_res, headers_res):
+        pdf.cell(w, 7, pdf.safe(h), border=1, fill=True, align="C")
+    pdf.ln()
+
+    fill = False
+    for ind in indicadores_lista:
+        if ind not in dados_inds:
+            continue
+        _, resumo = dados_inds[ind]
+        real_fmt  = _fmt_kpi_geral(resumo.get("realizado_ano"), ind, "realizado_ano")
+        meta_fmt  = _fmt_kpi_geral(resumo.get("meta_ano"),      ind, "meta_ano")
+        ating_fmt = _fmt_kpi_geral(resumo.get("ating_ano"),     ind, "ating_ano")
+
+        pdf.set_fill_color(240, 240, 240) if fill else pdf.set_fill_color(255, 255, 255)
+        pdf.set_text_color(0, 0, 0)
+        pdf.fonte("", 8)
+        pdf.cell(col_widths_res[0], 6, pdf.safe(ind),       border=1, fill=fill)
+        pdf.cell(col_widths_res[1], 6, pdf.safe(real_fmt),  border=1, fill=fill, align="R")
+        pdf.cell(col_widths_res[2], 6, pdf.safe(meta_fmt),  border=1, fill=fill, align="R")
+        pdf.cell(col_widths_res[3], 6, pdf.safe(ating_fmt), border=1, fill=fill, align="C")
+        pdf.ln()
+        fill = not fill
+
+    # ── Páginas por indicador ────────────────────────────────────────────
+    for i, ind in enumerate(indicadores_lista, 1):
+        if ind not in dados_inds:
+            continue
+        df_ind, resumo = dados_inds[ind]
+
+        pdf.add_page()
+        pdf.secao(f"{i}. {ind}")
+
+        # KPI boxes: Realizado Ano / Meta / Atingimento
+        real_fmt  = _fmt_kpi_geral(resumo.get("realizado_ano"), ind, "realizado_ano")
+        meta_fmt  = _fmt_kpi_geral(resumo.get("meta_ano"),      ind, "meta_ano")
+        ating_fmt = _fmt_kpi_geral(resumo.get("ating_ano"),     ind, "ating_ano")
+        mes_nome  = resumo.get("nome_mes", "")
+
+        kpi_w = 58
+        kpi_h = 22
+        kpi_y = pdf.get_y()
+        pdf.kpi_box(pdf.l_margin,             kpi_y, kpi_w, kpi_h, f"Realizado {ano}", real_fmt)
+        pdf.kpi_box(pdf.l_margin + kpi_w + 2, kpi_y, kpi_w, kpi_h, "Meta",             meta_fmt)
+        pdf.kpi_box(pdf.l_margin + kpi_w*2+4, kpi_y, kpi_w, kpi_h, "Atingimento",      ating_fmt)
+        pdf.set_y(kpi_y + kpi_h + 4)
+
+        # Realizado do mês de referência (complemento)
+        real_mes = _fmt_kpi_geral(resumo.get("realizado_mes"), ind, "realizado_mes")
+        pdf.fonte("", 8)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(0, 5, pdf.safe(f"Referência: {mes_nome} {ano}  |  Realizado no mês: {real_mes}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+
+        # Tabela mensal
+        try:
+            if eh_moto_margem(ind):
+                tabela_ind = tabela_pneus_moto_ano(df_ind, ano)
+            else:
+                tabela_ind = tabela_completa_ano(df_ind, ano, ind)
+
+            if eh_faturamento_simples(ind):
+                mask_total = tabela_ind["Mês"].astype(str).str.upper() == "TOTAL"
+                mask_dados = pd.to_numeric(tabela_ind["Realizado"], errors="coerce").fillna(0) > 0
+                tabela_ind = tabela_ind[mask_total | mask_dados].copy()
+                tabela_ind = tabela_ind.rename(columns={
+                    "Realizado": "Faturamento",
+                    "Atingimento": "Atendimento da Meta",
+                })
+
+            pdf.tabela_por_ano(tabela_ind)
+        except Exception as e_tab:
+            pdf.fonte("", 9)
+            pdf.set_text_color(0, 0, 0)
+            pdf.multi_cell(0, 6, pdf.safe(f"Dados indisponíveis: {e_tab}"))
+
+    return bytes(pdf.output())
+
+
 def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado, df_filiais_comp=None):
     pdf = PDFRelatorio(indicador, filial)
     resumo = montar_resumo_pdf(df, indicador, ano_selecionado)
@@ -12211,6 +12363,110 @@ if tab6 is not None:
                         st.rerun()
 
                 st.info("Usuários comuns não veem essa área e ficam travados na importação pelo Google Drive.")
+
+        # ── Relatório Geral ──────────────────────────────────────────────
+        with st.expander("📊 Relatório Geral (compilado)", expanded=False):
+            st.caption("Gera um único PDF com resumo executivo + tabela mensal de cada indicador selecionado.")
+
+            _todos_inds_pdf_geral = [
+                ind for ind in INDICADORES
+                if (
+                    eh_faturamento_simples(ind)
+                    or eh_moto_margem(ind)
+                    or eh_resultado_financeiro(ind)
+                    or eh_despesa_geral(ind)
+                    or eh_despesa_manutencao(ind)
+                    or eh_despesa_hora_extra(ind)
+                    or eh_qualidade(ind)
+                )
+            ]
+
+            _anos_geral = sorted(df["ANO"].dropna().unique(), reverse=True)
+            _ano_geral = st.selectbox(
+                "Ano do relatório geral",
+                _anos_geral,
+                index=0,
+                key=f"ano_pdf_geral_{filial}",
+            )
+
+            _inds_geral = st.multiselect(
+                "Indicadores a incluir",
+                options=_todos_inds_pdf_geral,
+                default=_todos_inds_pdf_geral[:5] if len(_todos_inds_pdf_geral) >= 5 else _todos_inds_pdf_geral,
+                key=f"multiselect_pdf_geral_{filial}",
+            )
+
+            _col_g1, _col_g2 = st.columns(2)
+
+            with _col_g1:
+                if st.button("📄 Gerar Relatório Geral", use_container_width=True, key=f"btn_gerar_pdf_geral_{filial}"):
+                    if not _inds_geral:
+                        st.warning("Selecione ao menos um indicador.")
+                    else:
+                        with st.spinner(f"Gerando relatório com {len(_inds_geral)} indicador(es)..."):
+                            try:
+                                _pdf_geral_bytes = gerar_pdf_geral(df_raw, filial, int(_ano_geral), _inds_geral)
+                                st.session_state["pdf_geral_bytes"] = _pdf_geral_bytes
+                                st.session_state["pdf_geral_nome"] = f"relatorio_geral_{filial}_{_ano_geral}.pdf".replace(" ", "_").replace("/", "-")
+                                st.success("Relatório gerado! Use o botão abaixo para baixar.")
+                            except Exception as _eg:
+                                st.error(f"Erro ao gerar relatório geral: {_eg}")
+
+            with _col_g2:
+                if st.session_state.get("pdf_geral_bytes"):
+                    st.download_button(
+                        label="⬇️ Baixar Relatório Geral",
+                        data=st.session_state["pdf_geral_bytes"],
+                        file_name=st.session_state.get("pdf_geral_nome", "relatorio_geral.pdf"),
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key=f"download_pdf_geral_{filial}",
+                    )
+
+            # Enviar relatório geral por e-mail
+            if st.session_state.get("pdf_geral_bytes"):
+                st.markdown("---")
+                _hora_g = agora_br().hour
+                _saud_g = "Bom dia" if _hora_g < 12 else ("Boa tarde" if _hora_g < 18 else "Boa noite")
+                with st.form(key=f"form_email_geral_{filial}_{_ano_geral}"):
+                    st.markdown("**✉️ Enviar Relatório Geral por e-mail**")
+                    _email_geral = st.text_input("E-mail do destinatário", key=f"email_geral_{filial}")
+                    _assunto_geral = st.text_input(
+                        "Assunto",
+                        value=f"Relatório Geral de Indicadores | {filial} | {_ano_geral}",
+                        key=f"assunto_geral_{filial}",
+                    )
+                    _corpo_geral = st.text_area(
+                        "Mensagem",
+                        value=(
+                            f"{_saud_g}, Prezados, estimo que estejam bem!\n\n"
+                            f"Segue o relatório geral de indicadores com os resultados de {filial} para o ano de {_ano_geral}.\n\n"
+                            f"O relatório contém:\n"
+                            f"- Resumo executivo com todos os indicadores\n"
+                            f"- Tabela mensal por indicador\n\n"
+                            f"Atenciosamente."
+                        ),
+                        height=130,
+                        key=f"corpo_geral_{filial}",
+                    )
+                    if st.form_submit_button("Enviar e-mail", use_container_width=True):
+                        if not _email_geral or "@" not in _email_geral:
+                            st.warning("Informe um e-mail válido.")
+                        else:
+                            with st.spinner("Enviando..."):
+                                _ok_g, _msg_g = enviar_email_relatorio(
+                                    destinatario=_email_geral,
+                                    assunto=_assunto_geral,
+                                    corpo=_corpo_geral,
+                                    nome_arquivo=st.session_state.get("pdf_geral_nome", "relatorio_geral.pdf"),
+                                    pdf_bytes=st.session_state["pdf_geral_bytes"],
+                                )
+                            if _ok_g:
+                                st.success(_msg_g)
+                            else:
+                                st.error(_msg_g)
+
+        st.markdown("---")
 
         _tem_pdf = (
             eh_faturamento_simples(indicador)
