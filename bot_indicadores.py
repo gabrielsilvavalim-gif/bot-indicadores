@@ -7745,7 +7745,7 @@ def gerar_imagem_mapa_pdf(df_filiais, indicador, ano):
             ),
         )
 
-        img_bytes = fig.to_image(format="png", width=700, height=420, scale=1.5)
+        img_bytes = fig.to_image(format="png", width=700, height=420, scale=3)
 
         # Monta tabela de ranking
         filial_por_estado = (
@@ -11569,8 +11569,7 @@ if (eh_admin() or eh_gabriel()) and tab6 is not None:
                 corpo_email = st.text_area(
                     "Mensagem",
                     value=(
-                        f"{_saudacao}, Prezados,\n\n"
-                        f"Estimo que estejam bem.\n\n"
+                        f"{_saudacao}, Prezados, estimo que estejam bem!\n\n"
                         f"Segue o relatório de {indicador} com os resultados de {filial} para o ano de {ano_pdf_dashboard}.\n\n"
                         f"Principais informações do relatório:\n"
                         f"- Desempenho mensal\n"
