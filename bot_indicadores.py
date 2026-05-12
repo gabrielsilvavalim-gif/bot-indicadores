@@ -6282,14 +6282,14 @@ def renderizar_analise_geografica_qualidade(df_filiais, indicador, ano):
         titulo_secao("Análise geográfica", f"{indicador} — distribuição de coletas por filial e estado.")
 
         # KPIs
-        meta_media = pd.to_numeric(comp.get("Meta", comp.get("Meta_Compat")), errors="coerce").mean() if "Meta" in comp.columns or "Meta_Compat" in comp.columns else None
-        resultado_medio = pd.to_numeric(comp.get("Atingimento", comp.get("Resultado %")), errors="coerce").mean() if "Atingimento" in comp.columns or "Resultado %" in comp.columns else None
+        total_coletas  = pd.to_numeric(comp.get("Qtd. Coletas",  pd.Series(dtype=float)), errors="coerce").fillna(0).sum() if "Qtd. Coletas"  in comp.columns else None
+        total_sucesso  = pd.to_numeric(comp.get("Qtd. Sucesso", pd.Series(dtype=float)), errors="coerce").fillna(0).sum() if "Qtd. Sucesso" in comp.columns else None
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            kpi_metric("Meta média", fmt_pct(meta_media) if meta_media is not None and pd.notna(meta_media) else "-")
+            kpi_metric("Qtd. Coletada", fmt_num(total_coletas) if total_coletas is not None else "-")
         with c2:
-            kpi_metric("Resultado % médio", fmt_pct(resultado_medio) if resultado_medio is not None and pd.notna(resultado_medio) else "-")
+            kpi_metric("Qtd. Ótimo + Bom", fmt_num(total_sucesso) if total_sucesso is not None else "-")
         with c3:
             kpi_metric("Estados no mapa", str(geo["UF"].nunique()))
 
