@@ -6347,15 +6347,21 @@ def renderizar_analise_geografica_qualidade(df_filiais, indicador, ano):
 
         st.caption("📌 Os percentuais exibidos nos estados representam a participação de cada estado no total de coletas do período.")
 
-        # Tabela
-        cols_exibir = ["Filial Mapa", "Estado", "UF"] + [c for c in ["Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"] if c in geo.columns]
+        # Tabela — renomeia Qtd. Sucesso para nome amigável conforme indicador
+        tabela_geo = geo.copy()
+        if "Qtd. Coletas" in tabela_geo.columns:
+            tabela_geo = tabela_geo.rename(columns={"Qtd. Coletas": "Qtd. Coletada"})
+        if "Qtd. Sucesso" in tabela_geo.columns:
+            tabela_geo = tabela_geo.rename(columns={"Qtd. Sucesso": "Coletas Normais/Bom"})
+
+        cols_exibir = ["Filial Mapa", "Estado", "UF"] + [c for c in ["Meta", "Qtd. Coletada", "Coletas Normais/Bom", "Diferença", "Resultado %"] if c in tabela_geo.columns]
         st.dataframe(
-            geo[cols_exibir].style.format({
-                "Meta":       lambda v: fmt_pct(v) if pd.notna(v) else "-",
-                "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "-",
-                "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "-",
-                "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "-",
-                "Diferença":   lambda v: fmt_num(v) if pd.notna(v) else "-",
+            tabela_geo[cols_exibir].style.format({
+                "Meta":                lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Resultado %":         lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Qtd. Coletada":       lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Coletas Normais/Bom": lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Diferença":           lambda v: fmt_num(v) if pd.notna(v) else "-",
             }),
             use_container_width=True,
             hide_index=True,
