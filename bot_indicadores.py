@@ -7110,6 +7110,32 @@ class PDFRelatorio(FPDF):
                 self.ln()
             return
 
+        if "Faturamento" in df_completa.columns and "Atendimento da Meta" in df_completa.columns:
+            headers = ["Mês", "Meta", "Faturamento", "Atend. Meta"]
+            widths = [30, 42, 48, 38]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 8)
+            for _, row in df_completa.iterrows():
+                is_total = row["Mês"] == "TOTAL"
+                fill = is_total
+                if is_total:
+                    self.set_fill_color(255, 243, 232)
+                    self.fonte("B", 8)
+                else:
+                    self.set_fill_color(255, 255, 255)
+                    self.fonte("", 8)
+
+                self.cell(widths[0], 6, self.safe(str(row["Mês"])), border=1, align="C", fill=fill)
+                self.cell(widths[1], 6, fmt_brl(row["Meta"]), border=1, align="R", fill=fill)
+                self.cell(widths[2], 6, fmt_brl(row["Faturamento"]), border=1, align="R", fill=fill)
+                self.cell(widths[3], 6, fmt_pct(row["Atendimento da Meta"]), border=1, align="R", fill=fill)
+                self.ln()
+            return
+
         headers = ["Mês", "Realizado", "Meta", "Gap (R$)", "Atingimento"]
         widths = [30, 40, 40, 40, 35]
 
@@ -7276,6 +7302,8 @@ class PDFRelatorio(FPDF):
             self.cell(widths[2], 6, fmt_brl(row["META"]), border=1, align="R")
             self.cell(widths[3], 6, fmt_brl(row["Gap"]), border=1, align="R")
             self.cell(widths[4], 6, fmt_pct(row["Ating."]), border=1, align="R")
+            mom_val = row["MoM_%"] if "MoM_%" in row.index else None
+            self.cell(widths[5], 6, fmt_mom_seguro(mom_val), border=1, align="R")
             self.ln()
 
     def tabela_yoy(self, df_yoy):
@@ -7667,7 +7695,16 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
 
     pdf.add_page()
     pdf.secao(f"3. Análise por Mês - Ano {ano_selecionado}")
-    pdf.tabela_por_ano(tabela_pneus_moto_ano(df, ano_selecionado) if eh_moto_margem(indicador) else tabela_completa_ano(df, ano_selecionado, indicador))
+    tabela_pdf = tabela_pneus_moto_ano(df, ano_selecionado) if eh_moto_margem(indicador) else tabela_completa_ano(df, ano_selecionado, indicador)
+    if eh_faturamento_simples(indicador):
+        mask_total = tabela_pdf["Mês"].astype(str).str.upper() == "TOTAL"
+        mask_dados = pd.to_numeric(tabela_pdf["Realizado"], errors="coerce").fillna(0) > 0
+        tabela_pdf = tabela_pdf[mask_total | mask_dados].copy()
+        tabela_pdf = tabela_pdf.rename(columns={
+            "Realizado": "Faturamento",
+            "Atingimento": "Atendimento da Meta",
+        })
+    pdf.tabela_por_ano(tabela_pdf)
 
     pdf.add_page()
     pdf.secao("4. Variação Mês a Mês - Últimos 12 meses")
@@ -7696,6 +7733,8 @@ def gerar_pdf(df, df_todas, indicador, filial, ano_selecionado):
         pdf.tabela_mom(df_mom[["Mês", "Limite %", "Despesa", "Receita", "Resultado R$", "Tx. Sucesso", "Acumulado"]])
     elif eh_despesa_hora_extra(indicador):
         pdf.tabela_mom(df_mom[["Mês", "Limite", "Pago em Hora Extra", "Salário", "HE da Folha", "Saldo do Limite", "Resultado %"]])
+    elif eh_faturamento_simples(indicador):
+        pdf.tabela_mom(df_mom[["Mês", "Realizado", "META", "Gap", "Ating.", "MoM_%"]])
     else:
         pdf.tabela_mom(df_mom[["Mês", "Realizado", "META", "Gap", "Ating."]])
 
