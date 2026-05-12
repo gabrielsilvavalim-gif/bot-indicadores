@@ -11530,72 +11530,75 @@ if (eh_admin() or eh_gabriel()) and tab6 is not None:
 
                 st.info("Usuários comuns não veem essa área e ficam travados na importação pelo Google Drive.")
 
-        ano_pdf_dashboard = int(df["ANO"].max())
-        nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
+        if not eh_faturamento_simples(indicador):
+            st.info("O relatório em PDF está disponível apenas para indicadores de Faturamento.")
+        else:
+            ano_pdf_dashboard = int(df["ANO"].max())
+            nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
 
-        with st.spinner("Gerando PDF..."):
-            pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard, df_filiais_comp=df_comparativo_filiais)
+            with st.spinner("Gerando PDF..."):
+                pdf_bytes_dashboard = gerar_pdf(df, df_todas_unidades, indicador, filial, ano_pdf_dashboard, df_filiais_comp=df_comparativo_filiais)
 
-        st.markdown("### Arquivos e envio")
-        col_op1, col_op2 = st.columns(2)
+            st.markdown("### Arquivos e envio")
+            col_op1, col_op2 = st.columns(2)
 
-        with col_op1:
-            st.download_button(
-                label="📄 Baixar PDF",
-                data=pdf_bytes_dashboard,
-                file_name=nome_pdf_dashboard,
-                mime="application/pdf",
-                use_container_width=True,
-                key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
-            )
-
-        with col_op2:
-            st.info("Use a opção abaixo para enviar o relatório diretamente por e-mail.")
-
-        with st.expander("✉️ Enviar por e-mail", expanded=True):
-            _hora_agora = agora_br().hour
-            if _hora_agora < 12:
-                _saudacao = "Bom dia"
-            elif _hora_agora < 18:
-                _saudacao = "Boa tarde"
-            else:
-                _saudacao = "Boa noite"
-            with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
-                email_destino = st.text_input("E-mail do destinatário")
-                assunto_email = st.text_input(
-                    "Assunto",
-                    value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
-                )
-                corpo_email = st.text_area(
-                    "Mensagem",
-                    value=(
-                        f"{_saudacao}, Prezados, estimo que estejam bem!\n\n"
-                        f"Segue o relatório de {indicador} com os resultados de {filial} para o ano de {ano_pdf_dashboard}.\n\n"
-                        f"Principais informações do relatório:\n"
-                        f"- Desempenho mensal\n"
-                        f"- Variação mês a mês (MoM)\n"
-                        f"- Comparativo ano a ano (YoY)\n\n"
-                        f"Atenciosamente."
-                    ),
-                    height=140
+            with col_op1:
+                st.download_button(
+                    label="📄 Baixar PDF",
+                    data=pdf_bytes_dashboard,
+                    file_name=nome_pdf_dashboard,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=f"baixar_pdf_dashboard_{indicador}_{filial}_{ano_pdf_dashboard}",
                 )
 
-                enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
+            with col_op2:
+                st.info("Use a opção abaixo para enviar o relatório diretamente por e-mail.")
 
-                if enviar_email:
-                    if not email_destino or "@" not in email_destino:
-                        st.warning("Informe um e-mail válido.")
-                    else:
-                        with st.spinner("Enviando e-mail..."):
-                            ok, msg_envio = enviar_email_relatorio(
-                                destinatario=email_destino,
-                                assunto=assunto_email,
-                                corpo=corpo_email,
-                                nome_arquivo=nome_pdf_dashboard,
-                                pdf_bytes=pdf_bytes_dashboard,
-                            )
+            with st.expander("✉️ Enviar por e-mail", expanded=True):
+                _hora_agora = agora_br().hour
+                if _hora_agora < 12:
+                    _saudacao = "Bom dia"
+                elif _hora_agora < 18:
+                    _saudacao = "Boa tarde"
+                else:
+                    _saudacao = "Boa noite"
+                with st.form(key=f"form_email_relatorio_{indicador}_{filial}_{ano_pdf_dashboard}"):
+                    email_destino = st.text_input("E-mail do destinatário")
+                    assunto_email = st.text_input(
+                        "Assunto",
+                        value=f"Relatório de Indicadores - {indicador} | {filial} | {ano_pdf_dashboard}"
+                    )
+                    corpo_email = st.text_area(
+                        "Mensagem",
+                        value=(
+                            f"{_saudacao}, Prezados, estimo que estejam bem!\n\n"
+                            f"Segue o relatório de {indicador} com os resultados de {filial} para o ano de {ano_pdf_dashboard}.\n\n"
+                            f"Principais informações do relatório:\n"
+                            f"- Desempenho mensal\n"
+                            f"- Variação mês a mês (MoM)\n"
+                            f"- Comparativo ano a ano (YoY)\n\n"
+                            f"Atenciosamente."
+                        ),
+                        height=140
+                    )
 
-                        if ok:
-                            st.success(msg_envio)
+                    enviar_email = st.form_submit_button("Enviar e-mail", use_container_width=True)
+
+                    if enviar_email:
+                        if not email_destino or "@" not in email_destino:
+                            st.warning("Informe um e-mail válido.")
                         else:
-                            st.error(msg_envio)
+                            with st.spinner("Enviando e-mail..."):
+                                ok, msg_envio = enviar_email_relatorio(
+                                    destinatario=email_destino,
+                                    assunto=assunto_email,
+                                    corpo=corpo_email,
+                                    nome_arquivo=nome_pdf_dashboard,
+                                    pdf_bytes=pdf_bytes_dashboard,
+                                )
+
+                            if ok:
+                                st.success(msg_envio)
+                            else:
+                                st.error(msg_envio)
