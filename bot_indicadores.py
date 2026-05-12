@@ -6289,7 +6289,7 @@ def renderizar_analise_geografica_qualidade(df_filiais, indicador, ano):
         with c1:
             kpi_metric("Qtd. Coletada", fmt_num(total_coletas) if total_coletas is not None else "-")
         with c2:
-            kpi_metric("Qtd. Ótimo + Bom", fmt_num(total_sucesso) if total_sucesso is not None else "-")
+            kpi_metric("Quantidade Crítica Coletada", fmt_num(total_sucesso) if total_sucesso is not None else "-")
         with c3:
             kpi_metric("Estados no mapa", str(geo["UF"].nunique()))
 
