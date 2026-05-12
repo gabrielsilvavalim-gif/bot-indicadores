@@ -3409,7 +3409,7 @@ def calcular_mom(d, indicador):
         "MÊS_NOME": "Mês",
         "REALIZADO_CALC": "Realizado",
         "META_CALC": "META"
-    })[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating.", "MÊS_ORDEM"]]
+    })[["ANO", "MÊS", "Mês", "META", "Realizado", "Gap", "Ating.", "MoM_%", "MÊS_ORDEM"]]
     
 @st.cache_data(show_spinner=False)
 def calcular_yoy(d, indicador):
