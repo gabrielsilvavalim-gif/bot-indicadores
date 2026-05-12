@@ -7110,6 +7110,38 @@ class PDFRelatorio(FPDF):
                 self.ln()
             return
 
+        if "Compra" in df_completa.columns and "Margem Bruta" in df_completa.columns:
+            headers = ["Mês", "Meta %", "Compra", "Faturamento", "Tx. Sucesso", "Acumulado"]
+            widths  = [25, 22, 35, 35, 28, 35]
+
+            for h, w in zip(headers, widths):
+                self.cell(w, 7, self.safe(h), border=1, fill=True, align="C")
+            self.ln()
+
+            self.fonte("", 8)
+            for _, row in df_completa.iterrows():
+                is_total = str(row.get("Mês", "")).upper() == "TOTAL"
+                fill = is_total
+                if is_total:
+                    self.set_fill_color(255, 243, 232)
+                    self.fonte("B", 8)
+                else:
+                    self.set_fill_color(255, 255, 255)
+                    self.fonte("", 8)
+
+                meta_val = row.get("Meta")
+                tx_val   = row.get("Tx. Sucesso")
+                acum_val = row.get("Acumulado")
+
+                self.cell(widths[0], 6, self.safe(str(row.get("Mês", ""))), border=1, align="C", fill=fill)
+                self.cell(widths[1], 6, fmt_pct(meta_val) if pd.notna(meta_val) else "-", border=1, align="R", fill=fill)
+                self.cell(widths[2], 6, fmt_brl(row.get("Compra")), border=1, align="R", fill=fill)
+                self.cell(widths[3], 6, fmt_brl(row.get("Faturamento")), border=1, align="R", fill=fill)
+                self.cell(widths[4], 6, fmt_pct(tx_val) if pd.notna(tx_val) else "-", border=1, align="R", fill=fill)
+                self.cell(widths[5], 6, fmt_brl(acum_val) if pd.notna(acum_val) else "-", border=1, align="R", fill=fill)
+                self.ln()
+            return
+
         if "Faturamento" in df_completa.columns and "Atendimento da Meta" in df_completa.columns:
             headers = ["Mês", "Meta", "Faturamento", "Atend. Meta"]
             widths = [30, 42, 48, 38]
@@ -11530,7 +11562,7 @@ if (eh_admin() or eh_gabriel()) and tab6 is not None:
 
                 st.info("Usuários comuns não veem essa área e ficam travados na importação pelo Google Drive.")
 
-        if not eh_faturamento_simples(indicador):
+        if not eh_faturamento_simples(indicador) and not eh_moto_margem(indicador):
             st.info("O relatório em PDF está disponível apenas para indicadores de Faturamento.")
         else:
             ano_pdf_dashboard = int(df["ANO"].max())
