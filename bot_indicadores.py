@@ -6347,41 +6347,34 @@ def renderizar_analise_geografica_qualidade(df_filiais, indicador, ano):
 
         st.caption("📌 Os percentuais exibidos nos estados representam a participação de cada estado no total de coletas do período.")
 
-        # Tabela — exibe colunas corretas conforme tipo de qualidade
+        # Tabela — garante colunas do comp mesmo que tenham saido no processamento do mapa
         tabela_geo = geo.copy()
+        for _col in ["Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]:
+            if _col not in tabela_geo.columns and _col in comp.columns:
+                _aux = comp[["FILIAL", _col]].drop_duplicates("FILIAL")
+                tabela_geo = tabela_geo.merge(_aux, on="FILIAL", how="left")
 
-        # Detecta qual tipo de qualidade é pelo indicador
         nome_indicador = indicador.lower()
-
-        if "avaliacao" in nome_indicador or "equipe" in nome_indicador:
-            cols_exibir = ["Filial Mapa", "Estado", "UF", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]
+        if "critico" in nome_indicador:
             formato = {
-                "Meta": lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Meta":        lambda v: fmt_num(v) if pd.notna(v) else "-",
                 "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "-",
                 "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "-",
                 "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "-",
-                "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "-",
-            }
-        elif "critico" in nome_indicador:
-            cols_exibir = ["Filial Mapa", "Estado", "UF", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]
-            formato = {
-                "Meta": lambda v: fmt_num(v) if pd.notna(v) else "-",
-                "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "-",
-                "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "-",
-                "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "-",
-                "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Diferença":   lambda v: fmt_num(v) if pd.notna(v) else "-",
             }
         else:
-            cols_exibir = ["Filial Mapa", "Estado", "UF", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]
             formato = {
-                "Meta": lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Meta":        lambda v: fmt_pct(v) if pd.notna(v) else "-",
                 "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "-",
                 "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "-",
                 "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "-",
-                "Diferença": lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Diferença":   lambda v: fmt_num(v) if pd.notna(v) else "-",
             }
 
+        cols_exibir = ["Filial Mapa", "Estado", "UF", "Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"]
         cols_exibir = [c for c in cols_exibir if c in tabela_geo.columns]
+        formato = {k: v for k, v in formato.items() if k in cols_exibir}
 
         st.dataframe(
             tabela_geo[cols_exibir].style.format(formato),
