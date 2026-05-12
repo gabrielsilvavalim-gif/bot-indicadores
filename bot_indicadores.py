@@ -5913,6 +5913,162 @@ def renderizar_analise_geografica_faturamento(df_filiais, indicador, ano):
         hide_index=True,
     )
 
+def preparar_analise_geografica_moto(df_filiais, indicador, ano):
+    """Prepara dados geográficos para Pneus Velhos Moto."""
+    try:
+        if df_filiais is None or df_filiais.empty:
+            return pd.DataFrame()
+
+        comp = comparativo_filiais(df_filiais, ano, indicador)
+        if comp is None or comp.empty or "FILIAL" not in comp.columns:
+            return pd.DataFrame()
+
+        geo = comp[["FILIAL", "Realizado", "Meta", "Atingimento"]].copy()
+        geo = geo.rename(columns={"Realizado": "Faturamento", "Atingimento": "Tx. Sucesso"})
+        geo["Faturamento"] = pd.to_numeric(geo["Faturamento"], errors="coerce").fillna(0)
+        geo = geo[geo["Faturamento"] > 0].copy()
+
+        if geo.empty:
+            return pd.DataFrame()
+
+        coords = []
+        for filial_nome in geo["FILIAL"]:
+            chave = normalizar_texto(str(filial_nome))
+            coords.append(COORDENADAS_FILIAIS.get(chave))
+
+        geo["_coord"] = coords
+        geo = geo[geo["_coord"].notna()].copy()
+
+        if geo.empty:
+            return pd.DataFrame()
+
+        geo["Latitude"]    = geo["_coord"].apply(lambda c: c["lat"])
+        geo["Longitude"]   = geo["_coord"].apply(lambda c: c["lon"])
+        geo["Filial Mapa"] = geo["_coord"].apply(lambda c: c["label"])
+        geo["UF"]          = geo["_coord"].apply(lambda c: c.get("uf"))
+        geo["Estado"]      = geo["_coord"].apply(lambda c: c.get("estado"))
+
+        total_fat = geo["Faturamento"].sum()
+        geo["Participação"] = geo["Faturamento"] / total_fat if total_fat > 0 else pd.NA
+        geo["Texto Mapa"] = geo.apply(
+            lambda r: f"{r['Filial Mapa']}<br>Fat: {fmt_brl(r['Faturamento'])}<br>Tx: {fmt_pct(r['Tx. Sucesso'])}",
+            axis=1
+        )
+
+        return geo.sort_values("Faturamento", ascending=False).reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
+
+def renderizar_analise_geografica_moto(df_filiais, indicador, ano):
+    """Renderiza a análise geográfica para Pneus Velhos Moto."""
+    geo = preparar_analise_geografica_moto(df_filiais, indicador, ano)
+
+    if geo is None or geo.empty:
+        st.info("Sem dados geográficos disponíveis para este indicador.")
+        return
+
+    titulo_secao(
+        "Análise geográfica",
+        "Mapa com as filiais do Pneus Velhos Moto e desempenho por estado."
+    )
+
+    # KPIs
+    total_fat = geo["Faturamento"].sum()
+    total_compra = geo.get("Compra", pd.Series(dtype=float)).sum() if "Compra" in geo.columns else None
+
+    # Meta ponderada por faturamento
+    comp = comparativo_filiais(df_filiais, ano, indicador)
+    meta_pond = None
+    tx_geral = None
+    if comp is not None and not comp.empty:
+        fat_col = pd.to_numeric(comp.get("Realizado", pd.Series(dtype=float)), errors="coerce").fillna(0)
+        meta_col = pd.to_numeric(comp.get("Meta", pd.Series(dtype=float)), errors="coerce")
+        mask = fat_col.notna() & meta_col.notna() & (fat_col > 0)
+        if mask.any() and fat_col[mask].sum() > 0:
+            meta_pond = (fat_col[mask] * meta_col[mask]).sum() / fat_col[mask].sum()
+        tx_geral = pd.to_numeric(comp.get("Atingimento", pd.Series(dtype=float)), errors="coerce").mean()
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        kpi_metric("Meta (pond.)", fmt_pct(meta_pond) if meta_pond is not None else "-")
+    with c2:
+        kpi_metric("Tx. Sucesso Geral", fmt_pct(tx_geral) if tx_geral is not None else "-")
+    with c3:
+        kpi_metric("Estados no mapa", str(geo["UF"].nunique()))
+
+    # Mapa
+    estados = (
+        geo.groupby(["Estado", "UF"], as_index=False)
+        .agg({"Faturamento": "sum"})
+        .sort_values("Faturamento", ascending=False)
+    )
+    total_faturamento = estados["Faturamento"].sum()
+    estados["Participação"] = estados["Faturamento"] / total_faturamento if total_faturamento > 0 else pd.NA
+    estados["lat"] = estados["UF"].map(lambda uf: CENTROIDES_ESTADOS_MAPA.get(uf, {}).get("lat"))
+    estados["lon"] = estados["UF"].map(lambda uf: CENTROIDES_ESTADOS_MAPA.get(uf, {}).get("lon"))
+    estados["Texto Estado"] = estados.apply(
+        lambda r: f"{r['UF']}<br>{fmt_pct(r['Participação'])}", axis=1
+    )
+
+    fig = go.Figure()
+    fig.add_trace(go.Choropleth(
+        geojson=GEOJSON_ESTADOS_BRASIL_URL,
+        locations=estados["Estado"],
+        z=estados["Faturamento"],
+        featureidkey="properties.name",
+        colorscale=[[0.00, "#EAF8F1"], [0.45, "#7AD7A4"], [1.00, "#00A350"]],
+        marker_line_color="#FFFFFF",
+        marker_line_width=1.4,
+        showscale=False,
+        name="Estados",
+    ))
+    fig.add_trace(go.Scattergeo(
+        lon=estados["lon"],
+        lat=estados["lat"],
+        mode="text",
+        text=estados["Texto Estado"],
+        textfont=dict(size=12, color="#111827"),
+        hoverinfo="skip",
+    ))
+    fig.update_layout(
+        height=560,
+        margin=dict(l=0, r=0, t=10, b=0),
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+        geo=dict(
+            scope="south america",
+            projection_type="mercator",
+            lataxis_range=[-34, 6],
+            lonaxis_range=[-75, -33],
+            showland=True,
+            landcolor="#F8FAFC",
+            showcountries=False,
+            showsubunits=True,
+            subunitcolor="#D1D5DB",
+            showocean=True,
+            oceancolor="#EEF6F3",
+            showframe=False,
+            coastlinecolor="#CBD5E1",
+            fitbounds="locations",
+        ),
+    )
+    st.plotly_chart(fig, use_container_width=True, key=f"mapa_geo_moto_{indicador}_{ano}",
+                    config={"displayModeBar": False})
+
+    # Tabela
+    tabela_geo = geo[["Filial Mapa", "Estado", "UF", "Faturamento", "Meta", "Tx. Sucesso"]].copy()
+    st.dataframe(
+        tabela_geo.style.format({
+            "Faturamento": lambda v: fmt_brl(v) if pd.notna(v) else "-",
+            "Meta":        lambda v: fmt_pct(v) if pd.notna(v) else "-",
+            "Tx. Sucesso": lambda v: fmt_pct(v) if pd.notna(v) else "-",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
 def renderizar_semaforo_projecao(info):
     gap = info.get("gap_projetado")
     media_atual = info.get("media_atual")
@@ -9324,7 +9480,6 @@ def montar_resumo_periodo(df_mensal, indicador, modo):
                 meta_pond = (fat[mask] * meta[mask]).sum() / fat[mask].sum() if mask.any() and fat[mask].sum() > 0 else None
 
             tx = margem / faturamento if faturamento and faturamento > 0 else None
-            acumulado += margem if margem is not None and pd.notna(margem) else 0
 
             row.update({
                 "Meta": meta_pond,
@@ -9332,7 +9487,7 @@ def montar_resumo_periodo(df_mensal, indicador, modo):
                 "Faturamento": faturamento,
                 "Margem Bruta": margem,
                 "Tx. Sucesso": tx,
-                "Acumulado": acumulado,
+                "Acumulado": margem,
             })
 
         elif eh_despesa_geral(indicador):
@@ -11478,7 +11633,7 @@ with tab_geo:
 
     anos_mapa = sorted(df["ANO"].dropna().unique())
 
-    if not eh_faturamento_normal_geografico(indicador):
+    if not eh_faturamento_normal_geografico(indicador) and not eh_moto_margem(indicador):
         st.info(
             "A análise geográfica está disponível apenas para indicadores de faturamento normal. "
             "Indicadores especiais, despesas, qualidade, Tecfil e Resultado Financeiro não usam este mapa."
@@ -11494,7 +11649,10 @@ with tab_geo:
         )
 
         st.caption(f"Mapa referente ao ano de {ano_mapa}.")
-        renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, int(ano_mapa))
+        if eh_moto_margem(indicador):
+            renderizar_analise_geografica_moto(df_comparativo_filiais, indicador, int(ano_mapa))
+        else:
+            renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, int(ano_mapa))
 
 
 
