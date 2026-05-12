@@ -6056,6 +6056,8 @@ def renderizar_analise_geografica_moto(df_filiais, indicador, ano):
     st.plotly_chart(fig, use_container_width=True, key=f"mapa_geo_moto_{indicador}_{ano}",
                     config={"displayModeBar": False})
 
+    st.caption("📌 Os percentuais exibidos nos estados representam a participação de cada estado no faturamento total do período.")
+
     # Tabela
     tabela_geo = geo[["Filial Mapa", "Estado", "UF", "Faturamento", "Meta", "Tx. Sucesso"]].copy()
     st.dataframe(
