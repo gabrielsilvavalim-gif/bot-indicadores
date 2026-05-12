@@ -6224,6 +6224,124 @@ def renderizar_analise_geografica_resultado_financeiro(df_filiais, indicador, an
     )
 
 
+def renderizar_analise_geografica_qualidade(df_filiais, indicador, ano):
+    """Renderiza análise geográfica para indicadores de Qualidade."""
+    try:
+        comp = comparativo_filiais(df_filiais, ano, indicador)
+        if comp is None or comp.empty or "FILIAL" not in comp.columns:
+            st.info("Sem dados geográficos disponíveis para este indicador.")
+            return
+
+        geo = comp.copy()
+        geo["_valor"] = pd.to_numeric(geo.get("Qtd. Coletas", geo.get("Realizado", pd.Series(dtype=float))), errors="coerce").fillna(0)
+        geo = geo[geo["_valor"] > 0].copy()
+
+        coords = []
+        for filial_nome in geo["FILIAL"]:
+            chave = normalizar_texto(str(filial_nome))
+            coords.append(COORDENADAS_FILIAIS.get(chave))
+
+        geo["_coord"] = coords
+        geo = geo[geo["_coord"].notna()].copy()
+
+        if geo.empty:
+            st.info("Sem dados geográficos disponíveis para este indicador.")
+            return
+
+        geo["Latitude"]    = geo["_coord"].apply(lambda c: c["lat"])
+        geo["Longitude"]   = geo["_coord"].apply(lambda c: c["lon"])
+        geo["Filial Mapa"] = geo["_coord"].apply(lambda c: c["label"])
+        geo["UF"]          = geo["_coord"].apply(lambda c: c.get("uf"))
+        geo["Estado"]      = geo["_coord"].apply(lambda c: c.get("estado"))
+
+        total_val = geo["_valor"].sum()
+        geo["Participação"] = geo["_valor"] / total_val if total_val > 0 else pd.NA
+
+        titulo_secao("Análise geográfica", f"{indicador} — distribuição de coletas por filial e estado.")
+
+        # KPIs
+        meta_media = pd.to_numeric(comp.get("Meta", comp.get("Meta_Compat")), errors="coerce").mean() if "Meta" in comp.columns or "Meta_Compat" in comp.columns else None
+        resultado_medio = pd.to_numeric(comp.get("Atingimento", comp.get("Resultado %")), errors="coerce").mean() if "Atingimento" in comp.columns or "Resultado %" in comp.columns else None
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            kpi_metric("Meta média", fmt_pct(meta_media) if meta_media is not None and pd.notna(meta_media) else "-")
+        with c2:
+            kpi_metric("Resultado % médio", fmt_pct(resultado_medio) if resultado_medio is not None and pd.notna(resultado_medio) else "-")
+        with c3:
+            kpi_metric("Estados no mapa", str(geo["UF"].nunique()))
+
+        # Mapa
+        estados = (
+            geo.groupby(["Estado", "UF"], as_index=False)
+            .agg({"_valor": "sum"})
+            .sort_values("_valor", ascending=False)
+        )
+        total_estados = estados["_valor"].sum()
+        estados["Participação"] = estados["_valor"] / total_estados if total_estados > 0 else pd.NA
+        estados["lat"] = estados["UF"].map(lambda uf: CENTROIDES_ESTADOS_MAPA.get(uf, {}).get("lat"))
+        estados["lon"] = estados["UF"].map(lambda uf: CENTROIDES_ESTADOS_MAPA.get(uf, {}).get("lon"))
+        estados["Texto Estado"] = estados.apply(
+            lambda r: f"{r['UF']}<br>{fmt_pct(r['Participação'])}", axis=1
+        )
+
+        fig = go.Figure()
+        fig.add_trace(go.Choropleth(
+            geojson=GEOJSON_ESTADOS_BRASIL_URL,
+            locations=estados["Estado"],
+            z=estados["_valor"],
+            featureidkey="properties.name",
+            colorscale=[[0.00, "#EAF4FF"], [0.45, "#5BA4D9"], [1.00, "#1A6FAD"]],
+            marker_line_color="#FFFFFF",
+            marker_line_width=1.4,
+            showscale=False,
+        ))
+        fig.add_trace(go.Scattergeo(
+            lon=estados["lon"],
+            lat=estados["lat"],
+            mode="text",
+            text=estados["Texto Estado"],
+            textfont=dict(size=12, color="#111827"),
+            hoverinfo="skip",
+        ))
+        fig.update_layout(
+            height=560,
+            margin=dict(l=0, r=0, t=10, b=0),
+            showlegend=False,
+            paper_bgcolor="rgba(0,0,0,0)",
+            geo=dict(
+                scope="south america", projection_type="mercator",
+                lataxis_range=[-34, 6], lonaxis_range=[-75, -33],
+                showland=True, landcolor="#F8FAFC",
+                showcountries=False, showsubunits=True,
+                subunitcolor="#D1D5DB", showocean=True,
+                oceancolor="#EEF6F3", showframe=False,
+                coastlinecolor="#CBD5E1", fitbounds="locations",
+            ),
+        )
+        st.plotly_chart(fig, use_container_width=True,
+                        key=f"mapa_geo_qualidade_{indicador}_{ano}",
+                        config={"displayModeBar": False})
+
+        st.caption("📌 Os percentuais exibidos nos estados representam a participação de cada estado no total de coletas do período.")
+
+        # Tabela
+        cols_exibir = ["Filial Mapa", "Estado", "UF"] + [c for c in ["Meta", "Qtd. Coletas", "Qtd. Sucesso", "Diferença", "Resultado %"] if c in geo.columns]
+        st.dataframe(
+            geo[cols_exibir].style.format({
+                "Meta":       lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Resultado %": lambda v: fmt_pct(v) if pd.notna(v) else "-",
+                "Qtd. Coletas": lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Qtd. Sucesso": lambda v: fmt_num(v) if pd.notna(v) else "-",
+                "Diferença":   lambda v: fmt_num(v) if pd.notna(v) else "-",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+    except Exception as e:
+        st.warning(f"Erro ao renderizar mapa: {e}")
+
+
 def renderizar_analise_geografica_despesa(df_filiais, indicador, ano):
     """Renderiza análise geográfica para indicadores de Despesa (Geral, Manutenção, Hora Extra)."""
     try:
@@ -11960,6 +12078,7 @@ with tab_geo:
         or eh_despesa_geral(indicador)
         or eh_despesa_manutencao(indicador)
         or eh_despesa_hora_extra(indicador)
+        or eh_qualidade(indicador)
     )
     if not _tem_mapa:
         st.info(
@@ -11983,6 +12102,8 @@ with tab_geo:
             renderizar_analise_geografica_resultado_financeiro(df_comparativo_filiais, indicador, int(ano_mapa))
         elif eh_despesa_geral(indicador) or eh_despesa_manutencao(indicador) or eh_despesa_hora_extra(indicador):
             renderizar_analise_geografica_despesa(df_comparativo_filiais, indicador, int(ano_mapa))
+        elif eh_qualidade(indicador):
+            renderizar_analise_geografica_qualidade(df_comparativo_filiais, indicador, int(ano_mapa))
         else:
             renderizar_analise_geografica_faturamento(df_comparativo_filiais, indicador, int(ano_mapa))
 
@@ -12059,6 +12180,7 @@ if (eh_admin() or eh_gabriel()) and tab6 is not None:
             or eh_despesa_geral(indicador)
             or eh_despesa_manutencao(indicador)
             or eh_despesa_hora_extra(indicador)
+            or eh_qualidade(indicador)
         )
         if not _tem_pdf:
             st.info("O relatório em PDF está disponível apenas para indicadores de Faturamento, Despesas e Resultado Financeiro.")
