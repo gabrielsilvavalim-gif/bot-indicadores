@@ -2865,12 +2865,21 @@ def tabela_completa_ano(d, ano, indicador):
         base_ano = d[d["ANO"] == ano].copy()
         acumulado = 0
 
+        # Meta fallback: busca a meta do ano inteiro para usar nos meses onde é 0/None
+        meta_ano_fallback = meta_ponderada_resultado_financeiro(base_ano)
+
         for i in range(1, 13):
             mes_nome = MESES_MAPA[i]
             sub = base_ano[base_ano["MÊS"] == i]
 
             if not sub.empty:
                 resumo = resumo_resultado_financeiro_por_grupo(sub)
+
+                # Se o mês não tem meta, usa a meta do ano como fallback
+                meta_mensal = resumo["Meta %"]
+                if (meta_mensal is None or pd.isna(meta_mensal)) and meta_ano_fallback is not None:
+                    meta_mensal = meta_ano_fallback
+
                 if pd.notna(resumo["Resultado R$"]):
                     acumulado += resumo["Resultado R$"]
                     acumulado_exibir = acumulado
@@ -2879,7 +2888,7 @@ def tabela_completa_ano(d, ano, indicador):
 
                 rows.append({
                     "Mês": mes_nome,
-                    "Meta %": resumo["Meta %"],
+                    "Meta %": meta_mensal,
                     "Despesa": resumo["Despesa"],
                     "Receita": resumo["Receita"],
                     "Resultado R$": resumo["Resultado R$"],
@@ -2898,10 +2907,13 @@ def tabela_completa_ano(d, ano, indicador):
                 })
 
         resumo_total = resumo_resultado_financeiro_por_grupo(base_ano)
+        meta_total = resumo_total["Meta %"]
+        if (meta_total is None or pd.isna(meta_total)) and meta_ano_fallback is not None:
+            meta_total = meta_ano_fallback
 
         rows.append({
             "Mês": "TOTAL",
-            "Meta %": resumo_total["Meta %"],
+            "Meta %": meta_total,
             "Despesa": resumo_total["Despesa"],
             "Receita": resumo_total["Receita"],
             "Resultado R$": resumo_total["Resultado R$"],
