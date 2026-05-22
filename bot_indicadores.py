@@ -11331,6 +11331,17 @@ with tab2:
             hide_index=True,
         )
 
+        _buf_excel_tecfil = io.BytesIO()
+        with pd.ExcelWriter(_buf_excel_tecfil, engine="openpyxl") as _writer:
+            df_mom_tecfil_tela.to_excel(_writer, index=False, sheet_name="MoM Tecfil")
+        st.download_button(
+            label="📥 Baixar Excel",
+            data=_buf_excel_tecfil.getvalue(),
+            file_name=f"mom_tecfil_{indicador}_{filial}.xlsx".replace(" ", "_").replace("/", "-"),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=False,
+        )
+
     elif eh_resultado_financeiro(indicador):
         linhas_finais_rf = []
 
