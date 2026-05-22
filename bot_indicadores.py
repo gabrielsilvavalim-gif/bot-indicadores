@@ -12372,9 +12372,10 @@ if tab6 is not None:
             or eh_despesa_manutencao(indicador)
             or eh_despesa_hora_extra(indicador)
             or eh_qualidade(indicador)
+            or eh_tecfil(indicador)
         )
         if not _tem_pdf:
-            st.info("O relatório em PDF está disponível apenas para indicadores de Faturamento, Despesas e Resultado Financeiro.")
+            st.info("O relatório em PDF está disponível apenas para indicadores de Faturamento, Despesas, Resultado Financeiro e Tecfil.")
         else:
             ano_pdf_dashboard = int(df["ANO"].max())
             nome_pdf_dashboard = f"relatorio_{indicador}_{filial}_{ano_pdf_dashboard}.pdf".replace(" ", "_").replace("/", "-")
